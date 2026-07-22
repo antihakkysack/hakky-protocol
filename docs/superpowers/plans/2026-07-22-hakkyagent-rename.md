@@ -250,10 +250,14 @@ Expected: the first test run fails only at old SHA-256 expectations. Compute the
 ```powershell
 rtk node --test test/assets.test.mjs
 rtk npm run assets
-rtk git diff --exit-code -- launch/assets web/assets brand scripts/render-assets.mjs test/assets.test.mjs web/index.html
+rtk node --test test/assets.test.mjs
+rtk git diff --check -- launch/assets web/assets brand scripts/render-assets.mjs test/assets.test.mjs web/index.html
 ```
 
-Expected: asset tests pass and the second render produces no diff.
+Expected: asset tests pass after both the first and second render, proving the
+second render still matches the newly pinned golden hashes; whitespace
+validation reports no errors. The intended uncommitted asset diff remains for
+the task commit.
 
 - [ ] **Step 5: Visually inspect the regenerated avatar, banner, and OG card**
 
