@@ -69,7 +69,8 @@ hakky-protocol/
 ├── web/
 │   ├── assets/
 │   │   ├── og-card.png
-│   │   └── sack-sentinel.svg
+│   │   ├── sack-sentinel.svg
+│   │   └── token.png
 │   ├── data/launch.json
 │   ├── lib/launch-policy.js
 │   ├── CNAME
@@ -868,6 +869,7 @@ rtk git commit -m "verify: add read-only Solana mint proof"
 - Create: `launch/assets/og-card.png`
 - Create: `web/assets/og-card.png`
 - Create: `web/assets/sack-sentinel.svg`
+- Create: `web/assets/token.png`
 
 **Interfaces:**
 - Consumes: approved Meme Broadcast palette and Sack Sentinel geometry.
@@ -886,7 +888,8 @@ for (const [file, width, height] of [
   ["launch/assets/x-avatar.png", 800, 800],
   ["launch/assets/x-banner.png", 1500, 500],
   ["launch/assets/og-card.png", 1200, 630],
-  ["web/assets/og-card.png", 1200, 630]
+  ["web/assets/og-card.png", 1200, 630],
+  ["web/assets/token.png", 800, 800]
 ]) {
   test(`${file} has approved dimensions`, async () => {
     const metadata = await sharp(file).metadata();
@@ -962,6 +965,7 @@ const mascot = await readFile("brand/sack-sentinel.svg");
 const banner = await readFile("brand/x-banner.svg");
 
 await sharp(mascot).resize(800, 800).png().toFile("launch/assets/x-avatar.png");
+await sharp(mascot).resize(800, 800).png().toFile("web/assets/token.png");
 await sharp(banner).resize(1500, 500).png().toFile("launch/assets/x-banner.png");
 
 const ogBackground = Buffer.from(`
@@ -990,7 +994,7 @@ rtk npm run assets
 rtk node --test test/assets.test.mjs
 ```
 
-Expected: 4 tests pass. Open each PNG and confirm the visor, eyes, badge, and all banner text are inside safe areas with no clipping.
+Expected: 5 tests pass. Open each PNG and confirm the visor, eyes, badge, and all banner text are inside safe areas with no clipping.
 
 - [ ] **Step 7: Commit**
 
