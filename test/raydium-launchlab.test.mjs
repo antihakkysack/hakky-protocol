@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { PublicKey } from "@solana/web3.js";
 import {
   HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
   RAYDIUM_IDL_SOURCE_PROVEN\u0041NCE,
@@ -27,6 +26,79 @@ const FIXTURE_NAMES = [
   "curve-accounts.json",
   "graduation-accounts.json",
 ];
+
+const SDK_REPOSITORY = "https://github.com/raydium-io/raydium-sdk-V2";
+const SDK_COMMIT = "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c";
+const IDL_REPOSITORY = "https://github.com/raydium-io/raydium-idl";
+const IDL_COMMIT = "e7e0c96fe77bcf6a020b84a44c47a722aac8e359";
+const SPL_REPOSITORY = "https://github.com/solana-program/token-2022";
+const SPL_COMMIT = "27c359d1c7d38afdec293720dba4b768aa61aeb7";
+
+const FIXED_ID_REFERENCES = [
+  { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/common/programId.ts", lineRange: "14-38", purpose: "Raydium OpenBook, AMM-v4, CPMM, CPMM lock, LaunchLab, and fixed authority identities" },
+  { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/common/pubKey.ts", lineRange: "64-68", purpose: "Rent, Metadata, and System program identities" },
+  { repository: SPL_REPOSITORY, commit: SPL_COMMIT, path: "clients/js-legacy/src/constants.ts", lineRange: "4-10", purpose: "classic SPL Token, Token-2022, and Associated Token program identities" },
+];
+
+const ROOT_SOURCES = {
+  "initialize-v2-transaction.json": { sourceRepository: SDK_REPOSITORY, sourceCommit: SDK_COMMIT, sourcePath: "src/raydium/launchpad/instrument.ts", sourceLineRange: "130-234" },
+  "migrate-to-cpswap-transaction.json": { sourceRepository: IDL_REPOSITORY, sourceCommit: IDL_COMMIT, sourcePath: "raydium_launchpad/raydium_launchpad.json", sourceLineRange: "3377-3806" },
+  "migrate-to-amm-transaction.json": { sourceRepository: IDL_REPOSITORY, sourceCommit: IDL_COMMIT, sourcePath: "raydium_launchpad/raydium_launchpad.json", sourceLineRange: "2783-3375" },
+  "platform-config-instructions.json": { sourceRepository: SDK_REPOSITORY, sourceCommit: SDK_COMMIT, sourcePath: "src/raydium/launchpad/instrument.ts", sourceLineRange: "747-972" },
+  "curve-accounts.json": { sourceRepository: SDK_REPOSITORY, sourceCommit: SDK_COMMIT, sourcePath: "src/raydium/launchpad/layout.ts", sourceLineRange: "34-71,83-128" },
+  "graduation-accounts.json": { sourceRepository: SDK_REPOSITORY, sourceCommit: SDK_COMMIT, sourcePath: "src/raydium/cpmm/layout.ts;src/raydium/liquidity/layout.ts", sourceLineRange: "20-59;9-70" },
+};
+
+const EXPECTED_SOURCE_REFERENCES = {
+  "initialize-v2-transaction.json": [
+    ...FIXED_ID_REFERENCES,
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/pda.ts", lineRange: "3-35,52-54,76-81", purpose: "LaunchLab authority, pool, vault, platform, event-authority, and optional platform-global-access PDA derivations" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/clmm/libraries/pda.ts", lineRange: "8-9", purpose: "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/instrument.ts", lineRange: "9-28,130-234", purpose: "InitializeV2 discriminator, data layout, exact account order, fixed programs, and sole optional account" },
+  ],
+  "migrate-to-cpswap-transaction.json": [
+    ...FIXED_ID_REFERENCES,
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/pda.ts", lineRange: "3-35,52-54", purpose: "LaunchLab authority, pool, vault, event-authority, and platform PDA derivations used by migration accounts" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/clmm/libraries/pda.ts", lineRange: "8-9", purpose: "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_launchpad/raydium_launchpad.json", lineRange: "3377-3806", purpose: "migrate_to_cpswap discriminator, exact account order, signer and writable flags" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_cpmm/raydium_cp_swap.json", lineRange: "949-1350", purpose: "CPMM initialize discriminator, exact account order, signer and writable flags used by migration CPI" },
+  ],
+  "migrate-to-amm-transaction.json": [
+    ...FIXED_ID_REFERENCES,
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/pda.ts", lineRange: "3-35,52-54", purpose: "LaunchLab authority, pool, vault, event-authority, and platform PDA derivations used by migration accounts" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/clmm/libraries/pda.ts", lineRange: "8-9", purpose: "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_launchpad/raydium_launchpad.json", lineRange: "2783-3375", purpose: "migrate_to_amm discriminator, exact account order, signer and writable flags, and instruction arguments" },
+  ],
+  "platform-config-instructions.json": [
+    ...FIXED_ID_REFERENCES,
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/pda.ts", lineRange: "8,52-54", purpose: "PlatformConfig seed and administrator-derived PDA" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/instrument.ts", lineRange: "9-28,747-972", purpose: "create and update discriminators, exact SDK metas, data layouts, and mutable variant indices" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_launchpad/raydium_launchpad.json", lineRange: "1514-1614,4313-4386,5403-5473", purpose: "create and update IDL account flags, PDA seeds, discriminators, and PlatformConfigParam variants" },
+  ],
+  "curve-accounts.json": [
+    ...FIXED_ID_REFERENCES,
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/pda.ts", lineRange: "3-35,52-54", purpose: "LaunchLab authority, pool, vault, event-authority, and platform PDA derivations" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/clmm/libraries/pda.ts", lineRange: "8-9", purpose: "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/layout.ts", lineRange: "34-71,83-128", purpose: "LaunchpadPool and PlatformConfig raw layouts including nested curve parameters" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_launchpad/raydium_launchpad.json", lineRange: "4497-4508,4523-4534", purpose: "PlatformConfig and PoolState account discriminator bytes" },
+    { repository: SPL_REPOSITORY, commit: SPL_COMMIT, path: "clients/js-legacy/src/state/account.ts", lineRange: "54-84", purpose: "classic SPL raw token AccountLayout and exact 165-byte account size" },
+  ],
+  "graduation-accounts.json": [
+    ...FIXED_ID_REFERENCES,
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/pda.ts", lineRange: "3-35,52-54", purpose: "LaunchLab authority, pool, vault, event-authority, and platform PDA derivations" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/clmm/libraries/pda.ts", lineRange: "8-9", purpose: "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/launchpad/layout.ts", lineRange: "34-71,83-128", purpose: "LaunchpadPool and PlatformConfig raw layouts including nested curve parameters" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_launchpad/raydium_launchpad.json", lineRange: "4497-4508,4523-4534,5190-5345,5677-5914", purpose: "PlatformConfig and PoolState discriminators and complete account type layouts" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/cpmm/layout.ts", lineRange: "20-59", purpose: "CPMM PoolState raw byte layout" },
+    { repository: IDL_REPOSITORY, commit: IDL_COMMIT, path: "raydium_cpmm/raydium_cp_swap.json", lineRange: "2395-2408,2817-3011", purpose: "CPMM PoolState discriminator, field meanings, creator-fee flag, and padding" },
+    { repository: SDK_REPOSITORY, commit: SDK_COMMIT, path: "src/raydium/liquidity/layout.ts", lineRange: "9-70", purpose: "AMM-v4 liquidityStateV4 raw byte layout" },
+  ],
+};
+
+function assertPinnedFixtureSources(name, value) {
+  for (const [key, expected] of Object.entries(ROOT_SOURCES[name])) assert.equal(value[key], expected);
+  assert.deepEqual(value.sourceReferences, EXPECTED_SOURCE_REFERENCES[name]);
+}
 
 async function fixture(name) {
   return JSON.parse(await readFile(new URL(`../test-support/fixtures/launchlab/${name}`, import.meta.url), "utf8"));
@@ -73,16 +145,27 @@ function decodeGraduation(input) {
   });
 }
 
-test("all six fixtures are pinned source-derived JSON, not live responses", async () => {
+test("all six fixtures carry exact drift-reviewable source references, not live responses", async () => {
   for (const name of FIXTURE_NAMES) {
     const value = await fixture(name);
-    assert.match(value.sourceRepository, /^https:\/\/github\.com\/raydium-io\//);
-    assert.match(value.sourceCommit, /^[0-9a-f]{40}$/);
-    assert.equal(typeof value.sourcePath, "string");
-    assert.equal(typeof value.sourceLineRange, "string");
+    assertPinnedFixtureSources(name, value);
     assert.ok(value.fixedProgramIdentities);
     assert.equal("rpcResponse" in value, false);
     assert.equal("branch" in value, false);
+
+    for (let index = 0; index < value.sourceReferences.length; index += 1) {
+      for (const [field, garbage] of Object.entries({
+        repository: "https://github.com/raydium-io/syntactically-valid-garbage",
+        commit: "0000000000000000000000000000000000000000",
+        path: "src/syntactically-valid-garbage.ts",
+        lineRange: "1-2",
+        purpose: "syntactically valid garbage purpose",
+      })) {
+        const mutated = clone(value);
+        mutated.sourceReferences[index][field] = garbage;
+        assert.throws(() => assertPinnedFixtureSources(name, mutated));
+      }
+    }
   }
 });
 
@@ -147,15 +230,10 @@ test("initialize-v2 validates classic programs, PDAs, exact bytes, and the sole 
   token2022[11] = source.fixedProgramIdentities.token2022Program;
   assert.throws(() => decodeLaunchlabCreationTransaction({ transactionBytes: bytes(source.instructionBase64), accountKeys: token2022 }), /classic|Token-2022|program/i);
 
-  const platformId = new PublicKey(source.expected.accounts.platformId);
-  const configId = new PublicKey(source.expected.accounts.configId);
-  const [optional] = PublicKey.findProgramAddressSync(
-    [Buffer.from("platform_global_access"), platformId.toBuffer(), configId.toBuffer()],
-    new PublicKey(RAYDIUM_LAUNCHLAB_PROGRAM_ID),
-  );
+  assert.equal(source.expectedOptionalPlatformGlobalAccess, "6YoW87cRqaHBXPU7ZRshGMHzQt81p9XkQDWL864krv8Z");
   const optionalResult = decodeLaunchlabCreationTransaction({
     transactionBytes: bytes(source.instructionBase64),
-    accountKeys: [...source.orderedAccountKeys, optional.toBase58()],
+    accountKeys: [...source.orderedAccountKeys, source.expectedOptionalPlatformGlobalAccess],
   });
   assert.deepEqual(normalize(optionalResult), source.expected);
   assert.throws(() => decodeLaunchlabCreationTransaction({

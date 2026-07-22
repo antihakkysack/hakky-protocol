@@ -34,14 +34,23 @@ or wrong-owner accounts fail verification.
 LaunchLab instruction, PDA, and account decoding is pinned to official Raydium
 SDK V2 commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`, official Raydium IDL
 commit `e7e0c96fe77bcf6a020b84a44c47a722aac8e359`, and
-`@solana/spl-token@0.4.15`. The fixed mainnet LaunchLab program is
+`@solana/spl-token@0.4.15` (official `solana-program/token-2022` commit
+`27c359d1c7d38afdec293720dba4b768aa61aeb7`). The fixed mainnet LaunchLab program is
 `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`. Fixtures under
 `test-support/fixtures/launchlab/` are deterministic encodings derived from
-the named source paths and line ranges; live API responses and unpinned branch
-content are not evidence. Any upstream commit, IDL, layout, discriminator,
-account privilege, seed, program, or SPL Token version change requires a
-separate source-drift review and regenerated RED/GREEN fixture proof before it
-can be accepted.
+the named source paths and line ranges. Every fixture carries an exact
+`sourceReferences` array whose repository, commit, path, line range, and purpose
+cover its fixed identities, PDA derivations, discriminator/instruction contract,
+and applicable raw layouts; live API responses and unpinned branch content are
+not evidence. Any upstream commit, IDL, layout, discriminator, account privilege,
+seed, program, or SPL Token version change requires a separate source-drift
+review and regenerated RED/GREEN fixture proof before it can be accepted.
+
+Task 2's corrected raw interface consumes classic SPL token accounts and therefore
+exercises only `AccountLayout` (`clients/js-legacy/src/state/account.ts:54-84`).
+It has no mint-account input. The exact 82-byte `MintLayout` path is intentionally
+not claimed here and remains a downstream Task 6 source pin; adding an unused mint
+decoder would broaden this interface without evidence from a current input.
 
 At these pinned revisions, the HAKKY CPMM target has no source-covered LP-rights
 approval path. The exact `cpmm` / `0` platform / `0` creator / `1000000` burn

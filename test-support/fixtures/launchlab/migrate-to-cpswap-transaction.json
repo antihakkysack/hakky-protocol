@@ -2,7 +2,16 @@
   "sourceRepository": "https://github.com/raydium-io/raydium-idl",
   "sourceCommit": "e7e0c96fe77bcf6a020b84a44c47a722aac8e359",
   "sourcePath": "raydium_launchpad/raydium_launchpad.json",
-  "sourceLineRange": "3377-3848",
+  "sourceLineRange": "3377-3806",
+  "sourceReferences": [
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/common/programId.ts", "lineRange": "14-38", "purpose": "Raydium OpenBook, AMM-v4, CPMM, CPMM lock, LaunchLab, and fixed authority identities" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/common/pubKey.ts", "lineRange": "64-68", "purpose": "Rent, Metadata, and System program identities" },
+    { "repository": "https://github.com/solana-program/token-2022", "commit": "27c359d1c7d38afdec293720dba4b768aa61aeb7", "path": "clients/js-legacy/src/constants.ts", "lineRange": "4-10", "purpose": "classic SPL Token, Token-2022, and Associated Token program identities" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/launchpad/pda.ts", "lineRange": "3-35,52-54", "purpose": "LaunchLab authority, pool, vault, event-authority, and platform PDA derivations used by migration accounts" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/clmm/libraries/pda.ts", "lineRange": "8-9", "purpose": "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { "repository": "https://github.com/raydium-io/raydium-idl", "commit": "e7e0c96fe77bcf6a020b84a44c47a722aac8e359", "path": "raydium_launchpad/raydium_launchpad.json", "lineRange": "3377-3806", "purpose": "migrate_to_cpswap discriminator, exact account order, signer and writable flags" },
+    { "repository": "https://github.com/raydium-io/raydium-idl", "commit": "e7e0c96fe77bcf6a020b84a44c47a722aac8e359", "path": "raydium_cpmm/raydium_cp_swap.json", "lineRange": "949-1350", "purpose": "CPMM initialize discriminator, exact account order, signer and writable flags used by migration CPI" }
+  ],
   "discriminatorBytes": [
     136,
     92,
@@ -53,7 +62,7 @@
     "ammV4": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
     "openbook": "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",
     "classicTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-    "token2022Program": "TokenzQdYV8hS1skp6VQGpaPZJVD2nqMzzM77aBJ9Sp",
+    "token2022Program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
     "associatedTokenProgram": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
     "metadata": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
     "system": "11111111111111111111111111111111",
