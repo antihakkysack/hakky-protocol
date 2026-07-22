@@ -325,7 +325,7 @@ function assignmentExpressionAt(line, start) {
   return line.slice(expressionStart, index).trim();
 }
 
-function assignmentsForLine(line) {
+function assignmentsForLine(line, { yaml = false } = {}) {
   const assignments = [];
   let quote = null;
   let escaped = false;
@@ -354,7 +354,8 @@ function assignmentsForLine(line) {
     const beforeName = prefix.slice(0, nameMatch.index).trimEnd();
     if (character === ":") {
       const boundary = beforeName.at(-1);
-      if (boundary && !["{", "[", ","].includes(boundary)) continue;
+      const isYamlSequencePrefix = yaml && /^(?:-\s+)*-$/u.test(beforeName.trim());
+      if (boundary && !["{", "[", ","].includes(boundary) && !isYamlSequencePrefix) continue;
       if (/(?:^|[;{}])\s*(?:export\s+)?(?:const|let|var)\s*$/.test(beforeName)) continue;
     }
     assignments.push({
@@ -443,7 +444,8 @@ function inspectMultilineYamlCredentialAssignments(content) {
 function secretRulesForContent(content, relative) {
   const rules = new Set();
   const environmentBindings = new Set();
-  const yamlInspection = [".yaml", ".yml"].includes(path.extname(relative).toLowerCase())
+  const isYaml = [".yaml", ".yml"].includes(path.extname(relative).toLowerCase());
+  const yamlInspection = isYaml
     ? inspectMultilineYamlCredentialAssignments(content)
     : { handledHeaderLines: new Set(), hasViolation: false };
   if (PRIVATE_KEY_MATERIAL_NEEDLES.some((needle) => content.includes(needle))) {
@@ -463,7 +465,7 @@ function secretRulesForContent(content, relative) {
     if (yamlInspection.handledHeaderLines.has(lineIndex)) continue;
     if (relative === "scripts/check-repo.mjs" && SCANNER_DEFINITION_LINES.has(line.trim())) continue;
     if (KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES.has(`${relative}\0${line.trim()}`)) continue;
-    for (const { name, rawValue, updatesBinding } of assignmentsForLine(line)) {
+    for (const { name, rawValue, updatesBinding } of assignmentsForLine(line, { yaml: isYaml })) {
       const value = literalValue(rawValue);
       if (
         isCredentialName(name)

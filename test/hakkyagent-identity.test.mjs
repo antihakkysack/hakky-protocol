@@ -118,13 +118,21 @@ test("claim boundary decodes rendered numeric, hexadecimal, and named character 
     "HakkyAgent verifies ev&#101;ry transaction.",
     "HakkyAgent verifies ev&#x65;ry transaction.",
     "HakkyAgent verifies ev&escr;ry transaction.",
+    "HakkyAgent verifies ev&ExponentialE;ry transaction.",
+    "HakkyAgent verifies ev&#00000000000000000101;ry transaction.",
+    "HakkyAgent verifies ev&#x00000000000000000065;ry transaction.",
+    "HakkyAgent verifies ev&#101ry transaction.",
+    "HakkyAgent verifies ev&#x65ry transaction.",
+    "Hakky&NegativeMediumSpace;Agent guarantees safety.",
     "Hakky&#65;gent guarantees safety.",
   ]) {
     assert.throws(() => assertNoProhibitedClaims(claim), /prohibited universal or guaranteed claim/);
   }
 
   assertNoProhibitedClaims("HakkyAgent does not verify ev&#101;ry transaction.");
+  assertNoProhibitedClaims("HakkyAgent does not verify ev&#101ry transaction.");
   assertNoProhibitedClaims("HakkyAgent verifies published HAKKY launch facts &amp; evidence.");
+  assertNoProhibitedClaims("HakkyAgent documents &ExponentialE; and &NegativeMediumSpace; literally.");
   assertNoProhibitedClaims("HakkyAgent documents &notARealEntity; literally.");
 });
 

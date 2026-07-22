@@ -143,19 +143,29 @@ test("repository checker rejects rendered character-reference identity and claim
   const encodedAlias = retiredAlias.replace("s", "&#115;");
   const encodedLabel = retiredLabel.replace(" ", "&nbsp;");
   const violations = await scanFixture({
+    "brand/full-named-claim.svg": "Hakky&NegativeMediumSpace;Agent guarantees safety.",
     "brand/named-claim.svg": "HakkyAgent verifies ev&escr;ry transaction.",
-    "docs/TOKEN.md": "HakkyAgent verifies ev&#x65;ry transaction.",
+    "docs/TOKEN.md": "HakkyAgent verifies ev&ExponentialE;ry transaction.",
     "launch/encoded-alias.md": encodedAlias,
+    "launch/leading-zero-claim.md": "HakkyAgent verifies ev&#00000000000000000101;ry transaction.",
     "proof/encoded-label.md": encodedLabel,
-    "web/numeric-claim.html": "HakkyAgent verifies ev&#101;ry transaction.",
+    "proof/full-named-label.md": retiredLabel.replace("e", "&ExponentialE;"),
+    "proof/leading-zero-hex-claim.md": "HakkyAgent verifies ev&#x00000000000000000065;ry transaction.",
+    "web/missing-semicolon-alias.html": retiredAlias.replace("s", "&#115"),
+    "web/missing-semicolon-claim.html": "HakkyAgent verifies ev&#101ry transaction.",
   });
 
   assert.deepEqual(violations, [
+    { file: "brand/full-named-claim.svg", rule: "unsupported-agent-claim" },
     { file: "brand/named-claim.svg", rule: "unsupported-agent-claim" },
     { file: "docs/TOKEN.md", rule: "unsupported-agent-claim" },
     { file: "launch/encoded-alias.md", rule: "retired-agent-identity" },
+    { file: "launch/leading-zero-claim.md", rule: "unsupported-agent-claim" },
     { file: "proof/encoded-label.md", rule: "retired-agent-identity" },
-    { file: "web/numeric-claim.html", rule: "unsupported-agent-claim" },
+    { file: "proof/full-named-label.md", rule: "retired-agent-identity" },
+    { file: "proof/leading-zero-hex-claim.md", rule: "unsupported-agent-claim" },
+    { file: "web/missing-semicolon-alias.html", rule: "retired-agent-identity" },
+    { file: "web/missing-semicolon-claim.html", rule: "unsupported-agent-claim" },
   ]);
 });
 
@@ -165,6 +175,9 @@ test("repository checker preserves exact account destinations and harmless rende
     "launch/harmless-entities.md": "HakkyAgent verifies published HAKKY launch facts &amp; evidence.",
     "web/account-with-copy.html": [
       `<a href="https://x.com/${retiredAlias}">X</a>`,
+      `<a href="https://github.com/${retiredAlias}/hakky-protocol.git">GitHub</a>`,
+      "<p>HakkyAgent does not verify ev&#101ry transaction.</p>",
+      "<p>HakkyAgent documents &ExponentialE; and &NegativeMediumSpace; literally.</p>",
       "<p>HakkyAgent documents &notARealEntity; literally.</p>",
     ].join("\n"),
   }), []);
@@ -452,6 +465,39 @@ test("multiline YAML credential scanning preserves placeholders, environment ref
     "placeholder-block.yml": `${apiCredential}:\n  |\n    REDACTED\n`,
     "placeholder-standard-block.yml": `${clientCredential}: |\n  REDACTED\n`,
     "unrelated.yml": `description:\n  ${["SYNTHETIC", "PUBLIC", "TEXT"].join("_")}\n`,
+  }), []);
+});
+
+test("detects inline YAML sequence mapping credential assignments", async () => {
+  const apiCredential = ["api", "key"].join("_");
+  const clientCredential = ["client", "secret"].join("_");
+  const opaqueScalar = ["SYNTHETIC", "INLINE", "CREDENTIAL"].join("_");
+  const violations = await scanFixture({
+    "indented-list.yml": `settings:\n  - ${clientCredential}: ${opaqueScalar}\n`,
+    "inline-list.yml": `- ${apiCredential}: ${opaqueScalar}\n`,
+    "nested-list.yml": `matrix:\n  - - ${apiCredential}: ${opaqueScalar}\n`,
+    "quoted-list.yml": `- "${apiCredential}": ${opaqueScalar}\n`,
+  });
+
+  assert.deepEqual(violations, [
+    { file: "indented-list.yml", rule: "secret-credential-assignment" },
+    { file: "inline-list.yml", rule: "secret-credential-assignment" },
+    { file: "nested-list.yml", rule: "secret-credential-assignment" },
+    { file: "quoted-list.yml", rule: "secret-credential-assignment" },
+  ]);
+});
+
+test("inline YAML sequence mappings preserve safe values and unrelated keys", async () => {
+  const apiCredential = ["api", "key"].join("_");
+  const clientCredential = ["client", "secret"].join("_");
+  const environmentReference = ["${", "SECRET_FROM_ENV", "}"].join("");
+  assert.deepEqual(await scanFixture({
+    "container-list.yml": `- ${clientCredential}: { provider: environment }\n`,
+    "environment-list.yml": `  - ${apiCredential}: ${environmentReference}\n`,
+    "nested-placeholder-list.yml": `- - ${apiCredential}: REDACTED\n`,
+    "placeholder-list.yml": `- ${apiCredential}: <API_KEY>\n`,
+    "sequence-container.yml": `- ${apiCredential}: [REDACTED]\n`,
+    "unrelated-list.yml": `- api_url: https://hakky.xyz/public\n- monkey: SYNTHETIC_INLINE_TEXT\n`,
   }), []);
 });
 
