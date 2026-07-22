@@ -22,7 +22,23 @@ async function defaultReadCreatorTokenAccounts({ connection, creator, mint, comm
     if (accountOwner !== programId.toBase58()) {
       throw new Error("Creator token account is not owned by the classic SPL Token program");
     }
-    return { amount: AccountLayout.decode(account.data).amount };
+    const decoded = AccountLayout.decode(account.data);
+    const decodedMint = new PublicKey(decoded.mint);
+    const decodedOwner = new PublicKey(decoded.owner);
+    if (!decodedMint.equals(mint)) {
+      throw new Error("Creator token account decoded mint does not match the requested mint");
+    }
+    if (!decodedOwner.equals(creator)) {
+      throw new Error("Creator token account decoded owner does not match the requested creator");
+    }
+    if (decoded.state === 0) {
+      throw new Error("Creator token account is uninitialized");
+    }
+    if (decoded.state !== 1 && decoded.state !== 2) {
+      throw new Error(`Creator token account has invalid state ${decoded.state}`);
+    }
+    // Frozen accounts still hold creator inventory, so their balances count.
+    return { amount: decoded.amount };
   });
 }
 

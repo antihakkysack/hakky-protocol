@@ -66,7 +66,7 @@ export async function run({
     creator: creatorAddress,
     ...evaluateMintEvidence(observed),
   };
-  await publishProof(outputPath, proof);
+  if (proof.ok) await publishProof(outputPath, proof);
   return proof;
 }
 

@@ -22,6 +22,30 @@ const valid = {
   creatorBalanceBaseUnits: "0",
 };
 
+function tokenAccountData({
+  mint = new PublicKey(valid.mint),
+  owner = new PublicKey(valid.creator),
+  amount = 0n,
+  state = 1,
+} = {}) {
+  const data = Buffer.alloc(AccountLayout.span);
+  const zeroKey = new PublicKey(Buffer.alloc(32));
+  AccountLayout.encode({
+    mint,
+    owner,
+    amount,
+    delegateOption: 0,
+    delegate: zeroKey,
+    state,
+    isNativeOption: 0,
+    isNative: 0n,
+    delegatedAmount: 0n,
+    closeAuthorityOption: 0,
+    closeAuthority: zeroKey,
+  }, data);
+  return data;
+}
+
 test("accepts the approved immutable mint state", () => {
   const result = evaluateMintEvidence(valid);
   assert.equal(result.ok, true);
@@ -99,24 +123,6 @@ test("sums every classic token account owned by the creator", async () => {
 });
 
 test("reads and sums all classic token accounts returned by the owner-and-mint query", async () => {
-  const tokenAccountData = (amount) => {
-    const data = Buffer.alloc(AccountLayout.span);
-    const zeroKey = new PublicKey(Buffer.alloc(32));
-    AccountLayout.encode({
-      mint: zeroKey,
-      owner: zeroKey,
-      amount,
-      delegateOption: 0,
-      delegate: zeroKey,
-      state: 1,
-      isNativeOption: 0,
-      isNative: 0n,
-      delegatedAmount: 0n,
-      closeAuthorityOption: 0,
-      closeAuthority: zeroKey,
-    }, data);
-    return data;
-  };
   const observed = await fetchMintEvidence({
     connection: {
       async getTokenAccountsByOwner(creator, filter, commitment) {
@@ -125,8 +131,8 @@ test("reads and sums all classic token accounts returned by the owner-and-mint q
         assert.equal(commitment, "confirmed");
         return {
           value: [
-            { account: { owner: TOKEN_PROGRAM_ID, data: tokenAccountData(4n) } },
-            { account: { owner: TOKEN_PROGRAM_ID, data: tokenAccountData(9n) } },
+            { account: { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ amount: 4n }) } },
+            { account: { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ amount: 9n, state: 2 }) } },
           ],
         };
       },
@@ -143,6 +149,55 @@ test("reads and sums all classic token accounts returned by the owner-and-mint q
   });
 
   assert.equal(observed.creatorBalanceBaseUnits, "13");
+});
+
+test("rejects creator token accounts for the wrong mint or wallet owner", async () => {
+  const wrongKey = new PublicKey("SysvarRent111111111111111111111111111111111");
+  for (const [label, data] of [
+    ["mint", tokenAccountData({ mint: wrongKey })],
+    ["owner", tokenAccountData({ owner: wrongKey })],
+  ]) {
+    await assert.rejects(
+      fetchMintEvidence({
+        connection: {
+          async getTokenAccountsByOwner() {
+            return { value: [{ account: { owner: TOKEN_PROGRAM_ID, data } }] };
+          },
+        },
+        network: "devnet",
+        mintAddress: valid.mint,
+        creatorAddress: valid.creator,
+        readMint: async () => ({ supply: 0n, decimals: 6, mintAuthority: null, freezeAuthority: null }),
+      }),
+      new RegExp(`decoded ${label} does not match`),
+    );
+  }
+});
+
+test("rejects uninitialized, invalid-state, and wrong-program creator token accounts", async () => {
+  for (const [label, account] of [
+    ["uninitialized", { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ state: 0 }) }],
+    ["invalid state", { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ state: 3 }) }],
+    ["classic SPL Token program", {
+      owner: new PublicKey("SysvarRent111111111111111111111111111111111"),
+      data: tokenAccountData(),
+    }],
+  ]) {
+    await assert.rejects(
+      fetchMintEvidence({
+        connection: {
+          async getTokenAccountsByOwner() {
+            return { value: [{ account }] };
+          },
+        },
+        network: "devnet",
+        mintAddress: valid.mint,
+        creatorAddress: valid.creator,
+        readMint: async () => ({ supply: 0n, decimals: 6, mintAuthority: null, freezeAuthority: null }),
+      }),
+      new RegExp(label),
+    );
+  }
 });
 
 test("rejects a non-mainnet RPC genesis hash before evidence collection", async () => {
@@ -278,8 +333,8 @@ test("CLI creates one public proof artifact without the RPC query secret", async
   const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-proof-"));
   const proofDirectory = path.join(directory, "proof");
   await mkdir(proofDirectory);
-  const outputPath = path.join(proofDirectory, "mint-proof.json");
-  const secret = "private-rpc-query-value";
+  const outputPath = path.join(proofDirectory, "mainnet-mint.json");
+  const secret = "fixture-rpc-query-value";
   const options = [
     "--mint", valid.mint,
     "--creator", valid.mint,
@@ -301,12 +356,31 @@ test("CLI creates one public proof artifact without the RPC query secret", async
   await assert.rejects(run({ argv: options, cwd: directory, ConnectionClass, fetchEvidence }), { code: "EEXIST" });
 });
 
+test("CLI never publishes canonical mainnet mint proof when evaluated evidence fails", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-failed-proof-"));
+  const proofDirectory = path.join(directory, "proof");
+  await mkdir(proofDirectory);
+  const outputPath = path.join(proofDirectory, "mainnet-mint.json");
+  const proof = await run({
+    argv: ["--mint", valid.mint, "--creator", valid.creator, "--out", outputPath],
+    cwd: directory,
+    ConnectionClass: class {
+      async getGenesisHash() {
+        return MAINNET_BETA_GENESIS_HASH;
+      }
+    },
+    fetchEvidence: async () => ({ ...valid, creatorBalanceBaseUnits: "1" }),
+  });
+  assert.equal(proof.ok, false);
+  await assert.rejects(readFile(outputPath, "utf8"), { code: "ENOENT" });
+});
+
 test("CLI redacts provider failures from stdout, stderr, and proof output", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hakky-worktree-"));
   const proofDirectory = path.join(root, "proof");
   await mkdir(proofDirectory);
   const outputPath = path.join(proofDirectory, "mint-proof.json");
-  const secret = "private-rpc-query-value";
+  const secret = "fixture-rpc-query-value";
   let stdout = "";
   let stderr = "";
   const status = await main({
