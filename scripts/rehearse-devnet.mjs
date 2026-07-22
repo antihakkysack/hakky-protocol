@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -99,6 +99,10 @@ export async function runDevnetRehearsal({
   retryDelayMs = 1_000,
   confirmationDelayMs = 2_000,
 } = {}) {
+  const artifactDirectory = path.join(outputRoot, "artifacts", "devnet-rehearsal");
+  const proofPath = path.join(artifactDirectory, "proof.json");
+  await rm(proofPath, { force: true });
+
   const genesisHash = await retryRpc(() => connection.getGenesisHash(), {
     label: "identity check",
     maxAttempts: retryMaxAttempts,
@@ -193,9 +197,11 @@ export async function runDevnetRehearsal({
     checkedAt: checkedAt(),
     ...evaluateEvidence(observed),
   };
-  const artifactDirectory = path.join(outputRoot, "artifacts", "devnet-rehearsal");
+  if (!proof.ok) {
+    throw new Error("Devnet rehearsal evidence failed policy evaluation");
+  }
   await mkdir(artifactDirectory, { recursive: true });
-  await writeFile(path.join(artifactDirectory, "proof.json"), `${JSON.stringify(proof, null, 2)}\n`, {
+  await writeFile(proofPath, `${JSON.stringify(proof, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
