@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="500" viewBox="0 0 1500 500" role="img" aria-labelledby="title desc">
+  <title id="title">AntiHakkySack X banner</title>
+  <desc id="desc">Meme Broadcast banner introducing Sack Sentinel Agent 001 and the HAKKY fair-launch proof.</desc>
+  <rect width="1500" height="500" fill="#F8FF4A"/>
+  <path d="M1050 0h450v500H835z" fill="#FF7AEB"/>
+  <path d="M1280 0h220v500h-460z" fill="#7138FF"/>
+  <path d="M0 408 328 500H0z" fill="#FF7AEB"/>
+  <g opacity=".2" stroke="#160C2C" stroke-width="11">
+    <path d="m58 0 230 500M140 0l230 500M1012 0l218 500M1100 0l218 500"/>
+  </g>
+
+  <g fill="#160C2C">
+    <rect x="304" y="48" width="470" height="48" rx="7"/>
+    <text x="329" y="80" font-family="Arial, sans-serif" font-size="21" font-weight="900" letter-spacing="4" fill="#FFFFFF">ANTIHAKKYSACK // AGENT 001</text>
+    <text x="300" y="204" font-family="Arial Black, Arial, sans-serif" font-size="76" font-weight="900" letter-spacing="-2">RUGS HATE THIS</text>
+    <text x="300" y="286" font-family="Arial Black, Arial, sans-serif" font-size="76" font-weight="900" letter-spacing="-2">LITTLE GUY.</text>
+    <rect x="304" y="326" width="720" height="70" rx="9"/>
+    <text x="335" y="371" font-family="Arial, sans-serif" font-size="27" font-weight="900" fill="#FFFFFF">1,000,000 HAKKY · 0% TEAM · NO PRESALE</text>
+    <text x="306" y="447" font-family="Arial, sans-serif" font-size="20" font-weight="900" letter-spacing="5">KEEP CRYPTO CLEAN.</text>
+  </g>
+
+  <g transform="translate(1002 -6) scale(.64)">
+    <g stroke="#160C2C" stroke-linejoin="round">
+      <path d="M378 191C331 183 286 155 246 104c51-13 104 2 151 42z" fill="#160C2C" stroke-width="28" transform="translate(24 26)" opacity=".3"/>
+      <path d="M422 191c47-8 92-36 132-87-51-13-104 2-151 42z" fill="#160C2C" stroke-width="28" transform="translate(24 26)" opacity=".3"/>
+      <path d="M321 218c-65 22-111 85-116 160l-18 229c-7 86 61 142 145 129 42 25 94 25 136 0 84 13 152-43 145-129l-18-229c-5-75-51-138-116-160z" fill="#160C2C" stroke-width="28" transform="translate(24 26)" opacity=".3"/>
+      <path d="M378 191C331 183 286 155 246 104c51-13 104 2 151 42z" fill="#FF965D" stroke-width="26"/>
+      <path d="M422 191c47-8 92-36 132-87-51-13-104 2-151 42z" fill="#FF965D" stroke-width="26"/>
+      <path d="M333 166c14-43 120-43 134 0l-23 86h-88z" fill="#FF7AEB" stroke-width="26"/>
+      <path d="M321 218c-65 22-111 85-116 160l-18 229c-7 86 61 142 145 129 42 25 94 25 136 0 84 13 152-43 145-129l-18-229c-5-75-51-138-116-160-43 22-115 22-158 0z" fill="#FF965D" stroke-width="28"/>
+    </g>
+    <rect x="245" y="348" width="310" height="150" rx="67" fill="#7138FF" stroke="#160C2C" stroke-width="25"/>
+    <rect x="263" y="366" width="274" height="114" rx="52" fill="#160C2C"/>
+    <path d="M292 395h99l-26 58h-74c-13 0-23-10-23-23v-12c0-13 11-23 24-23zM508 395h-99l26 58h74c13 0 23-10 23-23v-12c0-13-11-23-24-23z" fill="#F8FF4A"/>
+    <g transform="rotate(-4 404 618)">
+      <rect x="300" y="556" width="208" height="126" rx="17" fill="#F8FF4A" stroke="#160C2C" stroke-width="20"/>
+      <rect x="316" y="572" width="176" height="27" rx="5" fill="#160C2C"/>
+      <text x="404" y="593" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="900" letter-spacing="5" fill="#FFFFFF">AGENT</text>
+      <text x="404" y="656" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="59" font-weight="900" fill="#160C2C">001</text>
+    </g>
+  </g>
+</svg>

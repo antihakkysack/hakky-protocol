@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
+  <title id="title">AntiHakkySack Agent 001</title>
+  <desc id="desc">A tied orange sack transformed into an AI sentinel, with a dark visor, bright eyes, and an Agent 001 badge.</desc>
+  <g stroke="#160C2C" stroke-linejoin="round">
+    <path d="M378 191C331 183 286 155 246 104c51-13 104 2 151 42z" fill="#7138FF" stroke-width="26" transform="translate(24 26)" opacity=".28"/>
+    <path d="M422 191c47-8 92-36 132-87-51-13-104 2-151 42z" fill="#7138FF" stroke-width="26" transform="translate(24 26)" opacity=".28"/>
+    <path d="M321 218c-65 22-111 85-116 160l-18 229c-7 86 61 142 145 129 42 25 94 25 136 0 84 13 152-43 145-129l-18-229c-5-75-51-138-116-160z" fill="#7138FF" stroke-width="28" transform="translate(24 26)" opacity=".28"/>
+
+    <path d="M378 191C331 183 286 155 246 104c51-13 104 2 151 42z" fill="#FF965D" stroke-width="26"/>
+    <path d="M422 191c47-8 92-36 132-87-51-13-104 2-151 42z" fill="#FF965D" stroke-width="26"/>
+    <path d="M333 166c14-43 120-43 134 0l-23 86h-88z" fill="#FF7AEB" stroke-width="26"/>
+    <path d="M321 218c-65 22-111 85-116 160l-18 229c-7 86 61 142 145 129 42 25 94 25 136 0 84 13 152-43 145-129l-18-229c-5-75-51-138-116-160-43 22-115 22-158 0z" fill="#FF965D" stroke-width="28"/>
+  </g>
+
+  <path d="M261 325c-19 54-20 145-25 242-4 67 24 106 70 118" fill="none" stroke="#FFB68F" stroke-width="25" stroke-linecap="round" opacity=".95"/>
+  <path d="M503 282c31 18 50 47 59 86" fill="none" stroke="#FFB68F" stroke-width="19" stroke-linecap="round" opacity=".8"/>
+  <path d="M250 551c30 10 42 4 61-14" fill="none" stroke="#160C2C" stroke-width="14" stroke-linecap="round" stroke-dasharray="3 24"/>
+  <path d="M498 282c20 2 37 10 52 24" fill="none" stroke="#160C2C" stroke-width="12" stroke-linecap="round" stroke-dasharray="2 22"/>
+
+  <g transform="rotate(-2 400 423)">
+    <rect x="245" y="348" width="310" height="150" rx="67" fill="#7138FF" stroke="#160C2C" stroke-width="25"/>
+    <rect x="263" y="366" width="274" height="114" rx="52" fill="#160C2C"/>
+    <path d="M292 395h99l-26 58h-74c-13 0-23-10-23-23v-12c0-13 11-23 24-23z" fill="#F8FF4A"/>
+    <path d="M508 395h-99l26 58h74c13 0 23-10 23-23v-12c0-13-11-23-24-23z" fill="#F8FF4A"/>
+    <path d="m340 402-12 28" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+    <path d="m460 402 12 28" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+  </g>
+
+  <g transform="rotate(-4 404 618)">
+    <rect x="300" y="556" width="208" height="126" rx="17" fill="#F8FF4A" stroke="#160C2C" stroke-width="20"/>
+    <rect x="316" y="572" width="176" height="27" rx="5" fill="#160C2C"/>
+    <text x="404" y="593" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="900" letter-spacing="5" fill="#FFFFFF">AGENT</text>
+    <text x="404" y="656" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="59" font-weight="900" fill="#160C2C">001</text>
+  </g>
+
+  <path d="M538 548c19 6 34 19 43 38" fill="none" stroke="#160C2C" stroke-width="13" stroke-linecap="round"/>
+  <path d="M549 625c10 12 12 26 8 41" fill="none" stroke="#160C2C" stroke-width="13" stroke-linecap="round"/>
+</svg>
