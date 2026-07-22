@@ -104,6 +104,18 @@ test("rejects alphabet-valid identifiers with incorrect decoded lengths and malf
   assert.ok(issues.includes("proof.metadataUri must be a public HTTPS or IPFS URL"));
 });
 
+test("rejects bracketed IPv6 metadata URI hosts", () => {
+  for (const metadataUri of [
+    "https://[::1]/metadata.json",
+    "https://[fc00::1]/metadata.json",
+    "https://[fe80::1]/metadata.json",
+  ]) {
+    const changed = createValidLiveRecord();
+    changed.proof.metadataUri = metadataUri;
+    assert.ok(validateLaunchRecord(changed).includes("proof.metadataUri must be a public HTTPS or IPFS URL"));
+  }
+});
+
 test("rejects malformed or unrelated live proof", () => {
   const changed = structuredClone(record);
   changed.status = "live";
