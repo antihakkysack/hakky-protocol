@@ -1,3 +1,5 @@
+import { isPublicHostname } from "./public-host.js";
+
 export const EXPECTED_POLICY = Object.freeze({
   network: "mainnet-beta",
   tokenProgram: "spl-token",
@@ -141,29 +143,6 @@ function decodeBase58(value) {
 
 function hasBase58DecodedLength(value, expectedLength) {
   return decodeBase58(value)?.length === expectedLength;
-}
-
-function isPublicHostname(hostname) {
-  const host = hostname.toLowerCase();
-  if (
-    !host
-    || host.endsWith(".")
-    || host.startsWith("[")
-    || host === "localhost"
-    || host.endsWith(".localhost")
-    || host === "::1"
-  ) return false;
-  const octets = host.split(".");
-  if (octets.length === 4 && octets.every((octet) => /^\d+$/.test(octet))) {
-    const [first, second] = octets.map(Number);
-    return first !== 0
-      && first !== 10
-      && first !== 127
-      && !(first === 169 && second === 254)
-      && !(first === 172 && second >= 16 && second <= 31)
-      && !(first === 192 && second === 168);
-  }
-  return !/^f[cd]/.test(host) && !/^fe[89ab]/.test(host);
 }
 
 function isPublicMetadataUri(value) {

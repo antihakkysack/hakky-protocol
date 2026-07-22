@@ -1,3 +1,5 @@
+import { decodeRenderedCharacterReferences } from "./rendered-text.mjs";
+
 const INVISIBLE_OR_DIRECTIONAL_CHARACTERS = /[\p{Cf}\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0\ufe00-\ufe0f\u{e0100}-\u{e01ef}]/gu;
 
 const AGENT_CLAUSE_PATTERN = /\bHakkyAgent\b(?<body>(?:(?!\bHakkyAgent\b|[.!?;]).){0,240})/giu;
@@ -22,7 +24,7 @@ const PROHIBITED_CLAIM_PATTERNS = Object.freeze([
 const LOCAL_NEGATION = /(?:\b(?:do|does|did|will|would|can|could|should|shall|is|are|was|were|has|have|had)\s+not|\b(?:don't|doesn't|didn't|won't|wouldn't|can't|couldn't|shouldn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't)|\bcannot|\bnever|\bno)(?:\s+(?:a|an|the|claim|claims|claimed|promise|promises|promised|guarantee|guarantees|guaranteed|provide|provides|provided|offer|offers|offered|purport|purports|purported|attempt|attempts|attempted|try|tries|tried|to|act|acts|acted|serve|serves|served|function|functions|functioned|as)){0,4}\s*$/iu;
 
 function normalizedClaimText(source) {
-  return source
+  return decodeRenderedCharacterReferences(source)
     .normalize("NFKC")
     .replace(INVISIBLE_OR_DIRECTIONAL_CHARACTERS, "")
     .replace(/\s+/gu, " ")

@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { hasUnsupportedAgentClaim } from "../src/agent-claim-boundary.mjs";
+import { decodeRenderedCharacterReferences } from "../src/rendered-text.mjs";
 
 const execFileAsync = promisify(execFile);
 const BINARY_EXTENSIONS = new Set([".gif", ".ico", ".jpg", ".jpeg", ".png", ".webp", ".woff", ".woff2"]);
@@ -94,7 +95,8 @@ const KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES = new Set([
 
 const SERVICE_TOKEN_PATTERNS = Object.freeze([
   /\bgithub_pat_[A-Za-z0-9_]{49,254}[A-Za-z0-9]\b/g,
-  /\bgh[pousr]_[A-Za-z0-9_]{35,254}[A-Za-z0-9]\b/g,
+  /(?<![A-Za-z0-9._-])ghs_[A-Za-z0-9._-]{36,}(?![A-Za-z0-9._-])/g,
+  /\bgh[pour]_[A-Za-z0-9_]{35,254}[A-Za-z0-9]\b/g,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g,
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
@@ -179,7 +181,7 @@ function normalizedIdentityKey(value) {
 }
 
 function hasRetiredNonAccountDisplayLabel(content) {
-  const identityKey = normalizedIdentityKey(content);
+  const identityKey = normalizedIdentityKey(decodeRenderedCharacterReferences(content));
   return RETIRED_AGENT_MARKERS.slice(2).some((marker) => (
     identityKey.includes(normalizedIdentityKey(marker))
   ));
@@ -198,7 +200,8 @@ function hasUnapprovedRetiredAccountAlias(content) {
   for (const { start, end } of approvedRanges.sort((left, right) => right.start - left.start)) {
     withoutApprovedAddresses = `${withoutApprovedAddresses.slice(0, start)}${" ".repeat(end - start)}${withoutApprovedAddresses.slice(end)}`;
   }
-  return normalizedIdentityKey(withoutApprovedAddresses).includes(normalizedIdentityKey(RETIRED_ACCOUNT_ALIAS));
+  return normalizedIdentityKey(decodeRenderedCharacterReferences(withoutApprovedAddresses))
+    .includes(normalizedIdentityKey(RETIRED_ACCOUNT_ALIAS));
 }
 
 function credentialNameParts(name) {
@@ -402,7 +405,7 @@ function isYamlContainerLine(value) {
 
 function inspectMultilineYamlCredentialAssignments(content) {
   const lines = content.split(/\r?\n/);
-  const headerPattern = /^([ \t]*)(?:(["'])([A-Za-z][A-Za-z0-9_.:-]*)\2|([A-Za-z][A-Za-z0-9_.:-]*))\s*:\s*([|>](?:[+-]?\d*|\d*[+-]?)?)?\s*(?:#.*)?$/u;
+  const headerPattern = /^([ \t]*)(?:-\s+)?(?:(["'])([A-Za-z][A-Za-z0-9_.:-]*)\2|([A-Za-z][A-Za-z0-9_.:-]*))\s*:\s*([|>](?:[+-]?\d*|\d*[+-]?)?)?\s*(?:#.*)?$/u;
   const environmentBindings = new Set();
   const handledHeaderLines = new Set();
   let hasViolation = false;

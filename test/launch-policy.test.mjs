@@ -130,15 +130,86 @@ test("rejects alphabet-valid identifiers with incorrect decoded lengths and malf
   assert.ok(issues.includes("proof.metadataUri must be a public HTTPS or IPFS URL"));
 });
 
-test("rejects bracketed IPv6 metadata URI hosts", () => {
+test("rejects special-use, documentation, reserved, and multicast IPv6 metadata hosts", () => {
   for (const metadataUri of [
+    "https://[::]/metadata.json",
     "https://[::1]/metadata.json",
+    "https://[64:ff9b::1]/metadata.json",
+    "https://[64:ff9b:1::1]/metadata.json",
+    "https://[100::1]/metadata.json",
+    "https://[100:0:0:1::1]/metadata.json",
+    "https://[2001::1]/metadata.json",
+    "https://[2001:db8::1]/metadata.json",
+    "https://[2002::1]/metadata.json",
+    "https://[2620:4f:8000::1]/metadata.json",
+    "https://[3ffe::1]/metadata.json",
+    "https://[3fff::1]/metadata.json",
+    "https://[5f00::1]/metadata.json",
     "https://[fc00::1]/metadata.json",
     "https://[fe80::1]/metadata.json",
+    "https://[fec0::1]/metadata.json",
+    "https://[ff02::1]/metadata.json",
   ]) {
     const changed = createValidLiveRecord(record);
     changed.proof.metadataUri = metadataUri;
     assert.ok(validateLaunchRecord(changed).includes("proof.metadataUri must be a public HTTPS or IPFS URL"));
+  }
+});
+
+test("rejects every relevant IPv4 special-use and reserved metadata range", () => {
+  for (const metadataUri of [
+    "https://0.0.0.1/metadata.json",
+    "https://10.0.0.1/metadata.json",
+    "https://100.64.0.1/metadata.json",
+    "https://127.0.0.1/metadata.json",
+    "https://169.254.0.1/metadata.json",
+    "https://172.16.0.1/metadata.json",
+    "https://192.0.0.1/metadata.json",
+    "https://192.0.2.1/metadata.json",
+    "https://192.31.196.1/metadata.json",
+    "https://192.52.193.1/metadata.json",
+    "https://192.88.99.1/metadata.json",
+    "https://192.168.0.1/metadata.json",
+    "https://192.175.48.1/metadata.json",
+    "https://198.18.0.1/metadata.json",
+    "https://198.51.100.1/metadata.json",
+    "https://203.0.113.1/metadata.json",
+    "https://224.0.0.1/metadata.json",
+    "https://239.255.255.255/metadata.json",
+    "https://240.0.0.1/metadata.json",
+    "https://255.255.255.255/metadata.json",
+  ]) {
+    const changed = createValidLiveRecord(record);
+    changed.proof.metadataUri = metadataUri;
+    assert.ok(
+      validateLaunchRecord(changed).includes("proof.metadataUri must be a public HTTPS or IPFS URL"),
+      `accepted special-use IPv4 metadata host: ${metadataUri}`,
+    );
+  }
+});
+
+test("rejects special-use and non-public metadata hostnames", () => {
+  for (const metadataUri of [
+    "https://metadata.test/metadata.json",
+    "https://metadata.invalid/metadata.json",
+    "https://metadata.example/metadata.json",
+    "https://example.com/metadata.json",
+    "https://cdn.example.net/metadata.json",
+    "https://cdn.example.org/metadata.json",
+    "https://localhost/metadata.json",
+    "https://metadata.localhost/metadata.json",
+    "https://metadata.local/metadata.json",
+    "https://metadata.onion/metadata.json",
+    "https://home.arpa/metadata.json",
+    "https://metadata.alt/metadata.json",
+    "https://intranet/metadata.json",
+  ]) {
+    const changed = createValidLiveRecord(record);
+    changed.proof.metadataUri = metadataUri;
+    assert.ok(
+      validateLaunchRecord(changed).includes("proof.metadataUri must be a public HTTPS or IPFS URL"),
+      `accepted special-use metadata hostname: ${metadataUri}`,
+    );
   }
 });
 
@@ -167,7 +238,9 @@ test("rejects trailing-dot and normalized private metadata hosts", () => {
 test("complete live records continue to accept current public metadata hosts", () => {
   for (const metadataUri of [
     "https://hakky.xyz/metadata.json",
-    "https://cdn.example.com/hakky/metadata.json",
+    "https://cdn.hakky.xyz/hakky/metadata.json",
+    "https://8.8.8.8/hakky/metadata.json",
+    "https://[2606:4700:4700::1111]/hakky/metadata.json",
   ]) {
     const changed = createValidLiveRecord(record);
     changed.proof.metadataUri = metadataUri;

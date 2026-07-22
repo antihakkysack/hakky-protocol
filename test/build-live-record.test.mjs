@@ -92,7 +92,7 @@ test("requires the operator-supplied promotion timestamp and rejects non-exact s
 
 test("copies variable public evidence exactly instead of inventing live values", () => {
   const launchlabProof = createCanonicalLaunchlabProof();
-  launchlabProof.metadataUri = "https://example.test/exact-runtime-metadata.json";
+  launchlabProof.metadataUri = "https://cdn.hakky.xyz/exact-runtime-metadata.json";
   launchlabProof.creatorSpendSol = 0.75;
   const live = buildLiveRecord({
     prelaunchRecord: prelaunch,

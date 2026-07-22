@@ -113,6 +113,21 @@ test("claim boundary rejects every prohibited class after Unicode and invisible 
   }
 });
 
+test("claim boundary decodes rendered numeric, hexadecimal, and named character references", () => {
+  for (const claim of [
+    "HakkyAgent verifies ev&#101;ry transaction.",
+    "HakkyAgent verifies ev&#x65;ry transaction.",
+    "HakkyAgent verifies ev&escr;ry transaction.",
+    "Hakky&#65;gent guarantees safety.",
+  ]) {
+    assert.throws(() => assertNoProhibitedClaims(claim), /prohibited universal or guaranteed claim/);
+  }
+
+  assertNoProhibitedClaims("HakkyAgent does not verify ev&#101;ry transaction.");
+  assertNoProhibitedClaims("HakkyAgent verifies published HAKKY launch facts &amp; evidence.");
+  assertNoProhibitedClaims("HakkyAgent documents &notARealEntity; literally.");
+});
+
 test("claim boundary preserves an explicit local negation for every prohibited class", () => {
   for (const disclaimer of [
     "HakkyAgent does not label transactions as good or bad.",

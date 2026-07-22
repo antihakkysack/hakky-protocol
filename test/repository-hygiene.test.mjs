@@ -137,6 +137,39 @@ test("repository checker rejects claim bypasses across active surfaces outside t
   ]);
 });
 
+test("repository checker rejects rendered character-reference identity and claim bypasses", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const retiredLabel = Buffer.from("U2FjayBTZW50aW5lbA==", "base64").toString("utf8");
+  const encodedAlias = retiredAlias.replace("s", "&#115;");
+  const encodedLabel = retiredLabel.replace(" ", "&nbsp;");
+  const violations = await scanFixture({
+    "brand/named-claim.svg": "HakkyAgent verifies ev&escr;ry transaction.",
+    "docs/TOKEN.md": "HakkyAgent verifies ev&#x65;ry transaction.",
+    "launch/encoded-alias.md": encodedAlias,
+    "proof/encoded-label.md": encodedLabel,
+    "web/numeric-claim.html": "HakkyAgent verifies ev&#101;ry transaction.",
+  });
+
+  assert.deepEqual(violations, [
+    { file: "brand/named-claim.svg", rule: "unsupported-agent-claim" },
+    { file: "docs/TOKEN.md", rule: "unsupported-agent-claim" },
+    { file: "launch/encoded-alias.md", rule: "retired-agent-identity" },
+    { file: "proof/encoded-label.md", rule: "retired-agent-identity" },
+    { file: "web/numeric-claim.html", rule: "unsupported-agent-claim" },
+  ]);
+});
+
+test("repository checker preserves exact account destinations and harmless rendered entities", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  assert.deepEqual(await scanFixture({
+    "launch/harmless-entities.md": "HakkyAgent verifies published HAKKY launch facts &amp; evidence.",
+    "web/account-with-copy.html": [
+      `<a href="https://x.com/${retiredAlias}">X</a>`,
+      "<p>HakkyAgent documents &notARealEntity; literally.</p>",
+    ].join("\n"),
+  }), []);
+});
+
 test("repository checker allows explicit claim disclaimers on active surfaces", async () => {
   assert.deepEqual(await scanFixture({
     "brand/disclaimer.svg": "HakkyAgent does not verify every transaction.",
@@ -355,18 +388,51 @@ test("does not classify short or unrelated GitHub-like synthetic markers as serv
   }), []);
 });
 
+test("detects current stateless GitHub installation tokens with official punctuation and length", async () => {
+  const installationPrefix = ["gh", "s", "_"].join("");
+  const statelessBody = [
+    "A".repeat(260),
+    ".",
+    ["B".repeat(80), "-", "C".repeat(89)].join(""),
+    ".",
+    ["D".repeat(40), "_", "E".repeat(49)].join(""),
+  ].join("");
+  const installationFixture = `${installationPrefix}${statelessBody}`;
+
+  assert.ok(installationFixture.length >= 520);
+  assert.deepEqual(await scanFixture({
+    "bounded-installation-token.txt": `fixture=(${installationFixture})\n`,
+  }), [
+    { file: "bounded-installation-token.txt", rule: "secret-service-token" },
+  ]);
+});
+
+test("keeps GitHub installation token boundaries and short false-positive controls", async () => {
+  const installationPrefix = ["gh", "s", "_"].join("");
+  const longBody = ["A".repeat(180), ".", "B".repeat(180), ".", "C".repeat(180)].join("");
+  assert.deepEqual(await scanFixture({
+    "embedded-prefix.txt": `fixture=x${installationPrefix}${longBody}\n`,
+    "short-installation.txt": `fixture=${installationPrefix}${"A".repeat(35)}\n`,
+    "unrelated-installation.txt": `fixture=${["gh", "x", "_"].join("")}${longBody}\n`,
+  }), []);
+});
+
 test("detects multiline YAML credential scalars and indented block values", async () => {
   const apiCredential = ["api", "key"].join("_");
   const clientCredential = ["client", "secret"].join("_");
   const opaqueScalar = ["SYNTHETIC", "MULTILINE", "CREDENTIAL"].join("_");
   const violations = await scanFixture({
     "block-value.yml": `${clientCredential}:\n  |-\n    ${opaqueScalar}\n    SECOND_FRAGMENT\n`,
+    "list-block-value.yml": `- ${apiCredential}: |\n    ${opaqueScalar}\n`,
+    "list-plain-value.yml": `- ${apiCredential}:\n    ${opaqueScalar}\n`,
     "plain-scalar.yml": `${apiCredential}:\n  ${opaqueScalar}\n`,
     "standard-block.yml": `${apiCredential}: >-\n  ${opaqueScalar}\n  SECOND_FRAGMENT\n`,
   });
 
   assert.deepEqual(violations, [
     { file: "block-value.yml", rule: "secret-credential-assignment" },
+    { file: "list-block-value.yml", rule: "secret-credential-assignment" },
+    { file: "list-plain-value.yml", rule: "secret-credential-assignment" },
     { file: "plain-scalar.yml", rule: "secret-credential-assignment" },
     { file: "standard-block.yml", rule: "secret-credential-assignment" },
   ]);
@@ -378,6 +444,10 @@ test("multiline YAML credential scanning preserves placeholders, environment ref
   const environmentReference = ["${", "SECRET_FROM_ENV", "}"].join("");
   assert.deepEqual(await scanFixture({
     "environment.yml": `${apiCredential}:\n  ${environmentReference}\n`,
+    "list-container.yml": `- ${clientCredential}:\n    provider:\n      name: example\n`,
+    "list-environment.yml": `- ${apiCredential}:\n    ${environmentReference}\n`,
+    "list-placeholder-block.yml": `- ${apiCredential}: |\n    REDACTED\n`,
+    "list-placeholder.yml": `- ${apiCredential}:\n    REDACTED\n`,
     "nested-container.yml": `${clientCredential}:\n  provider:\n    name: example\n`,
     "placeholder-block.yml": `${apiCredential}:\n  |\n    REDACTED\n`,
     "placeholder-standard-block.yml": `${clientCredential}: |\n  REDACTED\n`,
