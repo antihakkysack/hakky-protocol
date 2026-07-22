@@ -88,3 +88,57 @@ test("semantic policy rejects chronology, unsorted exhaustive arrays, and branch
   branch.proof.lpDisposition.kind = "burn-and-earn";
   assert.notDeepEqual(validateLaunchRecord(branch), []);
 });
+
+test("public graduation correlates pool programs with both LP mechanisms", () => {
+  const cpmmWithAmmPool = createGraduatedRecordV2();
+  cpmmWithAmmPool.proof.pool.programId = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+  assert.notDeepEqual(validateLaunchRecord(cpmmWithAmmPool), []);
+
+  const ammWithCpmmPool = createGraduatedRecordV2({ migrationType: "amm-v4" });
+  ammWithCpmmPool.proof.pool.programId = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
+  assert.notDeepEqual(validateLaunchRecord(ammWithCpmmPool), []);
+});
+
+test("public proof identities require canonical Solana decoded lengths", () => {
+  const badPublicKey = "2".repeat(32);
+  const invalidOwner = createCurveLiveRecordV2();
+  invalidOwner.proof.creatorBalance.owner = badPublicKey;
+  invalidOwner.proof.metadata.updateAuthority = badPublicKey;
+  for (const account of invalidOwner.proof.creatorBalance.accounts) account.owner = badPublicKey;
+  assert.notDeepEqual(validateLaunchRecord(invalidOwner), []);
+
+  const invalidSignature = createCurveLiveRecordV2();
+  invalidSignature.proof.transactions.creation.signature = "2".repeat(64);
+  invalidSignature.proof.links.solscanCreationTransaction = `https://solscan.io/tx/${"2".repeat(64)}`;
+  assert.notDeepEqual(validateLaunchRecord(invalidSignature), []);
+
+  const invalidAlphabet = createCurveLiveRecordV2();
+  invalidAlphabet.proof.metadata.updateAuthority = "0".repeat(32);
+  assert.notDeepEqual(validateLaunchRecord(invalidAlphabet), []);
+});
+
+test("public observations reject impossible dates and creator-balance chronology gaps", () => {
+  const impossible = createCurveLiveRecordV2();
+  impossible.proof.observation.checkedAt = "2026-02-30T00:01:01.000Z";
+  assert.notDeepEqual(validateLaunchRecord(impossible), []);
+
+  const stale = createCurveLiveRecordV2();
+  stale.proof.creatorBalance.finalizedSlot = stale.proof.transactions.creation.finalizedSlot - 1;
+  stale.proof.creatorBalance.finalizedAt = "2026-07-23T00:00:59.000Z";
+  assert.notDeepEqual(validateLaunchRecord(stale), []);
+
+  const afterCheck = createGraduatedRecordV2();
+  afterCheck.proof.creatorBalance.finalizedAt = "2026-07-23T00:02:02.000Z";
+  assert.notDeepEqual(validateLaunchRecord(afterCheck), []);
+});
+
+test("public graduation threshold is exact and duplicate creator accounts fail closed", () => {
+  const threshold = createGraduatedRecordV2();
+  threshold.proof.graduation.configuredThresholdLamports = "23999999999";
+  assert.notDeepEqual(validateLaunchRecord(threshold), []);
+
+  const duplicate = createCurveLiveRecordV2();
+  duplicate.proof.creatorBalance.accounts.push(structuredClone(duplicate.proof.creatorBalance.accounts[0]));
+  duplicate.proof.creatorBalance.accounts.sort((left, right) => left.address.localeCompare(right.address));
+  assert.notDeepEqual(validateLaunchRecord(duplicate), []);
+});

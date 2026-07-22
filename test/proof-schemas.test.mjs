@@ -141,6 +141,72 @@ test("LP disposition branches reject fields from the other migration union", () 
   assert.equal(validateSchema("graduation-v1", cpmm).ok, false);
 });
 
+test("graduation migration programs and pool correlate with the LP disposition branch", () => {
+  const cpmmWithAmmPrograms = createCanonicalGraduationProofV1();
+  cpmmWithAmmPrograms.programs.migration = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+  cpmmWithAmmPrograms.programs.pool = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+  cpmmWithAmmPrograms.pool.programId = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
+  assert.equal(validateSchema("graduation-v1", cpmmWithAmmPrograms).ok, false);
+
+  const ammWithCpmmPrograms = createCanonicalGraduationProofV1({ migrationType: "amm-v4" });
+  ammWithCpmmPrograms.programs.migration = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
+  ammWithCpmmPrograms.programs.pool = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
+  ammWithCpmmPrograms.pool.programId = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
+  assert.equal(validateSchema("graduation-v1", ammWithCpmmPrograms).ok, false);
+});
+
+test("Solana identities require canonical base58 round-trips and decoded byte lengths", () => {
+  for (const invalidMint of ["1".repeat(33), "2".repeat(32), "0".repeat(32)]) {
+    const changed = createCanonicalMintProofV2();
+    changed.identities.mint = invalidMint;
+    assert.equal(validateSchema("mint-v2", changed).ok, false, `accepted public key ${invalidMint}`);
+  }
+  for (const invalidSignature of ["1".repeat(65), "2".repeat(64), `${"1".repeat(63)}0`]) {
+    const changed = createCanonicalLaunchlabProofV2();
+    changed.transaction.signature = invalidSignature;
+    assert.equal(validateSchema("launchlab-v2", changed).ok, false, `accepted signature ${invalidSignature}`);
+  }
+});
+
+test("calendar timestamps are real and observation checks cannot precede finalization", () => {
+  for (const checkedAt of ["2026-07-00T00:00:00.000Z", "2026-02-30T00:00:00.000Z"]) {
+    const changed = createCanonicalMintProofV2();
+    changed.observation.checkedAt = checkedAt;
+    assert.equal(validateSchema("mint-v2", changed).ok, false, `accepted impossible timestamp ${checkedAt}`);
+  }
+  const reversed = createCanonicalLaunchlabProofV2();
+  reversed.observation.checkedAt = "2026-07-23T00:00:59.000Z";
+  assert.equal(validateSchema("launchlab-v2", reversed).ok, false);
+});
+
+test("the 24 SOL graduation threshold is normative in creation and graduation artifacts", () => {
+  const launchlab = createCanonicalLaunchlabProofV2();
+  launchlab.quote.graduationThresholdLamports = "23999999999";
+  assert.equal(validateSchema("launchlab-v2", launchlab).ok, false);
+
+  const graduation = createCanonicalGraduationProofV1();
+  graduation.graduationBalance.configuredThresholdLamports = "23999999999";
+  assert.equal(validateSchema("graduation-v1", graduation).ok, false);
+});
+
+test("creator balance observations are transaction-qualified and duplicate-address-free", () => {
+  const stale = createCanonicalMintProofV2();
+  stale.creatorBalance.finalizedSlot = stale.observation.creationSlot - 1;
+  stale.creatorBalance.finalizedAt = "2026-07-22T23:59:59.000Z";
+  assert.equal(validateSchema("mint-v2", stale).ok, false);
+
+  const afterCheck = createCanonicalGraduationProofV1();
+  afterCheck.creatorBalance.finalizedAt = "2026-07-23T00:02:02.000Z";
+  assert.equal(validateSchema("graduation-v1", afterCheck).ok, false);
+
+  const duplicate = createCanonicalMintProofV2();
+  const repeated = structuredClone(duplicate.creatorBalance.accounts[0]);
+  repeated.accountSha256 = "f".repeat(64);
+  duplicate.creatorBalance.accounts.push(repeated);
+  duplicate.creatorBalance.accounts.sort((left, right) => left.address.localeCompare(right.address));
+  assert.equal(validateSchema("mint-v2", duplicate).ok, false);
+});
+
 test("unavailable records contain no identity, destination, or observed proof residue", () => {
   for (const create of [
     () => createCurveLiveRecordV2({ availability: "unavailable" }),

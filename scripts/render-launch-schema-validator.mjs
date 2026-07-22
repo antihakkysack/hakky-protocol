@@ -5,6 +5,15 @@ import standaloneCode from "ajv/dist/standalone/index.js";
 const schemaUrl = new URL("../schemas/web/launch-v2.schema.json", import.meta.url);
 const outputUrl = new URL("../web/lib/launch-schema.generated.js", import.meta.url);
 const WRAPPER = "\nexport const validateLaunchShape = launchV2;\n";
+const AJV_EQUAL_RUNTIME = "const func0 = require(\"ajv/dist/runtime/equal\").default;";
+const INLINE_EQUAL_RUNTIME = `const func0 = (left, right) => {
+  if (left === right) return true;
+  if (!left || !right || typeof left !== "object" || typeof right !== "object" || Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key) => Object.prototype.hasOwnProperty.call(right, key) && func0(left[key], right[key]));
+};`;
 
 export async function renderLaunchSchemaValidator() {
   const schema = JSON.parse(await readFile(schemaUrl, "utf8"));
@@ -15,9 +24,13 @@ export async function renderLaunchSchemaValidator() {
     code: { source: true, esm: true, lines: true },
   });
   ajv.addSchema(schema, "launchV2");
-  const generated = `${standaloneCode(ajv, { launchV2: "launchV2" })}${WRAPPER}`;
+  const standalone = standaloneCode(ajv, { launchV2: "launchV2" });
+  const generated = `${standalone.replace(AJV_EQUAL_RUNTIME, INLINE_EQUAL_RUNTIME)}${WRAPPER}`;
   if (!generated.includes("export const validateLaunchShape = launchV2;")) {
     throw new Error("Generated launch validator is missing validateLaunchShape export");
+  }
+  if (generated.includes("require(") || generated.includes("from \"ajv/")) {
+    throw new Error("Generated launch validator contains a runtime dependency");
   }
   return generated;
 }

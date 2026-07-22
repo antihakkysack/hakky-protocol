@@ -57,15 +57,58 @@
     },
     "ok": { "const": true }
   },
+  "oneOf": [{ "$ref": "#/$defs/cpmmGraduationBranch" }, { "$ref": "#/$defs/ammGraduationBranch" }],
   "$defs": {
     "publicKey": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$" },
     "signature": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,88}$" },
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "unsignedDecimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
-    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$" },
     "slot": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
     "rpcHost": { "type": "string", "pattern": "^(?=.{1,253}$)(?!.*(?:^|\\.)(?:localhost|local|test|invalid|example)(?:\\.|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" },
     "contentUri": { "type": "string", "pattern": "^ipfs://b[a-z2-7]{10,}$" },
+    "cpmmGraduationBranch": {
+      "type": "object", "additionalProperties": false, "required": ["programs", "pool", "lpDisposition"],
+      "properties": {
+        "schemaVersion": true, "network": true, "identities": true, "transaction": true,
+        "programs": {
+          "type": "object", "additionalProperties": false, "required": ["launchlab", "migration", "pool", "token"],
+          "properties": { "launchlab": true, "migration": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" }, "pool": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" }, "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" } }
+        },
+        "supply": true, "authorities": true, "metadata": true, "graduationBalance": true,
+        "pool": {
+          "type": "object", "additionalProperties": false, "required": ["address", "programId", "quoteVault", "quoteVaultBalanceLamports", "accountSha256"],
+          "properties": { "address": true, "programId": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" }, "quoteVault": true, "quoteVaultBalanceLamports": true, "accountSha256": true }
+        },
+        "lpDisposition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "lpMint", "lockedPosition", "lockProgram", "lockNftMint", "lockNftTokenAccount", "lockVault", "platformLpBps", "creatorLpBps", "irreversibleLpBps", "withdrawalAuthority", "feeKey", "feeRights", "recoverableLpBaseUnits", "evidenceAccounts"],
+          "properties": { "kind": { "const": "burn-and-earn" }, "lpMint": true, "lockedPosition": true, "lockProgram": true, "lockNftMint": true, "lockNftTokenAccount": true, "lockVault": true, "platformLpBps": true, "creatorLpBps": true, "irreversibleLpBps": true, "withdrawalAuthority": true, "feeKey": true, "feeRights": true, "recoverableLpBaseUnits": true, "evidenceAccounts": true }
+        },
+        "fees": true, "creatorBalance": true, "cost": true, "links": true, "observation": true, "checks": true, "ok": true
+      }
+    },
+    "ammGraduationBranch": {
+      "type": "object", "additionalProperties": false, "required": ["programs", "pool", "lpDisposition"],
+      "properties": {
+        "schemaVersion": true, "network": true, "identities": true, "transaction": true,
+        "programs": {
+          "type": "object", "additionalProperties": false, "required": ["launchlab", "migration", "pool", "token"],
+          "properties": { "launchlab": true, "migration": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" }, "pool": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" }, "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" } }
+        },
+        "supply": true, "authorities": true, "metadata": true, "graduationBalance": true,
+        "pool": {
+          "type": "object", "additionalProperties": false, "required": ["address", "programId", "quoteVault", "quoteVaultBalanceLamports", "accountSha256"],
+          "properties": { "address": true, "programId": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" }, "quoteVault": true, "quoteVaultBalanceLamports": true, "accountSha256": true }
+        },
+        "lpDisposition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "lpMint", "burnedBaseUnits", "totalSupplyBaseUnits", "creatorLpBaseUnits", "platformLpBaseUnits", "recoverableLpBaseUnits", "withdrawalAuthority", "feeKey", "feeRights", "evidenceAccounts"],
+          "properties": { "kind": { "const": "lp-burn" }, "lpMint": true, "burnedBaseUnits": true, "totalSupplyBaseUnits": true, "creatorLpBaseUnits": true, "platformLpBaseUnits": true, "recoverableLpBaseUnits": true, "withdrawalAuthority": true, "feeKey": true, "feeRights": true, "evidenceAccounts": true }
+        },
+        "fees": true, "creatorBalance": true, "cost": true, "links": true, "observation": true, "checks": true, "ok": true
+      }
+    },
     "programs": {
       "oneOf": [
         {
@@ -114,7 +157,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["configuredThresholdLamports", "observedQuoteBalanceLamports", "status", "finalizedSlot", "finalizedAt"],
       "properties": {
-        "configuredThresholdLamports": { "$ref": "#/$defs/unsignedDecimal" },
+        "configuredThresholdLamports": { "const": "24000000000" },
         "observedQuoteBalanceLamports": { "$ref": "#/$defs/unsignedDecimal" }, "status": { "const": "graduated" },
         "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" }
       }
