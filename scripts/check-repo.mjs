@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import { hasUnsupportedAgentClaim } from "../src/agent-claim-boundary.mjs";
 
 const execFileAsync = promisify(execFile);
 const BINARY_EXTENSIONS = new Set([".gif", ".ico", ".jpg", ".jpeg", ".png", ".webp", ".woff", ".woff2"]);
@@ -37,10 +38,10 @@ const APPROVED_RETIRED_ACCOUNT_ADDRESSES = Object.freeze([
   `https://x.com/${RETIRED_ACCOUNT_ALIAS}`,
   `@${RETIRED_ACCOUNT_ALIAS}`,
 ]);
-const UNSUPPORTED_AGENT_CLAIMS = [
-  /HakkyAgent.{0,80}verif(?:y|ies|ied).{0,40}(?:all|every|good|bad|safe) transactions?/i,
-  /HakkyAgent.{0,80}guarantee(?:s|d)?.{0,40}(?:safe|safety|scam detection|returns?)/i,
-];
+const UNICODE_LETTER_NUMBER_OR_MARK = /[\p{L}\p{N}\p{M}]/u;
+const INVISIBLE_OR_DIRECTIONAL_CHARACTER = /[\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u;
+const LEFT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", "(", "[", "{", "<", "=", ":"]);
+const RIGHT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", ")", "]", "}", ">", ".", ",", ";", ":", "!", "?"]);
 const ACTIVE_PUBLIC_SCRIPT_FILES = new Set([
   "scripts/check-site.mjs",
   "scripts/render-assets.mjs",
@@ -130,15 +131,31 @@ function isActivePublicSurface(relative) {
     || relative === LIVE_LAUNCH_PLAN;
 }
 
+function isConservativeAddressDelimiter(character, delimiters) {
+  if (character === undefined) return true;
+  if (
+    UNICODE_LETTER_NUMBER_OR_MARK.test(character)
+    || INVISIBLE_OR_DIRECTIONAL_CHARACTER.test(character)
+  ) return false;
+  return /\s/u.test(character) || delimiters.has(character);
+}
+
 function isAddressBoundary(content, start, end) {
-  const before = content[start - 1];
+  if (!isConservativeAddressDelimiter(content[start - 1], LEFT_ACCOUNT_ADDRESS_DELIMITERS)) {
+    return false;
+  }
   const after = content[end];
-  if (before !== undefined && /[A-Za-z0-9_:/@.-]/.test(before)) return false;
   if (after === ".") {
     const afterPeriod = content[end + 1];
-    return afterPeriod === undefined || /[\s)'"`\]}>,;]/.test(afterPeriod);
+    if (
+      afterPeriod !== undefined
+      && (
+        UNICODE_LETTER_NUMBER_OR_MARK.test(afterPeriod)
+        || INVISIBLE_OR_DIRECTIONAL_CHARACTER.test(afterPeriod)
+      )
+    ) return false;
   }
-  return after === undefined || !/[A-Za-z0-9_/?#%&=+:/@.-]/.test(after);
+  return isConservativeAddressDelimiter(after, RIGHT_ACCOUNT_ADDRESS_DELIMITERS);
 }
 
 function isApprovedRetiredAccountAddress(content, aliasIndex) {
@@ -429,7 +446,7 @@ export async function scanRepository(root = process.cwd(), { trackedFiles } = {}
       ) {
         violations.push({ file: relative, rule: "retired-agent-identity" });
       }
-      if (UNSUPPORTED_AGENT_CLAIMS.some((pattern) => pattern.test(content))) {
+      if (hasUnsupportedAgentClaim(content)) {
         violations.push({ file: relative, rule: "unsupported-agent-claim" });
       }
     }

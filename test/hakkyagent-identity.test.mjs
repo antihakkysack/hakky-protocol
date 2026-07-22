@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { hasUnsupportedAgentClaim } from "../src/agent-claim-boundary.mjs";
 
 const ACTIVE_IDENTITY_FILES = [
   "README.md",
@@ -22,13 +23,11 @@ const RETIRED_AGENT_MARKERS = [
   "QWdlbnQgMDAx"
 ].map((value) => Buffer.from(value, "base64").toString("utf8"));
 
-const PROHIBITED_CLAIM_PATTERN = /(?:(?<!not )\bverif(?:y|ies|ied)\b.{0,50}\b(?:all|every|good|bad|safe)\b(?:\s+[\p{L}\p{N}-]+){0,4}\s+transactions?\b(?!\?)|guaranteed?\s+scam\s+detector\b|guaranteed?\s+safe\b)/iu;
-
 function assertNoProhibitedClaims(source) {
-  assert.doesNotMatch(
-    source,
-    PROHIBITED_CLAIM_PATTERN,
-    "public copy must not contain a prohibited universal or guaranteed claim"
+  assert.equal(
+    hasUnsupportedAgentClaim(source),
+    false,
+    "public copy must not contain a prohibited universal or guaranteed claim",
   );
 }
 
@@ -71,6 +70,7 @@ test("operator documents use HakkyAgent and the approved launch wording", async 
 test("claim boundary rejects universal Solana transaction language", () => {
   for (const claim of [
     "HakkyAgent verifies every Solana transaction.",
+    "HakkyAgent\nverifies every transaction.",
     "HakkyAgent verifies every transaction.",
     "HakkyAgent verifies all public Solana transactions.",
     "HakkyAgent verifies good Solana transactions.",
@@ -84,6 +84,8 @@ test("claim boundary rejects universal Solana transaction language", () => {
   }
 
   assertNoProhibitedClaims("HakkyAgent does not verify every Solana transaction.");
+  assertNoProhibitedClaims("HakkyAgent does not verify every transaction.");
+  assertNoProhibitedClaims("HakkyAgent is not a guaranteed scam detector.");
   assertNoProhibitedClaims("HakkyAgent verifies only published HAKKY launch facts.");
 });
 

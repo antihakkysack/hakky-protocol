@@ -89,6 +89,27 @@ test("repository checker rejects unsupported HakkyAgent claims on active surface
   ]);
 });
 
+test("repository checker rejects claim bypasses across active surfaces outside the identity file list", async () => {
+  const violations = await scanFixture({
+    "CONTRIBUTING.md": "HakkyAgent is a guaranteed scam detector.",
+    "brand/claim.svg": "HakkyAgent verifies every Solana transaction.",
+    "scripts/render-assets.mjs": "HakkyAgent\nverifies every transaction.",
+  });
+
+  assert.deepEqual(violations, [
+    { file: "CONTRIBUTING.md", rule: "unsupported-agent-claim" },
+    { file: "brand/claim.svg", rule: "unsupported-agent-claim" },
+    { file: "scripts/render-assets.mjs", rule: "unsupported-agent-claim" },
+  ]);
+});
+
+test("repository checker allows explicit claim disclaimers on active surfaces", async () => {
+  assert.deepEqual(await scanFixture({
+    "brand/disclaimer.svg": "HakkyAgent does not verify every transaction.",
+    "web/disclaimer.html": "HakkyAgent is not a guaranteed scam detector.",
+  }), []);
+});
+
 test("repository checker rejects lower-case retired aliases outside exact account addresses", async () => {
   const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
   const violations = await scanFixture({
@@ -105,16 +126,34 @@ test("repository checker rejects lower-case retired aliases outside exact accoun
   ]);
 });
 
+test("repository checker rejects Unicode and zero-width extensions of retired account addresses", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const violations = await scanFixture({
+    "web/unicode-addresses.html": [
+      `@${retiredAlias}\u00e9`,
+      `https://x.com/${retiredAlias}\u00e9`,
+      `@${retiredAlias}\u0301`,
+      `@${retiredAlias}\u200b/status/1`,
+    ].join("\n"),
+  });
+
+  assert.deepEqual(violations, [
+    { file: "web/unicode-addresses.html", rule: "retired-agent-identity" },
+  ]);
+});
+
 test("repository checker allows only the exact approved retired account addresses", async () => {
   const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
-  const approvedAddresses = [
-    `@${retiredAlias}`,
-    `https://x.com/${retiredAlias}`,
-    `https://github.com/${retiredAlias}/hakky-protocol`,
-    `https://github.com/${retiredAlias}/hakky-protocol.git`,
-  ].join("\n");
-
-  assert.deepEqual(await scanFixture({ "launch/account-addresses.md": approvedAddresses }), []);
+  assert.deepEqual(await scanFixture({
+    "launch/account-addresses.md": [
+      `Handle: \`@${retiredAlias}\``,
+      `Repository: [source](https://github.com/${retiredAlias}/hakky-protocol)`,
+    ].join("\n"),
+    "package.json": JSON.stringify({
+      repository: { url: `https://github.com/${retiredAlias}/hakky-protocol.git` },
+    }),
+    "web/account-link.html": `<a href="https://x.com/${retiredAlias}">X</a>`,
+  }), []);
 });
 
 test("identity rules exclude internal history and fixtures while secret scanning remains global", async () => {
