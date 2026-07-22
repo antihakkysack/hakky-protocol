@@ -26,7 +26,7 @@ Everything needed to launch **Hakky Protocol** on X: *Keep crypto clean.*
 - **Never** imply Hakky mixes, hides, anonymizes, or launders. It screens **for** cleanliness and is transparent.
 - **Be honest about trust:** v1 is qualified-custodian-backed like every 1:1 BTC token today — not trustless. Roadmap: decentralized custody + zk Proof-of-Reserves.
 - **No hype:** no token sale, airdrop, price promise, or "buy now." $HAKKY governance is roadmap-only. Add "not financial advice / DYOR" wherever value is discussed.
-- **Canonical links:** hakky.xyz · @HakkyProtocol · github.com/antihakkysack/hakky-protocol.
+- **Canonical links:** hakky.xyz · @antihakkysack · github.com/antihakkysack/hakky-protocol.
 
 ---
 

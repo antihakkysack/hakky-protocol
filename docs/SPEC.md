@@ -74,11 +74,11 @@ carry a verifiable attestation of provenance with it.
 
 - `$HAKKY` (governance/utility) is **roadmap**, not launched at v1. Governs policy parameters, attestor accreditation, fee switch, and the reserve-update multisig. No token sale is promised or implied in this repo.
 
-## 9. Naming / handles (placeholders — confirm before launch)
+## 9. Naming / handles
 
 - GitHub: `github.com/antihakkysack/hakky-protocol`
-- Site: `hakky.xyz` (placeholder)
-- X/Twitter: `@HakkyProtocol` (placeholder)
+- Site: `hakky.xyz` (live — GitHub Pages)
+- X/Twitter: `@antihakkysack` (live)
 - Tokens: `cBTC` (live concept), `$HAKKY` (roadmap governance)
 
 ## 10. Parameters (defaults)

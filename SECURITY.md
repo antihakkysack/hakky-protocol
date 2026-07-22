@@ -13,7 +13,7 @@ Please **do not** open a public GitHub issue for security vulnerabilities.
 Instead, report privately via one of:
 
 - GitHub's **[private vulnerability reporting](https://github.com/antihakkysack/hakky-protocol/security/advisories/new)** (Security → Report a vulnerability), or
-- a direct message to the maintainers on X: **[@HakkyProtocol](https://x.com/HakkyProtocol)**.
+- a direct message to the maintainers on X: **[@antihakkysack](https://x.com/antihakkysack)**.
 
 Please include:
 

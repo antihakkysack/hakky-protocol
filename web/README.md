@@ -38,6 +38,6 @@ Point the project at this repo and set the output/publish directory to `web`
 ## Before launch — replace placeholders
 
 - `hakky.xyz` — the production domain (add a `CNAME` file here once configured).
-- `@HakkyProtocol` — the final X/Twitter handle.
+- `@antihakkysack` — the final X/Twitter handle.
 - The **"Illustrative · testnet"** proof-of-reserves figures — wire to live
   on-chain values (or keep the illustrative label) before promoting the peg.

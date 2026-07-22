@@ -93,7 +93,7 @@
 >
 > 📄 Whitepaper: hakky.xyz
 > ⭐ Star the repo: github.com/antihakkysack/hakky-protocol
-> 🔔 Follow @HakkyProtocol
+> 🔔 Follow @antihakkysack
 >
 > Keep crypto clean. #Bitcoin #DeFi
 

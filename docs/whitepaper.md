@@ -7,7 +7,7 @@
 Tagline: **Keep crypto clean.**
 
 - Website: [hakky.xyz](https://hakky.xyz) *(placeholder)*
-- X: [@HakkyProtocol](https://x.com/HakkyProtocol) *(placeholder)*
+- X: [@antihakkysack](https://x.com/antihakkysack) *(placeholder)*
 - Source: [github.com/antihakkysack/hakky-protocol](https://github.com/antihakkysack/hakky-protocol)
 
 > **Disclaimer.** This document is informational only. It is not an offer to sell, or a solicitation of an offer to buy, any security, token, or financial instrument, and nothing herein is investment, legal, tax, or accounting advice. Hakky Protocol is a compliance and provenance tool, not investment advice and not a means to evade lawful process. Forward-looking statements about roadmap features are aspirational and subject to change. See **Risks & Disclaimers** before relying on anything in this paper.

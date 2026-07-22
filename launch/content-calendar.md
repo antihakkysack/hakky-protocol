@@ -2,7 +2,7 @@
 
 Sequenced along the `[[customer-awareness-timeline]]`: Week 1 moves a cold audience from **problem-aware** (freezes are real, and invisible) to **solution-aware** (portable, on-chain cleanliness exists). Week 2 goes deep, handles objections, and converts the **Hakky-aware** into followers, readers, and repo-stargazers. Every post keeps the holder as hero and Hakky as guide (`[[storybrand-framework]]`, `[[guide-positioning]]`).
 
-**Cadence:** 1 anchor post/day + 2–4 replies/quote-tweets in-community. Times are placeholders — align to when your audience (US + EU crypto hours) is awake. Handle: **@HakkyProtocol**.
+**Cadence:** 1 anchor post/day + 2–4 replies/quote-tweets in-community. Times are placeholders — align to when your audience (US + EU crypto hours) is awake. Handle: **@antihakkysack**.
 
 **Legend:** 🎯 awareness stage · 📌 = pin candidate.
 
@@ -68,7 +68,7 @@ Sequenced along the `[[customer-awareness-timeline]]`: Week 1 moves a cold audie
 - **Support:** Quote-tweet any dev who engages; build the contributor vibe.
 
 ### Day 14 (Sun) — Recap + clear CTA 🎯 Most-aware
-- **Anchor:** Two-week recap thread ending in the direct CTA: read the whitepaper (hakky.xyz), star the repo, follow @HakkyProtocol. Close on the tagline: *"Keep crypto clean."*
+- **Anchor:** Two-week recap thread ending in the direct CTA: read the whitepaper (hakky.xyz), star the repo, follow @antihakkysack. Close on the tagline: *"Keep crypto clean."*
 - **Support:** Thank the community; tease what's next (attestor onboarding, integrations). Refresh the pinned tweet to the recap or keep the launch thread pinned.
 
 ---

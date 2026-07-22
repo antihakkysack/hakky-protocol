@@ -6,7 +6,7 @@ Brand voice and positioning per `positioning.md` (grounded in `[[guide-positioni
 
 ## Handle & display name
 
-- **Handle:** `@HakkyProtocol` (canonical)
+- **Handle:** `@antihakkysack` (canonical)
 - **Display name options:**
   - `Hakky Protocol` (primary)
   - `Hakky Protocol 🧼` (adds a clean visual anchor)
@@ -97,6 +97,6 @@ Use **Tweet 1 of the launch thread** as the pinned post (it opens the full narra
 ## Canonical links (use verbatim)
 
 - Site: **hakky.xyz**
-- Handle: **@HakkyProtocol**
+- Handle: **@antihakkysack**
 - Repo: **github.com/antihakkysack/hakky-protocol**
 - Tagline: **"Keep crypto clean."**
