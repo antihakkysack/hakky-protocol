@@ -124,6 +124,14 @@ Tagline: HakkyAgent verifies the facts. You decide the risk.
 Footer: HAKKYAGENT © 2026 · KEEP CRYPTO CLEAN
 ```
 
+Use this scoped X bio and prelaunch framing:
+
+```text
+Bio: HakkyAgent verifies the facts. You decide the risk. HAKKY launch facts only; no safety guarantee.
+Prelaunch: HakkyAgent is online. The fixed supply, public allocation, and revoked-authority configuration are planned commitments until canonical proof is published.
+Verification heading: Verify the published HAKKY facts after launch.
+```
+
 Use this FAQ claim boundary:
 
 ```html
@@ -165,6 +173,8 @@ rtk git commit -m "brand: rename the proof agent to HakkyAgent"
 - Delete: `web/assets/sack-sentinel.svg`
 - Modify: `brand/x-banner.svg`
 - Modify: `scripts/render-assets.mjs`
+- Modify: `scripts/vector-type.mjs`
+- Modify: `scripts/check-site.mjs`
 - Modify: `web/index.html`
 - Modify: `test/assets.test.mjs`
 - Regenerate: `launch/assets/x-avatar.png`
@@ -205,7 +215,7 @@ for (const copy of [
 }
 ```
 
-Add an assertion that the four SVG/renderer sources do not contain `AntiHakkySack`, `ANTIHAKKYSACK`, `Sack Sentinel`, or `Agent 001`.
+Add an assertion that the four SVG/renderer sources do not contain `AntiHakkySack`, `ANTIHAKKYSACK`, `Sack Sentinel`, or `Agent 001`. Also reject a standalone retired badge with `data-copy="001"`.
 
 - [ ] **Step 2: Run the asset tests and verify RED**
 
@@ -226,7 +236,15 @@ Use these accessible source strings:
 <desc id="desc">An orange AI blockchain proof agent with a dark visor and bright eyes.</desc>
 ```
 
-Use `HAKKYAGENT // PROOF SENTINEL` for the banner and Open Graph label. Preserve all geometry except the vector glyph group required to fit the new label, and preserve the exact approved palette:
+Add the missing vector-font glyph required by `PROOF`:
+
+```js
+F: { width: 5, path: "M0 0v7M0 0h5M0 3.5h4" },
+```
+
+Use `HAKKYAGENT // PROOF SENTINEL` for the banner and Open Graph label. Replace the mascot badge's visible `AGENT` / `001` glyph groups with `HAKKY` / `AI`; the five-glyph top word keeps the existing badge width and the two-glyph lower word is centered in the existing badge bounds. Preserve all other mascot geometry and the exact approved palette.
+
+The banner header uses `x: 329`, `y: 60`, `height: 17.5`, and `letterSpacing: 1.4`, producing an approximately 440.3px label within its 445px area. The Open Graph label retains:
 
 ```js
 const ogLabel = vectorText("HAKKYAGENT // PROOF SENTINEL", {
@@ -234,7 +252,7 @@ const ogLabel = vectorText("HAKKYAGENT // PROOF SENTINEL", {
 }).svg;
 ```
 
-Point `scripts/render-assets.mjs` and `web/index.html` at `brand/hakkyagent.svg` / `web/assets/hakkyagent.svg`. Apply file creation/deletion with `apply_patch`.
+Point `scripts/render-assets.mjs` and `web/index.html` at `brand/hakkyagent.svg` / `web/assets/hakkyagent.svg`. Update `scripts/check-site.mjs` to read `web/assets/hakkyagent.svg`. Apply file creation/deletion with `apply_patch`.
 
 - [ ] **Step 4: Regenerate assets and record intentional golden hashes**
 
@@ -306,7 +324,7 @@ test("repository checker rejects universal transaction-safety claims", async () 
 });
 ```
 
-Keep lowercase `antihakkysack` allowed only when it is part of the exact approved X or GitHub account URL/handle.
+Keep lowercase `antihakkysack` allowed only when it is part of the exact approved X or GitHub account URL/handle. Add a rejected lower-case non-address fixture such as `Topics: antihakkysack`, and allow only these exact address forms: `@antihakkysack`, `https://x.com/antihakkysack`, `https://github.com/antihakkysack/hakky-protocol`, and its `.git` repository form.
 
 - [ ] **Step 2: Run the hygiene tests and verify RED**
 
@@ -341,6 +359,8 @@ const UNSUPPORTED_AGENT_CLAIMS = [
 ```
 
 Apply these only to active public/code surfaces. Preserve historical superpowers specifications and plans as project records; do not weaken secret scanning in those paths. Update `docs/LAUNCH.md`, `proof/README.md`, and the live plan so operator language uses HakkyAgent and the exact claim boundary.
+
+The live launch plan is operational, not historical: include `docs/superpowers/plans/2026-07-22-hakky-live-launch.md` in active identity enforcement while other design/implementation records remain excluded. Change its social topic from the former alias to `hakkyagent`, use `approved prelaunch experience` instead of `verified prelaunch`, and say `all launch-related transaction signatures` instead of `all transaction signatures`.
 
 - [ ] **Step 4: Run all active scans and the complete quality gate**
 
