@@ -96,7 +96,7 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
     canonicalIssues.push(error instanceof Error ? error.message : String(error));
   }
 
-  await access(atRoot(root, "web/assets/sack-sentinel.svg"));
+  await access(atRoot(root, "web/assets/hakkyagent.svg"));
   await access(atRoot(root, "web/assets/og-card.png"));
   await access(atRoot(root, "web/CNAME"));
 

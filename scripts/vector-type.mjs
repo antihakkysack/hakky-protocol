@@ -10,6 +10,7 @@ const GLYPHS = {
   A: { width: 5, path: "M0 7V2l2.5-2L5 2v5M0 4h5" },
   C: { width: 5, path: "M5 0H1L0 1v5l1 1h4" },
   E: { width: 5, path: "M5 0H0v7h5M0 3.5h4" },
+  F: { width: 5, path: "M0 0v7M0 0h5M0 3.5h4" },
   G: { width: 5, path: "M5 1 4 0H1L0 1v5l1 1h4V4H3" },
   H: { width: 5, path: "M0 0v7M5 0v7M0 3.5h5" },
   I: { width: 5, path: "M0 0h5M2.5 0v7M0 7h5" },

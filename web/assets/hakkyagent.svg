@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="800" height="800" viewBox="0 0 800 800" role="img" aria-labelledby="title desc">
-  <title id="title">AntiHakkySack Agent 001</title>
-  <desc id="desc">A tied orange sack transformed into an AI sentinel, with a dark visor, bright eyes, and an Agent 001 badge.</desc>
+  <title id="title">HakkyAgent proof sentinel</title>
+  <desc id="desc">An orange AI blockchain proof agent with a dark visor and bright eyes.</desc>
   <g stroke="#160C2C" stroke-linejoin="round">
     <path d="M378 191C331 183 286 155 246 104c51-13 104 2 151 42z" fill="#7138FF" stroke-width="26" transform="translate(24 26)" opacity=".28"/>
     <path d="M422 191c47-8 92-36 132-87-51-13-104 2-151 42z" fill="#7138FF" stroke-width="26" transform="translate(24 26)" opacity=".28"/>
@@ -29,8 +29,8 @@
   <g transform="rotate(-4 404 618)">
     <rect x="300" y="556" width="208" height="126" rx="17" fill="#F8FF4A" stroke="#160C2C" stroke-width="20"/>
     <rect x="316" y="572" width="176" height="27" rx="5" fill="#160C2C"/>
-    <g role="img" aria-label="AGENT" data-copy="AGENT" transform="translate(367 577) scale(2.286)" fill="none" stroke="#FFFFFF" stroke-width="0.9" stroke-linecap="square" stroke-linejoin="miter"><path d="M0 7V2l2.5-2L5 2v5M0 4h5" transform="translate(0 0)"/><path d="M5 1 4 0H1L0 1v5l1 1h4V4H3" transform="translate(6.875 0)"/><path d="M5 0H0v7h5M0 3.5h4" transform="translate(13.75 0)"/><path d="M0 7V0l5 7V0" transform="translate(20.625 0)"/><path d="M0 0h5M2.5 0v7" transform="translate(27.5 0)"/></g>
-    <g role="img" aria-label="001" data-copy="001" transform="translate(343 608) scale(6.857)" fill="none" stroke="#160C2C" stroke-width="0.9" stroke-linecap="square" stroke-linejoin="miter"><path d="M1 0h3l1 1v5l-1 1H1L0 6V1zM1 6 4 1" transform="translate(0 0)"/><path d="M1 0h3l1 1v5l-1 1H1L0 6V1zM1 6 4 1" transform="translate(6.438 0)"/><path d="M1 1 2.5 0v7M0 7h5" transform="translate(12.875 0)"/></g>
+    <g role="img" aria-label="HAKKY" data-copy="HAKKY" transform="translate(367 577) scale(2.286)" fill="none" stroke="#FFFFFF" stroke-width="0.9" stroke-linecap="square" stroke-linejoin="miter"><path d="M0 0v7M5 0v7M0 3.5h5" transform="translate(0 0)"/><path d="M0 7V2l2.5-2L5 2v5M0 4h5" transform="translate(6.875 0)"/><path d="M0 0v7M5 0 0 4M2 2.5 5 7" transform="translate(13.75 0)"/><path d="M0 0v7M5 0 0 4M2 2.5 5 7" transform="translate(20.625 0)"/><path d="M0 0l2.5 3.5L5 0M2.5 3.5V7" transform="translate(27.5 0)"/></g>
+    <g role="img" aria-label="AI" data-copy="AI" transform="translate(364.786 608) scale(6.857)" fill="none" stroke="#160C2C" stroke-width="0.9" stroke-linecap="square" stroke-linejoin="miter"><path d="M0 7V2l2.5-2L5 2v5M0 4h5" transform="translate(0 0)"/><path d="M0 0h5M2.5 0v7M0 7h5" transform="translate(6.438 0)"/></g>
   </g>
 
   <path d="M538 548c19 6 34 19 43 38" fill="none" stroke="#160C2C" stroke-width="13" stroke-linecap="round"/>

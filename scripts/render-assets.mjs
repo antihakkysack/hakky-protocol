@@ -13,7 +13,7 @@ await Promise.all([
   mkdir("web/assets", { recursive: true })
 ]);
 
-const ogLabel = vectorText("ANTIHAKKYSACK // AGENT 001", {
+const ogLabel = vectorText("HAKKYAGENT // PROOF SENTINEL", {
   x: 108, y: 98, height: 16, letterSpacing: 1.4, color: "#FFFFFF"
 }).svg;
 const ogHeadlineOne = vectorText("RUGS HATE THIS", {
@@ -29,7 +29,7 @@ const ogTagline = vectorText("KEEP CRYPTO CLEAN.", {
   x: 88, y: 468, height: 16, letterSpacing: 2.5, color: "#160C2C"
 }).svg;
 
-const mascot = await readFile("brand/sack-sentinel.svg");
+const mascot = await readFile("brand/hakkyagent.svg");
 const banner = await readFile("brand/x-banner.svg");
 
 const squareBackground = Buffer.from(`

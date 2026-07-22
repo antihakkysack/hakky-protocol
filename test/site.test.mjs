@@ -212,7 +212,7 @@ test("homepage presents the exact HakkyAgent identity and claim boundary", () =>
   }
   assert.match(
     html,
-    /<img src="\.\/assets\/sack-sentinel\.svg" alt="HakkyAgent, the orange HAKKY proof agent"/,
+    /<img src="\.\/assets\/hakkyagent\.svg" alt="HakkyAgent, the orange HAKKY proof agent"/,
   );
   assert.match(
     html,

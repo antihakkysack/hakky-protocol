@@ -5,11 +5,18 @@ import test from "node:test";
 import sharp from "sharp";
 
 const EXPORTS = [
-  ["launch/assets/x-avatar.png", 800, 800, "bdba98faca3723a15345bfb3ecb5d1f3b62528a8b0b49e31e6a48f9b33babd46"],
-  ["launch/assets/x-banner.png", 1500, 500, "620d28b6c4aecdab54b4b1326f6615ab4a35cb9367805db9025358c06eee670d"],
-  ["launch/assets/og-card.png", 1200, 630, "f96cebc814d0a18b6209dd189c5841da060016514527a2da84da69f06d7251e1"],
-  ["web/assets/og-card.png", 1200, 630, "f96cebc814d0a18b6209dd189c5841da060016514527a2da84da69f06d7251e1"],
-  ["web/assets/token.png", 800, 800, "bdba98faca3723a15345bfb3ecb5d1f3b62528a8b0b49e31e6a48f9b33babd46"]
+  ["launch/assets/x-avatar.png", 800, 800, "9e672cdc454e6249873cdf359b51a1f8f6a7f8a10f057d77f85ecce705bca8a0"],
+  ["launch/assets/x-banner.png", 1500, 500, "d0b4c5578631d267fa0b92defda90649347a047e37ea1cd8f1b7aafb5def1e16"],
+  ["launch/assets/og-card.png", 1200, 630, "6be90db5aa31557078b7d2075a59471556b874de4af8c7d150371350653c69fe"],
+  ["web/assets/og-card.png", 1200, 630, "6be90db5aa31557078b7d2075a59471556b874de4af8c7d150371350653c69fe"],
+  ["web/assets/token.png", 800, 800, "9e672cdc454e6249873cdf359b51a1f8f6a7f8a10f057d77f85ecce705bca8a0"]
+];
+
+const AGENT_SOURCES = [
+  "brand/hakkyagent.svg",
+  "web/assets/hakkyagent.svg",
+  "brand/x-banner.svg",
+  "scripts/render-assets.mjs"
 ];
 
 for (const [file, width, height] of EXPORTS) {
@@ -36,7 +43,7 @@ test("canonical social sources preserve the exact approved copy", async () => {
   const banner = await readFile("brand/x-banner.svg", "utf8");
   const renderer = await readFile("scripts/render-assets.mjs", "utf8");
   for (const copy of [
-    "ANTIHAKKYSACK // AGENT 001",
+    "HAKKYAGENT // PROOF SENTINEL",
     "RUGS HATE THIS",
     "LITTLE GUY.",
     "1,000,000 HAKKY · 0% TEAM · NO PRESALE",
@@ -44,6 +51,16 @@ test("canonical social sources preserve the exact approved copy", async () => {
   ]) {
     assert.ok(banner.includes(copy), `banner is missing exact copy: ${copy}`);
     assert.ok(renderer.includes(copy), `renderer is missing exact copy: ${copy}`);
+  }
+});
+
+test("canonical agent sources retire the former identity and numbered badge", async () => {
+  for (const file of AGENT_SOURCES) {
+    const source = await readFile(file, "utf8");
+    for (const retired of ["AntiHakkySack", "ANTIHAKKYSACK", "Sack Sentinel", "Agent 001"]) {
+      assert.ok(!source.includes(retired), `${file} contains retired identity: ${retired}`);
+    }
+    assert.doesNotMatch(source, /data-copy=["']001["']/, `${file} contains the retired 001 badge`);
   }
 });
 
@@ -56,12 +73,7 @@ test("asset sources use only the approved Meme Broadcast palette", async () => {
     "#FF965D",
     "#FFFFFF"
   ]);
-  for (const file of [
-    "brand/sack-sentinel.svg",
-    "web/assets/sack-sentinel.svg",
-    "brand/x-banner.svg",
-    "scripts/render-assets.mjs"
-  ]) {
+  for (const file of AGENT_SOURCES) {
     const source = await readFile(file, "utf8");
     const colors = source.match(/#[0-9A-Fa-f]{6}\b/g) ?? [];
     assert.deepEqual(
@@ -73,12 +85,7 @@ test("asset sources use only the approved Meme Broadcast palette", async () => {
 });
 
 test("asset sources use self-contained vector typography", async () => {
-  for (const file of [
-    "brand/sack-sentinel.svg",
-    "web/assets/sack-sentinel.svg",
-    "brand/x-banner.svg",
-    "scripts/render-assets.mjs"
-  ]) {
+  for (const file of AGENT_SOURCES) {
     const source = await readFile(file, "utf8");
     assert.doesNotMatch(source, /font-family|<text\b|Arial/i, `${file} relies on a host font`);
   }
