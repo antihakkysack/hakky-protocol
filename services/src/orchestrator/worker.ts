@@ -4,7 +4,7 @@ import { isAddress, getAddress, id as keccakId } from "ethers";
 import { config } from "../shared/config.js";
 import { logger } from "../shared/logger.js";
 import { initDb, audit } from "../shared/db.js";
-import { reserveVault, requireContract, requireSigner } from "../shared/chain.js";
+import { provider, reserveVault, requireContract, requireSigner } from "../shared/chain.js";
 
 const log = logger.child({ service: "orchestrator" });
 
@@ -64,38 +64,60 @@ app.post("/deposit", async (req, res) => {
 });
 
 /**
- * Watch for redemption requests and settle them. In production a settler pays
+ * Poll for redemption requests and settle them. We poll with `queryFilter`
+ * (eth_getLogs over a block range) rather than an event subscription, because
+ * public RPCs expire the server-side filters that ethers' `.on()` relies on
+ * ("filter not found"). We start from the boot block, so only redemptions made
+ * while the orchestrator is running are settled. In production a settler pays
  * out BTC off-chain and then records the settling txid; here we settle
  * immediately with a deterministic demo txid to close the loop.
  */
 function watchRedemptions(): void {
   const vault = requireContract(reserveVault, "ReserveVault");
-  vault.on(
-    "RedeemRequested",
-    async (id: bigint, account: string, amountSats: bigint, btcPayoutAddress: string) => {
-      log.info(
-        { id: id.toString(), account, amountSats: amountSats.toString(), btcPayoutAddress },
-        "redeem requested",
-      );
-      try {
-        requireSigner();
-        const btcTxid = keccakId(`hakky-settle:${id}:${btcPayoutAddress}`);
-        const tx = await vault.settleRedeem(id, btcTxid);
-        const receipt = await tx.wait();
-        await audit("orchestrator", "redeem-settled", {
-          id: id.toString(),
-          account,
-          amountSats: amountSats.toString(),
-          btcTxid,
-          txHash: receipt?.hash,
-        });
-        log.info({ id: id.toString(), txHash: receipt?.hash }, "redeem settled");
-      } catch (e) {
-        log.error({ err: e, id: id.toString() }, "settle failed");
+  const POLL_MS = 15000;
+  let fromBlock = -1;
+
+  async function poll(): Promise<void> {
+    try {
+      const head = await provider.getBlockNumber();
+      if (fromBlock < 0) fromBlock = head + 1; // only handle redemptions after boot
+      if (head < fromBlock) return;
+      const events = await vault.queryFilter(vault.filters.RedeemRequested(), fromBlock, head);
+      fromBlock = head + 1;
+      for (const ev of events) {
+        const args = (ev as { args: readonly unknown[] }).args;
+        const id = args[0] as bigint;
+        const account = args[1] as string;
+        const amountSats = args[2] as bigint;
+        const btcPayoutAddress = args[3] as string;
+        log.info(
+          { id: id.toString(), account, amountSats: amountSats.toString(), btcPayoutAddress },
+          "redeem requested",
+        );
+        try {
+          requireSigner();
+          const btcTxid = keccakId(`hakky-settle:${id}:${btcPayoutAddress}`);
+          const tx = await vault.settleRedeem(id, btcTxid);
+          const receipt = await tx.wait();
+          await audit("orchestrator", "redeem-settled", {
+            id: id.toString(),
+            account,
+            amountSats: amountSats.toString(),
+            btcTxid,
+            txHash: receipt?.hash,
+          });
+          log.info({ id: id.toString(), txHash: receipt?.hash }, "redeem settled");
+        } catch (e) {
+          log.error({ err: e, id: id.toString() }, "settle failed");
+        }
       }
-    },
-  );
-  log.info("watching ReserveVault RedeemRequested events");
+    } catch (e) {
+      log.error({ err: e }, "redeem poll failed");
+    }
+  }
+
+  setInterval(() => void poll(), POLL_MS);
+  log.info({ pollMs: POLL_MS }, "polling ReserveVault for RedeemRequested");
 }
 
 async function main(): Promise<void> {
