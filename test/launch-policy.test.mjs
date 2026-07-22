@@ -33,6 +33,16 @@ test("rejects hidden token controls and private launch paths", () => {
   ]);
 });
 
+test("rejects missing or mismatched canonical metadata", () => {
+  const changed = structuredClone(record);
+  changed.token.metadataImage = null;
+  changed.token.metadataWebsite = "https://example.com";
+  changed.token.metadataX = "https://x.com/someoneelse";
+  assert.ok(validateLaunchRecord(changed).includes("token.metadataImage must equal https://hakky.xyz/assets/token.png"));
+  assert.ok(validateLaunchRecord(changed).includes("token.metadataWebsite must equal https://hakky.xyz"));
+  assert.ok(validateLaunchRecord(changed).includes("token.metadataX must equal https://x.com/antihakkysack"));
+});
+
 test("live state requires verified proof fields", () => {
   const changed = structuredClone(record);
   changed.status = "live";
@@ -45,8 +55,8 @@ test("accepts a live record only with complete observed proof", () => {
   changed.token.mint = "11111111111111111111111111111111";
   changed.proof = {
     mint: changed.token.mint,
-    launchId: "Launch111111111111111111111111111111111",
-    launchTransaction: "Signature111111111111111111111111111111111111111111111111111111111111111111",
+    launchId: "11111111111111111111111111111111",
+    launchTransaction: "1111111111111111111111111111111111111111111111111111111111111111",
     solscanUrl: `https://solscan.io/token/${changed.token.mint}`,
     raydiumUrl: "https://raydium.io/launchpad/token/?mint=11111111111111111111111111111111",
     verifiedAt: "2026-07-22T00:00:00.000Z",
@@ -60,6 +70,9 @@ test("accepts a live record only with complete observed proof", () => {
     metadataName: "Hakky Protocol",
     metadataSymbol: "HAKKY",
     metadataUri: "https://hakky.xyz/metadata.json",
+    metadataImage: "https://hakky.xyz/assets/token.png",
+    metadataWebsite: "https://hakky.xyz",
+    metadataX: "https://x.com/antihakkysack",
     curveAllocationBps: 8000,
     liquidityAllocationBps: 2000,
     teamAllocationBps: 0,
@@ -71,4 +84,48 @@ test("accepts a live record only with complete observed proof", () => {
     creatorSpendSol: 0.25,
   };
   assert.deepEqual(validateLaunchRecord(changed), []);
+});
+
+test("rejects malformed or unrelated live proof", () => {
+  const changed = structuredClone(record);
+  changed.status = "live";
+  changed.token.mint = "11111111111111111111111111111111";
+  changed.proof = {
+    mint: "not-base58!",
+    launchId: "short",
+    launchTransaction: "also-short",
+    solscanUrl: "http://solscan.io/token/other",
+    raydiumUrl: "https://example.com/launchpad?mint=other",
+    verifiedAt: "2026-07-22",
+    supplyBaseUnits: "1000000000000",
+    decimals: 6,
+    tokenProgram: "spl-token",
+    mintAuthority: null,
+    freezeAuthority: null,
+    creatorBalanceBaseUnits: "0",
+    metadataImmutable: true,
+    metadataName: "Hakky Protocol",
+    metadataSymbol: "HAKKY",
+    metadataUri: "https://hakky.xyz/metadata.json",
+    metadataImage: "https://hakky.xyz/assets/token.png",
+    metadataWebsite: "https://hakky.xyz",
+    metadataX: "https://x.com/antihakkysack",
+    curveAllocationBps: 8000,
+    liquidityAllocationBps: 2000,
+    teamAllocationBps: 0,
+    creatorFeeEnabled: false,
+    lpPolicy: "burn",
+    quoteAsset: "SOL",
+    graduationTargetSol: 24,
+    creatorFirstBuySol: 0,
+    creatorSpendSol: -0.01,
+  };
+  const issues = validateLaunchRecord(changed);
+  assert.ok(issues.includes("proof.mint must be a Solana base58 public key"));
+  assert.ok(issues.includes("proof.launchId must be a Solana base58 public key"));
+  assert.ok(issues.includes("proof.launchTransaction must be a Solana base58 signature"));
+  assert.ok(issues.includes("proof.solscanUrl must be an HTTPS solscan.io URL for proof.mint"));
+  assert.ok(issues.includes("proof.raydiumUrl must be an HTTPS raydium.io URL for proof.mint"));
+  assert.ok(issues.includes("proof.verifiedAt must be an exact ISO-8601 timestamp"));
+  assert.ok(issues.includes("proof.creatorSpendSol must be a finite number from 0 to 1"));
 });

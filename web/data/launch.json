@@ -19,7 +19,10 @@
     "transferHook": false,
     "blacklistControl": false,
     "permanentDelegate": false,
-    "metadataImmutable": true
+    "metadataImmutable": true,
+    "metadataImage": "https://hakky.xyz/assets/token.png",
+    "metadataWebsite": "https://hakky.xyz",
+    "metadataX": "https://x.com/antihakkysack"
   },
   "launch": {
     "platform": "Raydium LaunchLab",

@@ -14,7 +14,37 @@ export const EXPECTED_POLICY = Object.freeze({
   creatorFeeEnabled: false,
   lpPolicy: "burn",
   creatorSpendCapSol: "1.00",
+  metadataImage: "https://hakky.xyz/assets/token.png",
+  metadataWebsite: "https://hakky.xyz",
+  metadataX: "https://x.com/antihakkysack",
 });
+
+function isBase58(value, minimumLength, maximumLength) {
+  return typeof value === "string"
+    && value.length >= minimumLength
+    && value.length <= maximumLength
+    && /^[1-9A-HJ-NP-Za-km-z]+$/.test(value);
+}
+
+function isExactIsoTimestamp(value) {
+  return typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
+    && !Number.isNaN(Date.parse(value))
+    && new Date(value).toISOString() === value;
+}
+
+function isOfficialMintUrl(value, hostname, mint) {
+  try {
+    const url = new URL(value);
+    const pathSegments = url.pathname.split("/").filter(Boolean);
+    const queryValues = [...url.searchParams.values()];
+    return url.protocol === "https:"
+      && url.hostname === hostname
+      && (pathSegments.includes(mint) || queryValues.includes(mint));
+  } catch {
+    return false;
+  }
+}
 
 export function validateLaunchRecord(record) {
   const issues = [];
@@ -34,6 +64,9 @@ export function validateLaunchRecord(record) {
     [record.token?.blacklistControl === false, "token.blacklistControl must equal false"],
     [record.token?.permanentDelegate === false, "token.permanentDelegate must equal false"],
     [record.token?.metadataImmutable === true, "token.metadataImmutable must equal true"],
+    [record.token?.metadataImage === EXPECTED_POLICY.metadataImage, "token.metadataImage must equal https://hakky.xyz/assets/token.png"],
+    [record.token?.metadataWebsite === EXPECTED_POLICY.metadataWebsite, "token.metadataWebsite must equal https://hakky.xyz"],
+    [record.token?.metadataX === EXPECTED_POLICY.metadataX, "token.metadataX must equal https://x.com/antihakkysack"],
     [record.launch?.platform === "Raydium LaunchLab", "launch.platform must equal Raydium LaunchLab"],
     [record.launch?.quoteAsset === "SOL", "launch.quoteAsset must equal SOL"],
     [record.launch?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "launch.curveAllocationBps must equal 8000"],
@@ -67,6 +100,15 @@ export function validateLaunchRecord(record) {
       [record.proof?.metadataName === EXPECTED_POLICY.name, "proof.metadataName must equal Hakky Protocol"],
       [record.proof?.metadataSymbol === EXPECTED_POLICY.symbol, "proof.metadataSymbol must equal HAKKY"],
       [typeof record.proof?.metadataUri === "string" && /^(https:\/\/|ipfs:\/\/)/.test(record.proof.metadataUri), "proof.metadataUri must be a public HTTPS or IPFS URL"],
+      [record.proof?.metadataImage === EXPECTED_POLICY.metadataImage, "proof.metadataImage must equal https://hakky.xyz/assets/token.png"],
+      [record.proof?.metadataWebsite === EXPECTED_POLICY.metadataWebsite, "proof.metadataWebsite must equal https://hakky.xyz"],
+      [record.proof?.metadataX === EXPECTED_POLICY.metadataX, "proof.metadataX must equal https://x.com/antihakkysack"],
+      [isBase58(record.proof?.mint, 32, 44), "proof.mint must be a Solana base58 public key"],
+      [isBase58(record.proof?.launchId, 32, 44), "proof.launchId must be a Solana base58 public key"],
+      [isBase58(record.proof?.launchTransaction, 64, 88), "proof.launchTransaction must be a Solana base58 signature"],
+      [isOfficialMintUrl(record.proof?.solscanUrl, "solscan.io", record.proof?.mint), "proof.solscanUrl must be an HTTPS solscan.io URL for proof.mint"],
+      [isOfficialMintUrl(record.proof?.raydiumUrl, "raydium.io", record.proof?.mint), "proof.raydiumUrl must be an HTTPS raydium.io URL for proof.mint"],
+      [isExactIsoTimestamp(record.proof?.verifiedAt), "proof.verifiedAt must be an exact ISO-8601 timestamp"],
       [record.proof?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "proof.curveAllocationBps must equal 8000"],
       [record.proof?.liquidityAllocationBps === EXPECTED_POLICY.liquidityAllocationBps, "proof.liquidityAllocationBps must equal 2000"],
       [record.proof?.teamAllocationBps === EXPECTED_POLICY.teamAllocationBps, "proof.teamAllocationBps must equal 0"],
@@ -75,7 +117,7 @@ export function validateLaunchRecord(record) {
       [record.proof?.quoteAsset === "SOL", "proof.quoteAsset must equal SOL"],
       [record.proof?.graduationTargetSol === 24, "proof.graduationTargetSol must equal 24"],
       [record.proof?.creatorFirstBuySol === 0, "proof.creatorFirstBuySol must equal 0"],
-      [Number.isFinite(record.proof?.creatorSpendSol) && record.proof.creatorSpendSol <= 1, "proof.creatorSpendSol must be at most 1"],
+      [Number.isFinite(record.proof?.creatorSpendSol) && record.proof.creatorSpendSol >= 0 && record.proof.creatorSpendSol <= 1, "proof.creatorSpendSol must be a finite number from 0 to 1"],
     ];
     for (const [ok, message] of proofChecks) if (!ok) issues.push(message);
     if (record.token?.mint !== record.proof?.mint) issues.push("token.mint must equal proof.mint");
