@@ -41,3 +41,18 @@ transaction signatures, supply, decimals, mint authority, freeze authority,
 creator HAKKY balance, finalized metadata and immutable state, LaunchLab launch
 address, curve and liquidity allocation, creator-fee state, graduation target,
 quote asset, LP disposal, and official Raydium and Solscan URLs.
+
+The canonical mint and LaunchLab artifacts both use strict schema version `1`
+and require `ok: true`. Live publication is fail-closed: the site checker reads
+both files, rejects unknown fields, and cross-checks the exact mint, creator,
+launch address and signature, supply, decimals, authorities, zero creator
+balance, metadata URI/image/links/immutability, 80/20/0 allocation, disabled
+creator fees, burned LP, 24 SOL target, SOL quote, and creator spend no greater
+than 1.00 SOL.
+
+The mint proof timestamp must not be later than the LaunchLab proof timestamp.
+The web record stores both exact artifact timestamps and a final promotion
+timestamp ordered after them. Canonical destinations are the Solscan token
+route, Solscan transaction route, and Raydium LaunchLab token route; credentials,
+non-default ports, fragments, alternate routes, and extra query parameters are
+rejected.

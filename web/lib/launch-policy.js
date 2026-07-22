@@ -19,6 +19,43 @@ export const EXPECTED_POLICY = Object.freeze({
   metadataX: "https://x.com/antihakkysack",
 });
 
+export const LAUNCH_RECORD_SCHEMA_VERSION = 1;
+
+export const LIVE_PROOF_FIELDS = Object.freeze([
+  "mint",
+  "creator",
+  "launchId",
+  "launchTransaction",
+  "solscanUrl",
+  "solscanTransactionUrl",
+  "raydiumUrl",
+  "mintVerifiedAt",
+  "launchVerifiedAt",
+  "verifiedAt",
+  "supplyBaseUnits",
+  "decimals",
+  "tokenProgram",
+  "mintAuthority",
+  "freezeAuthority",
+  "creatorBalanceBaseUnits",
+  "metadataImmutable",
+  "metadataName",
+  "metadataSymbol",
+  "metadataUri",
+  "metadataImage",
+  "metadataWebsite",
+  "metadataX",
+  "curveAllocationBps",
+  "liquidityAllocationBps",
+  "teamAllocationBps",
+  "creatorFeeEnabled",
+  "lpPolicy",
+  "quoteAsset",
+  "graduationTargetSol",
+  "creatorFirstBuySol",
+  "creatorSpendSol",
+]);
+
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 
 function decodeBase58(value) {
@@ -80,22 +117,48 @@ function isExactIsoTimestamp(value) {
     && new Date(value).toISOString() === value;
 }
 
-function isOfficialMintUrl(value, hostname, mint) {
+function isCanonicalHttpsUrl(value, { hostname, pathname, search = "" }) {
   try {
     const url = new URL(value);
-    const pathSegments = url.pathname.split("/").filter(Boolean);
-    const queryValues = [...url.searchParams.values()];
     return url.protocol === "https:"
       && url.hostname === hostname
-      && (pathSegments.includes(mint) || queryValues.includes(mint));
+      && !url.username
+      && !url.password
+      && !url.port
+      && !url.hash
+      && url.pathname === pathname
+      && url.search === search;
   } catch {
     return false;
   }
 }
 
+export function isOfficialSolscanMintUrl(value, mint) {
+  return isCanonicalHttpsUrl(value, {
+    hostname: "solscan.io",
+    pathname: `/token/${mint}`,
+  });
+}
+
+export function isOfficialSolscanTransactionUrl(value, signature) {
+  return isCanonicalHttpsUrl(value, {
+    hostname: "solscan.io",
+    pathname: `/tx/${signature}`,
+  });
+}
+
+export function isOfficialRaydiumLaunchUrl(value, mint) {
+  return isCanonicalHttpsUrl(value, {
+    hostname: "raydium.io",
+    pathname: "/launchpad/token/",
+    search: `?mint=${mint}`,
+  });
+}
+
 export function validateLaunchRecord(record) {
   const issues = [];
   const checks = [
+    [record.schemaVersion === LAUNCH_RECORD_SCHEMA_VERSION, "schemaVersion must equal 1"],
     [record.network === EXPECTED_POLICY.network, `network must equal ${EXPECTED_POLICY.network}`],
     [record.project?.name === EXPECTED_POLICY.name, `project.name must equal ${EXPECTED_POLICY.name}`],
     [record.project?.symbol === EXPECTED_POLICY.symbol, `project.symbol must equal ${EXPECTED_POLICY.symbol}`],
@@ -133,8 +196,22 @@ export function validateLaunchRecord(record) {
   }
   if (record.status === "live") {
     if (!record.proof) issues.push("live status requires proof");
-    for (const key of ["mint", "launchId", "launchTransaction", "solscanUrl", "raydiumUrl", "verifiedAt"]) {
+    for (const key of [
+      "mint",
+      "creator",
+      "launchId",
+      "launchTransaction",
+      "solscanUrl",
+      "solscanTransactionUrl",
+      "raydiumUrl",
+      "mintVerifiedAt",
+      "launchVerifiedAt",
+      "verifiedAt",
+    ]) {
       if (!record.proof?.[key]) issues.push(`live status requires proof.${key}`);
+    }
+    for (const key of Object.keys(record.proof ?? {})) {
+      if (!LIVE_PROOF_FIELDS.includes(key)) issues.push(`proof has unexpected field ${key}`);
     }
     const proofChecks = [
       [record.proof?.supplyBaseUnits === EXPECTED_POLICY.supplyBaseUnits, "proof.supplyBaseUnits must equal 1000000000000"],
@@ -151,10 +228,14 @@ export function validateLaunchRecord(record) {
       [record.proof?.metadataWebsite === EXPECTED_POLICY.metadataWebsite, "proof.metadataWebsite must equal https://hakky.xyz"],
       [record.proof?.metadataX === EXPECTED_POLICY.metadataX, "proof.metadataX must equal https://x.com/antihakkysack"],
       [hasBase58DecodedLength(record.proof?.mint, 32), "proof.mint must be a Solana base58 public key"],
+      [hasBase58DecodedLength(record.proof?.creator, 32), "proof.creator must be a Solana base58 public key"],
       [hasBase58DecodedLength(record.proof?.launchId, 32), "proof.launchId must be a Solana base58 public key"],
       [hasBase58DecodedLength(record.proof?.launchTransaction, 64), "proof.launchTransaction must be a Solana base58 signature"],
-      [isOfficialMintUrl(record.proof?.solscanUrl, "solscan.io", record.proof?.mint), "proof.solscanUrl must be an HTTPS solscan.io URL for proof.mint"],
-      [isOfficialMintUrl(record.proof?.raydiumUrl, "raydium.io", record.proof?.mint), "proof.raydiumUrl must be an HTTPS raydium.io URL for proof.mint"],
+      [isOfficialSolscanMintUrl(record.proof?.solscanUrl, record.proof?.mint), "proof.solscanUrl must be the canonical HTTPS Solscan token route for proof.mint"],
+      [isOfficialSolscanTransactionUrl(record.proof?.solscanTransactionUrl, record.proof?.launchTransaction), "proof.solscanTransactionUrl must be the canonical HTTPS Solscan transaction route for proof.launchTransaction"],
+      [isOfficialRaydiumLaunchUrl(record.proof?.raydiumUrl, record.proof?.mint), "proof.raydiumUrl must be the canonical HTTPS Raydium LaunchLab token route for proof.mint"],
+      [isExactIsoTimestamp(record.proof?.mintVerifiedAt), "proof.mintVerifiedAt must be an exact ISO-8601 timestamp"],
+      [isExactIsoTimestamp(record.proof?.launchVerifiedAt), "proof.launchVerifiedAt must be an exact ISO-8601 timestamp"],
       [isExactIsoTimestamp(record.proof?.verifiedAt), "proof.verifiedAt must be an exact ISO-8601 timestamp"],
       [record.proof?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "proof.curveAllocationBps must equal 8000"],
       [record.proof?.liquidityAllocationBps === EXPECTED_POLICY.liquidityAllocationBps, "proof.liquidityAllocationBps must equal 2000"],
@@ -168,6 +249,18 @@ export function validateLaunchRecord(record) {
     ];
     for (const [ok, message] of proofChecks) if (!ok) issues.push(message);
     if (record.token?.mint !== record.proof?.mint) issues.push("token.mint must equal proof.mint");
+    const mintVerifiedAt = Date.parse(record.proof?.mintVerifiedAt);
+    const launchVerifiedAt = Date.parse(record.proof?.launchVerifiedAt);
+    const verifiedAt = Date.parse(record.proof?.verifiedAt);
+    if (
+      !Number.isFinite(mintVerifiedAt)
+      || !Number.isFinite(launchVerifiedAt)
+      || !Number.isFinite(verifiedAt)
+      || mintVerifiedAt > launchVerifiedAt
+      || launchVerifiedAt > verifiedAt
+    ) {
+      issues.push("proof timestamps must satisfy mintVerifiedAt <= launchVerifiedAt <= verifiedAt");
+    }
   } else if (record.status !== "prelaunch") {
     issues.push("status must equal prelaunch or live");
   } else {

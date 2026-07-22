@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildLaunchView, renderLaunchState } from "../web/app.js";
+import { createValidLiveRecord } from "./launch-fixtures.mjs";
 
 const html = await readFile("web/index.html", "utf8");
 const record = JSON.parse(await readFile("web/data/launch.json", "utf8"));
@@ -15,6 +16,15 @@ const SELECTORS = [
   "[data-freeze-authority]",
   "[data-team-allocation]",
   "[data-metadata]",
+  "[data-decimals]",
+  "[data-creator]",
+  "[data-creator-balance]",
+  "[data-allocation]",
+  "[data-creator-fee]",
+  "[data-lp-policy]",
+  "[data-creator-spend]",
+  "[data-verification-time]",
+  "[data-launch-transaction]",
   "[data-solscan]",
   "[data-raydium]",
 ];
@@ -56,48 +66,7 @@ function createDocument({ missing } = {}) {
     querySelector(selector) {
       return elements.get(selector) ?? null;
     },
-    querySelectorAll(selector) {
-      if (selector !== "[data-solscan], [data-raydium]") return [];
-      return [elements.get("[data-solscan]"), elements.get("[data-raydium]")].filter(Boolean);
-    },
   };
-}
-
-function createValidLiveRecord() {
-  const changed = structuredClone(record);
-  changed.status = "live";
-  changed.token.mint = "11111111111111111111111111111111";
-  changed.proof = {
-    mint: changed.token.mint,
-    launchId: "11111111111111111111111111111111",
-    launchTransaction: "1111111111111111111111111111111111111111111111111111111111111111",
-    solscanUrl: `https://solscan.io/token/${changed.token.mint}`,
-    raydiumUrl: `https://raydium.io/launchpad/token/?mint=${changed.token.mint}`,
-    verifiedAt: "2026-07-22T00:00:00.000Z",
-    supplyBaseUnits: "1000000000000",
-    decimals: 6,
-    tokenProgram: "spl-token",
-    mintAuthority: null,
-    freezeAuthority: null,
-    creatorBalanceBaseUnits: "0",
-    metadataImmutable: true,
-    metadataName: "Hakky Protocol",
-    metadataSymbol: "HAKKY",
-    metadataUri: "https://hakky.xyz/metadata.json",
-    metadataImage: "https://hakky.xyz/assets/token.png",
-    metadataWebsite: "https://hakky.xyz",
-    metadataX: "https://x.com/antihakkysack",
-    curveAllocationBps: 8000,
-    liquidityAllocationBps: 2000,
-    teamAllocationBps: 0,
-    creatorFeeEnabled: false,
-    lpPolicy: "burn",
-    quoteAsset: "SOL",
-    graduationTargetSol: 24,
-    creatorFirstBuySol: 0,
-    creatorSpendSol: 0.25,
-  };
-  return changed;
 }
 
 const responseFor = (value) => async () => ({
@@ -115,11 +84,23 @@ function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {})
   assert.equal(element("[data-mint-authority]").textContent, "Required: null");
   assert.equal(element("[data-freeze-authority]").textContent, "Required: null");
   assert.equal(element("[data-team-allocation]").textContent, "Required: 0%");
+  assert.equal(element("[data-decimals]").textContent, "Required: 6");
+  assert.equal(element("[data-creator]").textContent, "Not published");
+  assert.equal(element("[data-creator-balance]").textContent, "Required: 0 HAKKY");
+  assert.equal(element("[data-allocation]").textContent, "Required: 80% / 20% / 0%");
+  assert.equal(element("[data-creator-fee]").textContent, "Required: off");
+  assert.equal(element("[data-lp-policy]").textContent, "Required: burned");
+  assert.equal(element("[data-creator-spend]").textContent, "Required: <= 1.00 SOL");
+  assert.equal(element("[data-verification-time]").textContent, "Not verified");
+  assert.equal(element("[data-launch-transaction]").textContent, "Not published");
   if (element("[data-metadata]")) {
     assert.equal(element("[data-metadata]").textContent, "Required: immutable");
   }
   if (element("[data-solscan]")) assert.equal(element("[data-solscan]").getAttribute("href"), null);
   if (element("[data-raydium]")) assert.equal(element("[data-raydium]").getAttribute("href"), null);
+  if (element("[data-launch-transaction]")) {
+    assert.equal(element("[data-launch-transaction]").getAttribute("href"), null);
+  }
   assert.equal(element("[data-live-actions]").hidden, true);
 }
 
@@ -141,6 +122,30 @@ test("homepage contains the approved story and safety contract", () => {
   }
 });
 
+test("homepage contains exact GitHub navigation and complete live proof structure", () => {
+  assert.match(
+    html,
+    /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer"[^>]*>GitHub ↗<\/a>/,
+  );
+  for (const attribute of [
+    "data-decimals",
+    "data-creator",
+    "data-creator-balance",
+    "data-allocation",
+    "data-creator-fee",
+    "data-lp-policy",
+    "data-creator-spend",
+    "data-verification-time",
+    "data-launch-transaction",
+  ]) {
+    assert.match(html, new RegExp(`\\b${attribute}\\b`));
+  }
+  assert.match(
+    html,
+    /data-launch-transaction[^>]*target="_blank"[^>]*rel="noopener noreferrer"/,
+  );
+});
+
 test("prelaunch view never exposes buy links", () => {
   const view = buildLaunchView(record);
   assert.equal(view.live, false);
@@ -151,7 +156,7 @@ test("prelaunch view never exposes buy links", () => {
 
 test("valid live record renders exact verified evidence and official destinations", async () => {
   const documentRef = createDocument();
-  const live = createValidLiveRecord();
+  const live = createValidLiveRecord(record);
 
   await renderLaunchState(documentRef, responseFor(live));
 
@@ -163,6 +168,19 @@ test("valid live record renders exact verified evidence and official destination
   assert.equal(element("[data-freeze-authority]").textContent, "null (verified)");
   assert.equal(element("[data-team-allocation]").textContent, "0% (verified)");
   assert.equal(element("[data-metadata]").textContent, "immutable (verified)");
+  assert.equal(element("[data-decimals]").textContent, "6 (verified)");
+  assert.equal(element("[data-creator]").textContent, live.proof.creator);
+  assert.equal(element("[data-creator-balance]").textContent, "0 HAKKY (verified)");
+  assert.equal(element("[data-allocation]").textContent, "80% curve / 20% liquidity / 0% team (verified)");
+  assert.equal(element("[data-creator-fee]").textContent, "off (verified)");
+  assert.equal(element("[data-lp-policy]").textContent, "burned (verified)");
+  assert.equal(element("[data-creator-spend]").textContent, "0.25 SOL / 1.00 SOL cap (verified)");
+  assert.equal(element("[data-verification-time]").textContent, live.proof.verifiedAt);
+  assert.equal(element("[data-launch-transaction]").textContent, live.proof.launchTransaction);
+  assert.equal(
+    element("[data-launch-transaction]").getAttribute("href"),
+    live.proof.solscanTransactionUrl,
+  );
   assert.equal(element("[data-solscan]").getAttribute("href"), live.proof.solscanUrl);
   assert.equal(element("[data-raydium]").getAttribute("href"), live.proof.raydiumUrl);
   assert.equal(element("[data-live-actions]").hidden, false);
@@ -170,7 +188,7 @@ test("valid live record renders exact verified evidence and official destination
 
 test("live followed by prelaunch clears every verified field and destination", async () => {
   const documentRef = createDocument();
-  await renderLaunchState(documentRef, responseFor(createValidLiveRecord()));
+  await renderLaunchState(documentRef, responseFor(createValidLiveRecord(record)));
 
   await renderLaunchState(documentRef, responseFor(record));
 
@@ -191,7 +209,7 @@ test("failed fetch and invalid record clear stale verified evidence", async () =
 
   for (const fetchImpl of failingFetches) {
     const documentRef = createDocument();
-    await renderLaunchState(documentRef, responseFor(createValidLiveRecord()));
+    await renderLaunchState(documentRef, responseFor(createValidLiveRecord(record)));
     await assert.rejects(renderLaunchState(documentRef, fetchImpl));
     assertFailClosed(documentRef);
   }
@@ -203,7 +221,7 @@ test("missing required live element never reveals actions or destinations", asyn
   documentRef.elements.get("[data-solscan]").setAttribute("href", "https://example.invalid/stale");
 
   await assert.rejects(
-    renderLaunchState(documentRef, responseFor(createValidLiveRecord())),
+    renderLaunchState(documentRef, responseFor(createValidLiveRecord(record))),
     /Launch-state elements are missing/,
   );
 

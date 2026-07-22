@@ -32,6 +32,12 @@ proof/mainnet-launchlab.json                    # committed Raydium configuratio
 web/data/launch.json                            # promoted from prelaunch to live only after both proofs pass
 ```
 
+Both canonical proof files use the exact supported schema version `1` and are
+publishable only with `ok: true`. `scripts/check-site.mjs` does not read or
+require either file while the web record is `prelaunch`. A `live` record fails
+the quality gate unless both files exist, parse, match their strict schemas,
+and bind exactly to every published web proof field.
+
 ---
 
 ### Task 1: Publish and Verify the Prelaunch Website
@@ -339,7 +345,12 @@ Run:
 rtk npm run verify:token -- --mint $env:HAKKY_MINT --creator $env:HAKKY_CREATOR --out proof/mainnet-mint.json
 ```
 
-Expected: command exits zero and every check is `ok: true`: mainnet target, classic SPL Token program, fixed supply, six decimals, null mint authority, null freeze authority, zero creator balance.
+Expected: command exits zero and creates the canonical schema-version `1`
+artifact exactly once. Every check is `ok: true`: mainnet target, classic SPL
+Token program, fixed supply, six decimals, null mint authority, null freeze
+authority, and zero balance across every initialized or frozen classic token
+account decoded for the exact creator and mint. Failed evaluation must not
+create `proof/mainnet-mint.json`.
 
 - [ ] **Step 3: Independently verify Raydium configuration**
 
@@ -365,12 +376,18 @@ Open the official launch page using the recorded launch ID and cross-check it ag
 | `metadataName` | string `Hakky Protocol` |
 | `metadataSymbol` | string `HAKKY` |
 | `metadataUri` | exact public metadata-JSON URL string |
+| `metadataImage` | string `https://hakky.xyz/assets/token.png` |
+| `metadataWebsite` | string `https://hakky.xyz` |
+| `metadataX` | string `https://x.com/antihakkysack` |
 | `metadataImmutable` | boolean `true` after on-chain metadata readback |
-| `raydiumUrl` | exact official launch-page URL string |
-| `solscanUrl` | exact Solscan mint URL string |
+| `raydiumUrl` | exact `https://raydium.io/launchpad/token/?mint=<mint>` URL |
+| `solscanUrl` | exact `https://solscan.io/token/<mint>` URL |
+| `solscanTransactionUrl` | exact `https://solscan.io/tx/<launchTransaction>` URL |
 | `ok` | boolean `true` only after all fields agree across Raydium and Solana readback |
 
 Do not create the file with sample addresses, sample signatures, or incomplete fields. Do not mark `ok: true` unless each public value has two-source agreement between Raydium and Solana readback.
+The URL fields reject credentials, non-default ports, fragments, alternate
+routes, and extra query parameters.
 
 - [ ] **Step 4: Promote the launch record with exact proof values**
 
@@ -378,8 +395,13 @@ Use the file-editing tool to change `web/data/launch.json`:
 
 - `status` becomes `live`;
 - `token.mint` becomes the verified mint;
-- `proof` contains the verified mint, launch ID, launch transaction, official Solscan URL, and official Raydium URL;
+- `proof` contains the verified mint, creator, launch ID, launch transaction,
+  exact Solscan mint/transaction URLs, and exact Raydium URL;
 - `proof` also contains verified supply, decimals, null authorities, zero creator balance, immutable metadata, 80/20/0 allocation, disabled creator fees, burned LP, creator spend, and verification time;
+- `proof.mintVerifiedAt` exactly equals `proof/mainnet-mint.json.checkedAt`;
+- `proof.launchVerifiedAt` exactly equals `proof/mainnet-launchlab.json.checkedAt`;
+- `proof.verifiedAt` is the final exact ISO-8601 promotion check time, with
+  `mintVerifiedAt <= launchVerifiedAt <= verifiedAt`;
 - all approved fixed policy fields remain unchanged.
 
 Run:
@@ -410,8 +432,13 @@ On `https://hakky.xyz`, verify:
 
 - status says live and instructs verification;
 - mint address exactly matches both proof files;
+- creator identity and zero creator balance match both proof files;
+- the exact launch transaction signature is visible and links to its canonical
+  Solscan transaction route;
 - Solscan and Raydium links open the exact mint/launch;
 - 1,000,000 supply and 80/20/0 distribution remain correct;
+- six decimals, creator-fee off, LP burn, exact creator spend versus the 1.00
+  SOL cap, and the final verification timestamp render visibly;
 - metadata name, symbol, image, links, and immutable state match the approved launch;
 - prelaunch warning and “not published” text no longer render;
 - risk disclosure remains visible;

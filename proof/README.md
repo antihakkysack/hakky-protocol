@@ -14,3 +14,18 @@ against the independently approved creator address in the Raydium LaunchLab
 configuration or session receipt. The verifier records the wallet whose token
 accounts it summed; it cannot discover or approve the intended creator wallet
 on its own.
+
+`mainnet-mint.json` and `mainnet-launchlab.json` use strict schema version `1`.
+The canonical mint file is written once only after every evaluated check passes;
+a failed verification may print sanitized public evidence but must not occupy
+the canonical path. Creator balances include initialized and frozen classic
+token accounts only after each account's decoded mint and owner match the exact
+requested identities. Uninitialized, invalid-state, wrong-program, wrong-mint,
+or wrong-owner accounts fail verification.
+
+The LaunchLab artifact includes the exact metadata image, website, X link, and
+canonical Solscan transaction URL in addition to the fields in `docs/LAUNCH.md`.
+For a live website, both artifacts must exist with `ok: true`, match the web
+record exactly, and satisfy mint-check time <= LaunchLab-check time <= final
+web-verification time. Prelaunch keeps `token.mint` and `proof` null and does not
+require either canonical file.
