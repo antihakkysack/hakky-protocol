@@ -1,3 +1,7 @@
+// SCHEMA-SHAPE-ONLY: these synthetic values exercise strict JSON Schema and
+// browser policy branches. They are not Raydium source evidence and must never
+// be imported by transaction decoders, proof collectors, or publication tests.
+
 const ADDRESSES = Object.freeze({
   mint: "11111111111111111111111111111111",
   creator: "SysvarC1ock11111111111111111111111111111111",

@@ -26,6 +26,7 @@
 - Keep `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, and `entities@8.0.0` pinned; do not run `npm audit fix --force`. Recheck the two documented upstream exceptions by 2026-08-23.
 - No mainnet transaction, wallet signature, metadata upload, or public mutation is part of this implementation plan.
 - At the pinned SDK/IDL revisions, CPMM pool/migration/SPL layouts are available but the separate lock program's position/NFT/fee-right account layouts are not. The implementation must encode this as `source-coverage-unavailable`; it cannot emit a verified CPMM graduation artifact or treat later API data as a substitute until an official source is pinned and reviewed.
+- The exact HAKKY target (`cpmm`, `platformScaleRaw = 0`, `creatorScaleRaw = 0`, `burnScaleRaw = 1000000`) has no source-covered approval path at these revisions. `evaluateHakkyLaunchlabSourceCoverage()` returns the exact frozen unavailable result defined in Task 2; Proof Task 4 and Operations Task 3 must consume it and must not emit `ok: true`, a canonical LaunchLab artifact, or an approval envelope. Enabling a covered result requires a separate reviewed source-pin and TDD plan amendment.
 
 ---
 
@@ -289,6 +290,7 @@
 - Create: `test-support/fixtures/launchlab/initialize-v2-transaction.json`
 - Create: `test-support/fixtures/launchlab/migrate-to-cpswap-transaction.json`
 - Create: `test-support/fixtures/launchlab/migrate-to-amm-transaction.json`
+- Create: `test-support/fixtures/launchlab/platform-config-instructions.json`
 - Create: `test-support/fixtures/launchlab/curve-accounts.json`
 - Create: `test-support/fixtures/launchlab/graduation-accounts.json`
 - Modify: `proof/README.md`
@@ -303,14 +305,16 @@
   export const RAYDIUM_SOURCE_PROVENANCE;
   export const RAYDIUM_IDL_SOURCE_PROVENANCE;
   export const SPL_TOKEN_SOURCE_PROVENANCE;
+  export const HAKKY_SOURCE_COVERAGE_UNAVAILABLE;
 
   deriveLaunchlabAuthorityPda()
   derivePlatformConfigPda(platformAdmin)
   decodeLaunchlabCreationTransaction({ transactionBytes, accountKeys })
   decodeLaunchlabGraduationTransaction({ transactionBytes, accountKeys })
-  decodePlatformConfigAuthorityInstruction({ instructionBytes, accountKeys })
+  decodePlatformConfigAuthorityInstruction({ instructionBytes, accountMetas })
   decodeLaunchlabAccounts({ launchAccount, vaultAccount, platformConfigAccount })
-  decodeGraduationAccounts({ launchAccount, poolAccount, lpAccounts, platformConfigAccount })
+  decodeGraduationAccounts({ launchAccount, poolAccount, platformConfigAccount })
+  evaluateHakkyLaunchlabSourceCoverage({ migrationType, platformScaleRaw, creatorScaleRaw, burnScaleRaw })
   ```
 
 - Return contracts are exact and frozen:
@@ -322,10 +326,13 @@
   | `decodeLaunchlabCreationTransaction(...)` | `{ instruction, discriminatorHex, accounts, decimals, name, symbol, uri, curve, vesting, cpmmCreatorFeeOn }`; `instruction` is `initialize-v2`; `accounts` has exactly `payer`, `creator`, `configId`, `platformId`, `authority`, `launchId`, `mint`, `quoteMint`, `baseVault`, `quoteVault`, `metadataAccount`, `tokenProgramBase`, `tokenProgramQuote`, `metadataProgram`, `systemProgram`, `rentSysvar`, `eventAuthority`, `launchlabProgram`; `curve` has exactly `type`, `supply`, `totalSell`, `totalFundraising`, `migrationType`; `vesting` has exactly `lockedAmount`, `cliffPeriod`, `unlockPeriod`; every integer is `bigint` |
   | `decodeLaunchlabGraduationTransaction(...)` CPMM | `{ instruction, discriminatorHex, migrationType, accounts }`; instruction `migrate-to-cpswap`, discriminator `885cc8671cda908c`, migration type `cpmm`; accounts exactly `payer`, `baseMint`, `quoteMint`, `platformConfig`, `cpmmProgram`, `cpmmPool`, `cpmmAuthority`, `cpmmLpMint`, `cpmmBaseVault`, `cpmmQuoteVault`, `cpmmConfig`, `cpmmCreatePoolFee`, `cpmmObservation`, `lockProgram`, `lockAuthority`, `lockLpVault`, `launchlabAuthority`, `launchId`, `globalConfig`, `launchBaseVault`, `launchQuoteVault`, `poolLpToken`, `baseTokenProgram`, `quoteTokenProgram`, `associatedTokenProgram`, `systemProgram`, `rentSysvar`, `metadataProgram`; data is exactly the discriminator |
   | `decodeLaunchlabGraduationTransaction(...)` AMM-v4 | `{ instruction, discriminatorHex, migrationType, accounts, baseLotSize, quoteLotSize, marketVaultSignerNonce }`; instruction `migrate-to-amm`, discriminator `cf52c091fecf91df`, migration type `amm-v4`; accounts exactly `payer`, `baseMint`, `quoteMint`, `openbookProgram`, `market`, `requestQueue`, `eventQueue`, `bids`, `asks`, `marketVaultSigner`, `marketBaseVault`, `marketQuoteVault`, `ammProgram`, `ammPool`, `ammAuthority`, `ammOpenOrders`, `ammLpMint`, `ammBaseVault`, `ammQuoteVault`, `ammTargetOrders`, `ammConfig`, `ammCreateFeeDestination`, `launchlabAuthority`, `launchId`, `globalConfig`, `launchBaseVault`, `launchQuoteVault`, `poolLpToken`, `tokenProgram`, `associatedTokenProgram`, `systemProgram`, `rentSysvar`; lot sizes are `bigint`, nonce is integer, and data has no trailing bytes |
-  | `decodePlatformConfigAuthorityInstruction(...)` create | `{ instruction, discriminatorHex, platformAdmin, platformConfig, accounts, paramsSha256 }`; instruction `create-platform-config`, discriminator `b05ac4affd71dc14`; accounts exactly `platformAdmin`, `platformFeeWallet`, `platformNftWallet`, `platformConfig`, `cpmmConfig`, `systemProgram`, `transferFeeExtensionAuthority`, `platformVestingWallet`; require administrator signer and derived PDA equality; argument bytes are preserved only as `paramsSha256`, not decoded into policy evidence |
-  | `decodePlatformConfigAuthorityInstruction(...)` update | `{ instruction, discriminatorHex, platformAdmin, platformConfig, mutableVariant }`; instruction `update-platform-config`, discriminator `c33c4c81922d438f`; require administrator signer, derived PDA equality, one exact pinned `PlatformConfigParam` variant, and no trailing bytes |
+  | `decodePlatformConfigAuthorityInstruction(...)` create | `{ instruction, discriminatorHex, platformAdmin, platformConfig, accounts, paramsSha256 }`; instruction `create-platform-config`, discriminator `b05ac4affd71dc14`; accounts exactly `platformAdmin`, `platformFeeWallet`, `platformNftWallet`, `platformConfig`, `cpmmConfig`, `systemProgram`, `transferFeeExtensionAuthority`, `platformVestingWallet`; every `accountMetas` item has exactly `publicKey`, `isSigner`, `isWritable` derived from the versioned transaction message; require every pinned IDL flag, administrator signer, and derived PDA equality; argument bytes are preserved only as `paramsSha256`, not decoded into policy evidence |
+  | `decodePlatformConfigAuthorityInstruction(...)` update | `{ instruction, discriminatorHex, platformAdmin, platformConfig, mutableVariant }`; instruction `update-platform-config`, discriminator `c33c4c81922d438f`; every `accountMetas` item has exactly `publicKey`, `isSigner`, `isWritable` derived from the versioned transaction message; require every pinned IDL flag, administrator signer, derived PDA equality, one exact pinned `PlatformConfigParam` variant, and no trailing bytes |
   | `decodeLaunchlabAccounts(...)` | `{ launch, baseVault, quoteVault, platformConfig }`; `launch` has exactly the LaunchpadPool fields listed below; each vault has `address`, `mint`, `owner`, `amount`, `accountSha256`; `platformConfig` has exactly the listed observed economic fields and `accountSha256`; integers are `bigint` |
-  | `decodeGraduationAccounts(...)` | `{ launch, pool, lpDisposition, platformConfig }`; `pool` has `address`, `programId`, `baseMint`, `quoteMint`, `baseVault`, `quoteVault`, `accountSha256`; `lpDisposition` is only the exact CPMM or AMM-v4 union defined by the graduation schema |
+  | `decodeGraduationAccounts(...)` | `{ launch, pool, platformConfig }`; this is raw current-account decoding only; `pool` has `address`, `programId`, `baseMint`, `quoteMint`, `baseVault`, `quoteVault`, `accountSha256`; it never returns `lpDisposition`, burned/locked quantities, fee-right absence, or other historical conclusions |
+  | `evaluateHakkyLaunchlabSourceCoverage(...)` | Accepts exactly the decoded HAKKY target values `cpmm`, `0n`, `0n`, `1000000n` and returns `HAKKY_SOURCE_COVERAGE_UNAVAILABLE`; every other shape is rejected as an unsupported coverage query. There is intentionally no covered/`ok: true` branch in this source revision. |
+
+- `HAKKY_SOURCE_COVERAGE_UNAVAILABLE` is exactly recursively frozen `{ ok: false, code: "source-coverage-unavailable", reason: "cpmm-burn-scale-lp-rights-unmapped" }`. It is a control result, never canonical proof content. Proof Task 4, Operations Task 3, and any signing gate must compare the exact object fields and stop; callers cannot replace it with an operator-authored result.
 
 - `RAYDIUM_SOURCE_PROVENANCE` is exactly:
 
@@ -361,7 +368,7 @@
 
 - [ ] **Step 1: Write failing PDA and decoder contract tests**
 
-  Test the exact PDA derived from the official seed bytes at the pinned commit. Test that creation decoding returns `instruction: "initialize-v2"`, rejects Token-2022, returns all signer/program/account identities, and exposes only the exact instruction-level allocation, quote, migration, metadata, and vesting fields in the return contract above. Preview and proof reconciliation—not the instruction decoder—derive threshold, first-buy, fee, and creator cost from complete transaction, finalized account, and pre/post balance evidence. Test both exact migration instruction unions, discriminators, account orders, AMM argument decoding, short/trailing data, wrong fixed programs, and cross-kind field absence.
+  Test the exact PDA derived from the official seed bytes at the pinned commit. Test that creation decoding returns `instruction: "initialize-v2"`, rejects Token-2022, returns all program/account identities, and exposes only the exact instruction-level allocation, quote, migration, metadata, and vesting fields in the return contract above. Preview and proof reconciliation—not the instruction decoder—derive threshold, first-buy, fee, and creator cost from complete transaction, finalized account, and pre/post balance evidence. Test both exact migration instruction unions, discriminators, account orders, AMM argument decoding, short/trailing data, wrong fixed programs, and cross-kind field absence. Platform authority tests must supply exact transaction-derived account metas and reject a non-signer administrator or any signer/writable-flag drift. Assert the exact HAKKY coverage query returns `HAKKY_SOURCE_COVERAGE_UNAVAILABLE`, and assert this test file does not import schema-shape fixtures from `test-support/launch-fixtures.mjs`.
 
 - [ ] **Step 2: Run the decoder tests and verify RED**
 
@@ -373,7 +380,7 @@
 
 - [ ] **Step 3: Record source-derived fixtures and provenance**
 
-  Encode the reviewed instruction/account bytes and expected decoded values in the five JSON fixtures. Each fixture must contain `sourceRepository`, exact `sourceCommit`, `sourcePath`, discriminator bytes, base64 bytes, ordered account keys, fixed program identities, and expected public decoded values. Do not use a live API response or an unpinned branch as a fixture source.
+  Encode the reviewed instruction/account bytes and expected decoded values in the six JSON fixtures. Each fixture must contain `sourceRepository`, exact `sourceCommit`, `sourcePath`, discriminator bytes, base64 bytes, ordered account keys or exact transaction-derived account metas as applicable, fixed program identities, and expected public decoded values. The platform-config fixture records every expected `isSigner`/`isWritable` flag from the pinned IDL. Do not use a live API response or an unpinned branch as a fixture source.
 
 - [ ] **Step 4: Implement the narrow decoder**
 
@@ -398,9 +405,9 @@
   | `src/raydium/launchpad/type.ts` | CPMM creator-fee enum 0=`OnlyTokenB`, 1=`BothToken`; neither value proves zero fees, so policy evaluation must use the immutable per-launch binding and rate fields |
   | `src/common/fee.ts` | `FEE_RATE_DENOMINATOR_VALUE` is exactly `1_000_000`; preserve raw millionths in proof and convert only for public display without rounding away a nonzero rate |
 
-  For CPMM Burn & Earn, verify finalized CPMM pool bytes, LP mint bytes, lock NFT mint/account bytes, lock vault token-account bytes, the derived locked-position PDA, fixed lock program/authority ownership, and every fee-right public account needed by the exact graduation union. For AMM-v4, verify the pool owner, exact layout bytes, LP mint supply, burn destinations, creator/platform token accounts, withdrawal authority, and fee-right list. If the pinned SDK/IDL/SPL layouts do not define a required account or field, the decoder throws a named source-coverage failure and the proof builder forces same-stage `unavailable`; never infer it or fill it from Raydium APIs.
+  `decodeGraduationAccounts()` is deliberately limited to raw launch, pool, and PlatformConfig account state. It rejects any `lpAccounts` argument and never constructs the graduation schema's semantic `lpDisposition` union: account-only input cannot establish AMM historical burned quantities or exhaustive fee-right absence, and the CPMM lock-program layouts are not pinned. Proof Task 6 owns transaction/account-history reconciliation. For CPMM Burn & Earn it must verify finalized CPMM pool bytes, LP mint bytes, lock NFT mint/account bytes, lock vault token-account bytes, the derived locked-position PDA, fixed lock program/authority ownership, and every fee-right public account needed by the exact graduation union. For AMM-v4 it must verify the pool owner, exact layout bytes, LP mint supply, burn transactions/destinations, creator/platform token accounts, withdrawal authority, and fee-right list. If the pinned SDK/IDL/SPL layouts do not define a required account or field, the collector returns the named source-coverage failure and the proof builder forces same-stage `unavailable`; never infer it or fill it from Raydium APIs.
 
-  Decode integers to `bigint`, convert them to decimal strings only at the proof boundary, require the derived authority to equal the pinned expected authority, reject Token-2022, unknown curve/status/migration enums, optional accounts other than the one documented above, trailing/short data, and nonzero reserved bytes unless the pinned source explicitly assigns them. Return recursively frozen plain objects. Do not accept caller-supplied seeds, discriminators, layouts, program IDs, or expected-authority overrides. The graduation proof evaluator may return `ok: true` only after the decoder has consumed source-pinned finalized account bytes for every required pool, LP, lock/burn, and fee-right fact.
+  Decode integers to `bigint`, convert them to decimal strings only at the proof boundary, require the derived authority to equal the pinned expected authority, reject Token-2022, unknown curve/status/migration enums, optional accounts other than the one documented above, trailing/short data, and nonzero reserved bytes unless the pinned source explicitly assigns them. Return recursively frozen plain objects. Do not accept caller-supplied seeds, discriminators, layouts, program IDs, expected-authority overrides, or account-meta flags. The graduation proof evaluator may return `ok: true` only after Task 6 has consumed source-pinned finalized account bytes plus the required finalized transaction/inner-instruction history for every pool, LP, lock/burn, and fee-right fact.
 
 - [ ] **Step 5: Run the decoder tests and verify GREEN**
 
@@ -408,7 +415,7 @@
   rtk node --test test/raydium-launchlab.test.mjs
   ```
 
-  Expected: PASS for PDA derivation, creation decoding, both migration transaction unions, source-covered CPMM/AMM-v4 pool decoding, explicit source-coverage failure where a required lock/burn account layout is absent, and malformed-byte rejection. A fixture may prove fail-closed `unavailable`; it must not invent a verified LP-right result.
+  Expected: PASS for PDA derivation, creation decoding, both migration transaction unions, raw source-covered CPMM/AMM-v4 pool decoding, exact transaction-meta signer enforcement, the exact HAKKY `source-coverage-unavailable` result, rejection of semantic LP-disposition input/output, and malformed-byte rejection. A fixture may prove fail-closed `unavailable`; it must not invent a verified LP-right result.
 
 - [ ] **Step 6: Refactor common bounded byte readers**
 
@@ -520,8 +527,8 @@
 - Create: `src/launchlab-proof.mjs`
 - Create: `scripts/verify-launchlab.mjs`
 - Create: `test/launchlab-proof.test.mjs`
+- Create: `test-support/launchlab-proof-fixtures.mjs`
 - Modify: `package.json`
-- Modify: `test-support/launch-fixtures.mjs`
 
 **Interfaces:**
 
@@ -554,7 +561,7 @@
 
 - [ ] **Step 1: Write failing reconciliation tests**
 
-  Build independent transaction and account fixtures. Assert a schema-valid artifact only when mint, creator, launch ID, programs, PlatformConfig, its derived platform administrator/update-authority set, exhaustive pinned-IDL mutable-field classification, supply, allocation, quote mint, threshold, first buy, creator credit, fees, migration type, LP policy, metadata, cost, links, and account hashes agree. Mutate each field on only one source and assert a named reconciliation check fails.
+  Build independent source-provenance transaction and account fixtures in `test-support/launchlab-proof-fixtures.mjs`; do not import `test-support/launch-fixtures.mjs`, whose values are schema-shape-only. Assert every normal reconciliation check for mint, creator, launch ID, programs, PlatformConfig, its derived platform administrator/update-authority set, exhaustive pinned-IDL mutable-field classification, supply, allocation, quote mint, threshold, first buy, creator credit, fees, migration type, metadata, cost, links, and account hashes. Then require the exact Task 2 HAKKY coverage result and assert it prevents a schema-valid artifact, `ok: true`, and publication. Mutate each field on only one source and assert a named reconciliation check fails.
 
 - [ ] **Step 2: Add immutable-rights and LP-union failures**
 
@@ -574,7 +581,7 @@
 
 - [ ] **Step 5: Implement pure reconciliation**
 
-  Return the exact LaunchLab-v2 root objects. Calculate `creationDebitLamports` from creator/payer pre/post balances and transaction fee, calculate `recoveryDebitLamports` from every distinct finalized recovery signature paid by the same creator, set graduation debit to `"0"`, add validated metadata upload debit, and require the exact four-term sum as `cumulativeCreatorDebitLamports <= 1000000000`. Reject duplicate, wrong-payer, unrelated, or non-finalized recovery signatures. Serialize the exhaustive sorted update-authority/mutable-field evidence and classification. Require all economic settings to be copied into immutable launch state or otherwise provably unchangeable by every PlatformConfig authority. Set `ok: true` only after every ordered check is true and the schema assertion passes.
+  Construct the candidate LaunchLab-v2 root only after all ordinary evidence checks. Calculate `creationDebitLamports` from creator/payer pre/post balances and transaction fee, calculate `recoveryDebitLamports` from every distinct finalized recovery signature paid by the same creator, set graduation debit to `"0"`, add validated metadata upload debit, and require the exact four-term sum as `cumulativeCreatorDebitLamports <= 1000000000`. Reject duplicate, wrong-payer, unrelated, or non-finalized recovery signatures. Serialize the exhaustive sorted update-authority/mutable-field evidence and classification. Require all economic settings to be copied into immutable launch state or otherwise provably unchangeable by every PlatformConfig authority. Finally consume `evaluateHakkyLaunchlabSourceCoverage()`; at the current pin it must return the exact unavailable result, so the reconciler returns that control result and cannot set `ok: true`, validate/publish the candidate root, or occupy `proof/mainnet-launchlab.json`.
 
 - [ ] **Step 6: Implement the append-only CLI**
 
@@ -590,7 +597,7 @@
   rtk node --test test/launchlab-proof.test.mjs test/proof-schemas.test.mjs
   ```
 
-  Expected: PASS for both migration types and every fail-closed mismatch.
+  Expected: PASS for source-derived decoding/reconciliation checks, every fail-closed mismatch, and deterministic refusal to publish the exact HAKKY target while source coverage is unavailable. No current passing canonical LaunchLab artifact fixture exists.
 
 - [ ] **Step 8: Refactor check construction**
 
@@ -599,7 +606,7 @@
 - [ ] **Step 9: Commit the LaunchLab proof slice**
 
   ```powershell
-  rtk git add package.json package-lock.json src/launchlab-proof.mjs scripts/verify-launchlab.mjs test/launchlab-proof.test.mjs test-support/launch-fixtures.mjs
+  rtk git add package.json package-lock.json src/launchlab-proof.mjs scripts/verify-launchlab.mjs test/launchlab-proof.test.mjs test-support/launchlab-proof-fixtures.mjs
   rtk git commit -m "proof: reconcile LaunchLab creation evidence"
   ```
 
@@ -757,8 +764,8 @@
 - Create: `src/graduation-proof.mjs`
 - Create: `scripts/verify-graduation.mjs`
 - Create: `test/graduation-proof.test.mjs`
+- Create: `test-support/graduation-proof-fixtures.mjs`
 - Modify: `package.json`
-- Modify: `test-support/launch-fixtures.mjs`
 
 **Interfaces:**
 
@@ -797,7 +804,7 @@
 
 - [ ] **Step 3: Write failing LP-disposition tests**
 
-  For CPMM require the exact LP mint/locked-position/lock NFT/token-account/lock-vault identities, `0/0/10000` bps, no Fee Key, no withdrawal right, branch-complete raw `evidenceAccounts`, and `kind: "burn-and-earn"`. For AMM-v4 require LP mint, burned amount, zero creator/platform/recoverable units, null withdrawal authority, empty fee rights, branch-complete raw `evidenceAccounts`, and `kind: "lp-burn"`. Recompute `lpEvidenceSha256`; reject a missing required role, duplicate role/address, hash/slot drift, mixed shape, misleading mechanism label, and any account whose official source layout is not pinned.
+  Use only `test-support/graduation-proof-fixtures.mjs` source-provenance fixtures; never import the schema-shape-only `test-support/launch-fixtures.mjs`. For CPMM require the exact LP mint/locked-position/lock NFT/token-account/lock-vault identities, `0/0/10000` bps, no Fee Key, no withdrawal right, branch-complete raw `evidenceAccounts`, and `kind: "burn-and-earn"`. For AMM-v4 require LP mint, burned amount derived from finalized transaction/inner-instruction history rather than current accounts alone, zero creator/platform/recoverable units, null withdrawal authority, empty fee rights, branch-complete raw `evidenceAccounts`, and `kind: "lp-burn"`. Recompute `lpEvidenceSha256`; reject a missing required role, duplicate role/address, hash/slot drift, mixed shape, misleading mechanism label, and any account whose official source layout is not pinned.
 
 - [ ] **Step 4: Run tests and verify RED**
 
@@ -838,7 +845,7 @@
 - [ ] **Step 10: Commit the graduation proof slice**
 
   ```powershell
-  rtk git add package.json package-lock.json src/graduation-proof.mjs scripts/verify-graduation.mjs test/graduation-proof.test.mjs test-support/launch-fixtures.mjs
+  rtk git add package.json package-lock.json src/graduation-proof.mjs scripts/verify-graduation.mjs test/graduation-proof.test.mjs test-support/graduation-proof-fixtures.mjs
   rtk git commit -m "proof: verify finalized LaunchLab graduation"
   ```
 

@@ -315,7 +315,7 @@ rtk git commit -m "launch: add immutable metadata preparation gates"
 - Modify: `proof/README.md`
 
 **Interfaces:**
-- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()`, finalized RPC account bytes, wallet simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
+- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()` and `evaluateHakkyLaunchlabSourceCoverage()`, finalized RPC account bytes, wallet simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
 - Produces: `verifyOfficialRaydiumOrigin({ uiUrl, fetchImpl, checkedAt }) -> officialOriginReceipt`; `fetchWalletReadiness({ connection, creatorAddress, requiredLamports, checkedAt }) -> walletReadinessReceipt`; `decodeUnsignedLaunchTransaction({ serialized, addressLookupTables }) -> normalizedPreview`; `fetchPreviewState({ connection, normalizedPreview }) -> finalizedState`; `evaluateLaunchPreview({ preview, state, simulation, metadataManifest, metadataReadback, officialOriginReceipt, walletReadinessReceipt, creator }) -> evaluation`; `buildApprovalEnvelope(evaluation) -> envelope`; ignored `artifacts/mainnet-session/official-origin.json`, `wallet-readiness.json`, `preview.json`, and `approval-envelope.json`.
 
 The origin receipt has exact keys `schemaVersion`, `checkedAt`, `uiUrl`, `uiOrigin`, `docsUrl`, `docsSha256`, `documentedProgramId`, `pinnedProgramId`, `checks`, `ok`. The verifier fetches `https://docs.raydium.io/introduction/what-is-raydium` and `https://docs.raydium.io/reference/program-addresses` with redirect-origin checks, requires the first to identify `raydium.io` as the official app and the second to identify the exact current LaunchLab program, requires the browser URL origin to be exactly `https://raydium.io`, and requires the documented ID to equal the pinned decoder ID. DNS success, search results, screenshots, cached receipts, `api-v3`, and lookalike/subdomain URLs are insufficient. The receipt expires after 30 minutes and must be regenerated immediately before preview approval; any fetch/parse/drift failure stops signing.
@@ -324,10 +324,10 @@ The wallet receipt has exact keys `schemaVersion`, `network`, `creator`, `genesi
 
 - [ ] **Step 1: Write RED policy-matrix tests**
 
-Create fixture builders whose passing case contains exactly:
+Create fixture builders whose exact HAKKY policy-target case contains:
 
 ```js
-export const APPROVED_RAW_VALUES = Object.freeze({
+export const HAKKY_TARGET_RAW_VALUES = Object.freeze({
   launchlabProgramId: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
   tokenProgramId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   quoteMint: "So11111111111111111111111111111111111111112",
@@ -345,10 +345,14 @@ export const APPROVED_RAW_VALUES = Object.freeze({
   metadataUploadLamports: "25000000",
   maximumCreationDebitLamports: "975000000",
   cumulativeCreatorDebitCapLamports: "1000000000",
+  migrationType: "cpmm",
+  platformScaleRaw: "0",
+  creatorScaleRaw: "0",
+  burnScaleRaw: "1000000",
 });
 ```
 
-For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be copied exactly into evaluation and approval disclosure. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, and any creation debit above `1000000000 - metadataUploadLamports`.
+The current pinned-source result for this exact target is the frozen `{ ok: false, code: "source-coverage-unavailable", reason: "cpmm-burn-scale-lp-rights-unmapped" }`. Assert `evaluateLaunchPreview()` includes the exact failed `source-coverage-unavailable` check, returns `ok: false`, and `buildApprovalEnvelope()` refuses to produce an envelope. There is no passing approval-envelope fixture in this slice. For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be preserved in the non-approvable diagnostic evaluation. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, and any creation debit above `1000000000 - metadataUploadLamports`.
 
 - [ ] **Step 2: Run preview tests and verify RED**
 
@@ -360,7 +364,7 @@ Expected: FAIL because the preview and RPC modules do not exist.
 
 - [ ] **Step 3: Implement strict raw transaction decoding**
 
-Use `VersionedTransaction.deserialize(Buffer.from(serialized, "base64"))`. Resolve every address-table lookup from finalized RPC data before inspecting compiled instructions. Require exactly one LaunchLab instruction and pass its exact bytes and ordered account keys to the proof plan's source-pinned decoder; require its normalized result to contain `instruction: "initialize-v2"`. Do not duplicate the discriminator, Borsh layout, seed, or account-order constants in the preview module. Reject trailing or missing bytes through that canonical decoder.
+Use `VersionedTransaction.deserialize(Buffer.from(serialized, "base64"))`. Resolve every address-table lookup from finalized RPC data before inspecting compiled instructions. Require exactly one LaunchLab instruction and pass its exact bytes and ordered account keys to the proof plan's source-pinned decoder; require its normalized result to contain `instruction: "initialize-v2"`. When platform authority history is decoded, derive exact `publicKey`/`isSigner`/`isWritable` account metas from the versioned transaction message and pass those metas to the canonical authority decoder. Do not duplicate the discriminator, Borsh layout, seed, account flags, or account-order constants in the preview module. Reject trailing or missing bytes through that canonical decoder.
 
 Reject `InitializeWithToken2022`, any unknown LaunchLab instruction in the creation transaction, and any unclassified transfer. Preserve raw instruction bytes, ordered account keys, signer/writable flags, recent blockhash, and SHA-256 of the serialized transaction in the normalized preview.
 
@@ -393,9 +397,9 @@ Define `normalizeAndHashFinalizedAccounts` in the same module, reject null/extra
 
 - [ ] **Step 5: Implement the immutable-economic-binding hard stop**
 
-`evaluateLaunchPreview()` may return `ok: true` only when decoded per-launch state or program-enforced immutable fields bind creator fee zero and the migration-specific full-lock disposition. A current PlatformConfig value, UI toggle, screenshot, or operator assertion is not immutable evidence. If the verifier cannot prove the absence of a post-signature admin update path, add the exact failed check `immutable-economic-binding` and stop.
+Before any immutable-economic approval check, `evaluateLaunchPreview()` must call `evaluateHakkyLaunchlabSourceCoverage()` with only decoded source values. At the current pin the exact HAKKY target returns `source-coverage-unavailable`; preserve that exact failed check and stop. It cannot return `ok: true`, and `buildApprovalEnvelope()` cannot emit an envelope. A current PlatformConfig value, UI toggle, screenshot, operator assertion, or injected coverage object is not a substitute.
 
-For CPMM, require a discriminated Burn & Earn result with creator/platform shares `0` and irreversible share `10000` basis points. For AMM v4, require LP burn evidence with zero creator/platform LP units, zero recoverable LP supply, null withdrawal authority, and an empty fee-right list. Never accept irrelevant zero fields from the other migration branch.
+A future separate source-pin/TDD amendment may add a covered branch only when the official sources map the configuration to the full migration-specific disposition. For CPMM that means a discriminated Burn & Earn result with creator/platform shares `0` and irreversible share `10000` basis points plus every lock/Fee-Key/right layout. For AMM v4 it means source-pinned LP-burn semantics with zero creator/platform LP units, zero recoverable LP supply, null withdrawal authority, and an empty fee-right list. Never accept irrelevant zero fields from the other migration branch.
 
 - [ ] **Step 6: Implement the CLI and deterministic approval envelope**
 
@@ -417,7 +421,7 @@ rtk npm run verify:wallet-readiness -- --creator $env:HAKKY_CREATOR --metadata-r
 rtk npm run verify:launch-preview -- --transaction artifacts/mainnet-session/unsigned-transaction.base64 --creator $env:HAKKY_CREATOR --metadata-manifest artifacts/metadata/manifest.json --metadata-readback artifacts/metadata/readback.json --official-origin artifacts/mainnet-session/official-origin.json --wallet-readiness artifacts/mainnet-session/wallet-readiness.json --out artifacts/mainnet-session/preview.json
 ```
 
-The CLIs accept no seed, keypair, approval override, fee override, program override, or manual policy value. The preview recomputes the required balance from the validated metadata readback and rejects a different receipt amount. The preview CLI writes `preview.json` and `approval-envelope.json` only when every check passes. The envelope contains the transaction hash, exact wallet/creator identity, finalized balance and slot, every signer/program/transfer, metadata upload debit, maximum creation debit, exact cumulative maximum, observed protocol trading-fee rate, zero creator fee/right result, irreversible LP settings, official-origin receipt hash/expiry, wallet receipt hash/expiry, and a statement that it authorizes only the exact serialized transaction. Immediately before wallet signing, present this envelope again and obtain action-time approval whose scope expressly names both the exact transaction hash/signature action and exact maximum creation debit; if either changes, the approval is void and a fresh preview is required.
+The CLIs accept no seed, keypair, approval override, fee override, program override, source-coverage override, or manual policy value. The preview recomputes the required balance from the validated metadata readback and rejects a different receipt amount. The preview CLI writes `preview.json` and `approval-envelope.json` only when every check passes; with the current exact unavailable result it writes neither and exits nonzero with the sanitized code. If a later separately reviewed pin enables coverage, the envelope contains the transaction hash, exact wallet/creator identity, finalized balance and slot, every signer/program/transfer, metadata upload debit, maximum creation debit, exact cumulative maximum, observed protocol trading-fee rate, zero creator fee/right result, irreversible LP settings, official-origin receipt hash/expiry, wallet receipt hash/expiry, and a statement that it authorizes only the exact serialized transaction. Immediately before wallet signing, present this envelope again and obtain action-time approval whose scope expressly names both the exact transaction hash/signature action and exact maximum creation debit; if either changes, the approval is void and a fresh preview is required.
 
 - [ ] **Step 7: Run GREEN tests and refactor decoder boundaries**
 
@@ -432,7 +436,7 @@ rtk node --check scripts/verify-wallet-readiness.mjs
 rtk node --check scripts/verify-launchlab-preview.mjs
 ```
 
-Expected: PASS. Keep byte decoding, RPC reads, policy evaluation, and CLI I/O in separate functions so a reviewer can reject any boundary independently.
+Expected: PASS for byte/RPC/policy validation, the exact deterministic source-coverage hard stop, absence of preview/envelope output, and all malformed-input cases. Keep byte decoding, RPC reads, policy evaluation, and CLI I/O in separate functions so a reviewer can reject any boundary independently.
 
 - [ ] **Step 8: Document transaction acquisition as a non-bypassable gate**
 
