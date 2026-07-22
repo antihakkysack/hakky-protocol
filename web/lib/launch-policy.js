@@ -145,7 +145,14 @@ function hasBase58DecodedLength(value, expectedLength) {
 
 function isPublicHostname(hostname) {
   const host = hostname.toLowerCase();
-  if (!host || host.startsWith("[") || host === "localhost" || host.endsWith(".localhost") || host === "::1") return false;
+  if (
+    !host
+    || host.endsWith(".")
+    || host.startsWith("[")
+    || host === "localhost"
+    || host.endsWith(".localhost")
+    || host === "::1"
+  ) return false;
   const octets = host.split(".");
   if (octets.length === 4 && octets.every((octet) => /^\d+$/.test(octet))) {
     const [first, second] = octets.map(Number);

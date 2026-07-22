@@ -142,6 +142,39 @@ test("rejects bracketed IPv6 metadata URI hosts", () => {
   }
 });
 
+test("rejects trailing-dot and normalized private metadata hosts", () => {
+  for (const metadataUri of [
+    "https://localhost./metadata.json",
+    "https://foo.localhost./metadata.json",
+    "https://127.1/metadata.json",
+    "https://2130706433/metadata.json",
+    "https://0x7f000001/metadata.json",
+    "https://017700000001/metadata.json",
+    "https://10.1/metadata.json",
+    "https://192.168.1/metadata.json",
+    "https://[::ffff:127.0.0.1]/metadata.json",
+    "https://[::ffff:7f00:1]/metadata.json",
+  ]) {
+    const changed = createValidLiveRecord(record);
+    changed.proof.metadataUri = metadataUri;
+    assert.ok(
+      validateLaunchRecord(changed).includes("proof.metadataUri must be a public HTTPS or IPFS URL"),
+      `accepted non-public metadata host: ${metadataUri}`,
+    );
+  }
+});
+
+test("complete live records continue to accept current public metadata hosts", () => {
+  for (const metadataUri of [
+    "https://hakky.xyz/metadata.json",
+    "https://cdn.example.com/hakky/metadata.json",
+  ]) {
+    const changed = createValidLiveRecord(record);
+    changed.proof.metadataUri = metadataUri;
+    assert.deepEqual(validateLaunchRecord(changed), [], `rejected public metadata URI: ${metadataUri}`);
+  }
+});
+
 test("rejects malformed or unrelated live proof", () => {
   const changed = structuredClone(record);
   changed.status = "live";
