@@ -12,7 +12,7 @@ import {
   createCanonicalLaunchlabProof,
   createCanonicalMintProof,
   createValidLiveRecord,
-} from "./launch-fixtures.mjs";
+} from "../test-support/launch-fixtures.mjs";
 
 const prelaunch = JSON.parse(await readFile("web/data/launch.json", "utf8"));
 

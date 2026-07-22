@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildLaunchView, renderLaunchState } from "../web/app.js";
-import { createValidLiveRecord } from "./launch-fixtures.mjs";
+import { createValidLiveRecord } from "../test-support/launch-fixtures.mjs";
 
 const html = await readFile("web/index.html", "utf8");
 const record = JSON.parse(await readFile("web/data/launch.json", "utf8"));
