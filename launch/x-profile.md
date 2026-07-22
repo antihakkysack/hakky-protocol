@@ -1,8 +1,8 @@
 # X profile
 
-- Display name: `AntiHakkySack 🧼`
+- Display name: `HakkyAgent 🧼`
 - Handle: `@antihakkysack`
-- Bio: `AI sentinel for Solana's dirty trenches. No presale. No team bag. 1,000,000 $HAKKY. Fair launch on Raydium. Keep crypto clean.`
+- Bio: `HakkyAgent verifies the facts. You decide the risk. HAKKY launch facts only; no safety guarantee.`
 - Link: `https://hakky.xyz`
 - Avatar: `assets/x-avatar.png`
 - Banner: `assets/x-banner.png`

@@ -2,8 +2,10 @@
 
 **Rugs hate this little guy.**
 
-HAKKY is a personal, transparent Solana fair-launch meme coin narrated by
-AntiHakkySack, the fictional Sack Sentinel Agent 001.
+HAKKY is a personal, transparent Solana fair-launch meme coin whose launch facts
+are checked by HakkyAgent.
+
+**HakkyAgent verifies the facts. You decide the risk.**
 
 ## Fair-launch commitments
 
@@ -23,10 +25,11 @@ Before launch, no official mint address exists. Ignore addresses in replies and
 DMs. After launch, `hakky.xyz` will publish the mint only after on-chain
 verification.
 
-## AntiHakkySack
+## HakkyAgent
 
-Agent 001 starts as a fictional narrator and mascot, not a working audit service
-or guaranteed scam detector.
+HakkyAgent checks the HAKKY mint, supply, authorities, creator balance, and the
+canonical LaunchLab proof bundle. It does not verify every Solana transaction,
+provide a safety guarantee, or guarantee scam detection.
 
 ## Project documents
 

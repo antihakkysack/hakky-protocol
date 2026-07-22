@@ -4,7 +4,7 @@
 
 Security reports may cover the static website, launch manifest, read-only
 verification scripts, dependency integrity, or impersonation of HAKKY and
-AntiHakkySack.
+HakkyAgent.
 
 HAKKY does not deploy a custom smart contract. The token uses the Solana token
 program and Raydium LaunchLab. This repository has not received a third-party

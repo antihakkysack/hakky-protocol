@@ -189,10 +189,35 @@ test("homepage contains the approved story and safety contract", () => {
   }
 });
 
-test("homepage contains exact GitHub navigation and complete live proof structure", () => {
+test("homepage presents the exact HakkyAgent identity and claim boundary", () => {
+  for (const text of [
+    "<title>HAKKY — HakkyAgent</title>",
+    "HAKKY! / HAKKYAGENT",
+    "HAKKYAGENT IS ONLINE",
+    "HakkyAgent verifies the facts. You decide the risk.",
+    "Does HakkyAgent verify every Solana transaction?",
+    "HAKKYAGENT © 2026 · KEEP CRYPTO CLEAN",
+  ]) {
+    assert.match(html, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
   assert.match(
     html,
-    /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer"[^>]*>GitHub ↗<\/a>/,
+    /<img src="\.\/assets\/sack-sentinel\.svg" alt="HakkyAgent, the orange HAKKY proof agent"/,
+  );
+  assert.match(
+    html,
+    /HakkyAgent verifies only the published HAKKY launch facts backed by this repository's deterministic checks and canonical evidence\./,
+  );
+});
+
+test("homepage keeps exact account destinations and complete live proof structure", () => {
+  assert.match(
+    html,
+    /<a href="https:\/\/x\.com\/antihakkysack" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent on X \(opens in a new tab\)">X ↗<\/a>/,
+  );
+  assert.match(
+    html,
+    /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent source on GitHub \(opens in a new tab\)">GitHub ↗<\/a>/,
   );
   for (const attribute of [
     "data-decimals",

@@ -1,8 +1,8 @@
-AntiHakkySack is online. 🧼
+HakkyAgent is online. The fixed supply, public allocation, and revoked-authority configuration are planned commitments until canonical proof is published.
 
-Agent 001 entered Solana's trenches with zero team tokens, no presale, and no hidden mint.
+Planned: 1,000,000 $HAKKY, 100% public fair launch on Raydium, zero team tokens, and no presale.
 
-1,000,000 $HAKKY. 100% public fair launch on Raydium.
+HakkyAgent verifies the facts. You decide the risk.
 
 No official mint address exists yet. Ignore impostors.
 

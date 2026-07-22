@@ -38,7 +38,16 @@ const REQUIRED_HTML = Object.freeze([
   "data-creator-spend",
   "data-verification-time",
 ]);
-const GITHUB_LINK_PATTERN = /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer"[^>]*>GitHub ↗<\/a>/;
+const REQUIRED_EXACT_HTML = Object.freeze([
+  "<title>HAKKY — HakkyAgent</title>",
+  "HAKKY! / HAKKYAGENT",
+  "HAKKYAGENT IS ONLINE",
+  "HakkyAgent verifies the facts. You decide the risk.",
+  "Does HakkyAgent verify every Solana transaction?",
+  "HakkyAgent verifies only the published HAKKY launch facts backed by this repository's deterministic checks and canonical evidence.",
+]);
+const X_LINK_PATTERN = /<a href="https:\/\/x\.com\/antihakkysack" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent on X \(opens in a new tab\)">X ↗<\/a>/;
+const GITHUB_LINK_PATTERN = /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent source on GitHub \(opens in a new tab\)">GitHub ↗<\/a>/;
 
 const atRoot = (root, relativePath) => path.join(root, ...relativePath.split("/"));
 
@@ -46,7 +55,10 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
   const html = await readFile(atRoot(root, "web/index.html"), "utf8");
   const script = await readFile(atRoot(root, "web/app.js"), "utf8");
   const launch = JSON.parse(await readFile(atRoot(root, "web/data/launch.json"), "utf8"));
-  const missing = REQUIRED_HTML.filter((value) => !html.toLowerCase().includes(value.toLowerCase()));
+  const missing = [
+    ...REQUIRED_HTML.filter((value) => !html.toLowerCase().includes(value.toLowerCase())),
+    ...REQUIRED_EXACT_HTML.filter((value) => !html.includes(value)),
+  ];
   const issues = validateLaunchRecord(launch);
   const safetyIssues = [];
   const canonicalIssues = [];
@@ -60,6 +72,9 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
   }
   if (!GITHUB_LINK_PATTERN.test(html)) {
     safetyIssues.push("navigation must include the exact safe GitHub repository link");
+  }
+  if (!X_LINK_PATTERN.test(html)) {
+    safetyIssues.push("navigation must include the exact safe X account link");
   }
   if (launch.status === "prelaunch" && (launch.token?.mint !== null || launch.proof !== null)) {
     safetyIssues.push("prelaunch source must not contain mint proof or destinations");

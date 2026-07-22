@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "HAKKY is a personal, transparent Solana fair-launch meme coin narrated by AntiHakkySack.",
+  "description": "HAKKY is a personal, transparent Solana fair-launch meme coin whose launch facts are checked by HakkyAgent.",
   "homepage": "https://hakky.xyz",
   "repository": {
     "type": "git",
