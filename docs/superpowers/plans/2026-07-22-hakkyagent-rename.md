@@ -310,8 +310,9 @@ Add synthetic tracked-file fixtures that must be rejected:
 
 ```js
 test("repository checker rejects retired agent labels on active surfaces", async () => {
+  const retiredLabel = Buffer.from("QU5USUhBS0tZU0FDSyAvLyBBR0VOVCAwMDE=", "base64").toString("utf8");
   const result = await inspectTrackedEntries([
-    { path: "web/fake.html", content: "ANTIHAKKYSACK // AGENT 001" }
+    { path: "web/fake.html", content: retiredLabel }
   ]);
   assert.ok(result.violations.some((violation) => violation.rule === "retired-agent-identity"));
 });
@@ -338,15 +339,16 @@ Expected: the synthetic retired-identity and unsupported-claim fixtures are not 
 
 - [ ] **Step 3: Implement exact active-surface rules and update operator docs**
 
-Add case-sensitive retired labels:
+Keep retired labels encoded in the scanner so the enforcement source does not
+itself become an active occurrence:
 
 ```js
 const RETIRED_AGENT_MARKERS = [
-  "AntiHakkySack",
-  "ANTIHAKKYSACK",
-  "Sack Sentinel",
-  "Agent 001"
-];
+  "QW50aUhha2t5U2Fjaw==",
+  "QU5USUhBS0tZU0FDSw==",
+  "U2FjayBTZW50aW5lbA==",
+  "QWdlbnQgMDAx"
+].map((value) => Buffer.from(value, "base64").toString("utf8"));
 ```
 
 Add bounded unsupported-claim expressions:
@@ -358,7 +360,14 @@ const UNSUPPORTED_AGENT_CLAIMS = [
 ];
 ```
 
-Apply these only to active public/code surfaces. Preserve historical superpowers specifications and plans as project records; do not weaken secret scanning in those paths. Update `docs/LAUNCH.md`, `proof/README.md`, and the live plan so operator language uses HakkyAgent and the exact claim boundary.
+Apply identity/claim rules only to an explicit active public-surface predicate:
+root public documents and `package.json`; `brand/**`, `launch/**`, `proof/**`,
+`web/**`; public render/site scripts; `docs/LAUNCH.md`; and the live launch
+plan. Do not apply the retired-label rule to test fixtures or scanner-definition
+source, but continue applying secret scanning there. Preserve other historical
+superpowers specifications and plans as project records. Update
+`docs/LAUNCH.md`, `proof/README.md`, and the live plan so operator language uses
+HakkyAgent and the exact claim boundary.
 
 The live launch plan is operational, not historical: include `docs/superpowers/plans/2026-07-22-hakky-live-launch.md` in active identity enforcement while other design/implementation records remain excluded. Change its social topic from the former alias to `hakkyagent`, use `approved prelaunch experience` instead of `verified prelaunch`, and say `all launch-related transaction signatures` instead of `all transaction signatures`.
 
@@ -380,9 +389,16 @@ Expected: all tests pass; repository and site checkers return `ok: true`; the se
 
 - [ ] **Step 5: Run the explicit active-surface retirement scan**
 
-Run a case-sensitive scan over `README.md`, `SECURITY.md`, `package.json`, `brand`, `launch`, `proof`, `scripts`, `src`, `test`, `test-support`, and `web`, excluding account-address-only lowercase `antihakkysack` occurrences.
+Run the repository checker's explicit active-identity scan, then run a
+case-sensitive source scan over its public-surface path set. Do not treat
+encoded negative-test fixtures, scanner definitions, or historical design and
+implementation records as public occurrences. Continue to exclude only the
+exact approved account-address forms for lowercase `antihakkysack`.
 
-Expected: no retired display label appears on active surfaces; the remaining lowercase occurrences are the unchanged approved X/GitHub addresses or policy assertions for those addresses.
+Expected: no retired display label or non-address lowercase alias appears on
+active public surfaces; remaining lowercase occurrences are the unchanged
+approved X/GitHub addresses, policy assertions for those addresses, or encoded
+negative-test/scanner fixtures.
 
 - [ ] **Step 6: Commit the enforcement and operator-doc slice**
 
