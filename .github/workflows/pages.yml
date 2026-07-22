@@ -8,8 +8,6 @@ on:
       - "launch/assets/**"
       - ".github/workflows/quality.yml"
       - ".github/workflows/pages.yml"
-  workflow_dispatch:
-
 permissions:
   contents: read
 
