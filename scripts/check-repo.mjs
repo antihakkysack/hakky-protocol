@@ -84,7 +84,8 @@ const PRIVATE_KEY_MATERIAL_NEEDLES = Object.freeze([
   ["-----BEGIN", "PGP PRIVATE KEY BLOCK-----"].join(" "),
 ]);
 const AUTHENTICATED_URL_PATTERN = /https:\/\/[^/\s:@]+:[^@\s/]+@/;
-const ASSIGNMENT_PATTERN = /^\s*(?:(?:export|const|let|var)\s+)?["']?([A-Za-z][A-Za-z0-9_.:-]*)["']?\s*[:=]\s*(.+?)\s*[,;]?\s*$/;
+const ASSIGNMENT_NAME_PATTERN = /(?:(?:export|const|let|var)\s+)?(?:(['"])([A-Za-z][A-Za-z0-9_.:-]*)\1|([A-Za-z_$][A-Za-z0-9_$.:/-]*))\s*$/;
+const BINDING_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
 const stableSort = (values) => [...values].sort((left, right) => (left === right ? 0 : left < right ? -1 : 1));
 
@@ -167,10 +168,14 @@ function bareIdentifierReference(rawValue) {
   return /^[A-Za-z_][A-Za-z0-9_]*$/.test(expression) ? expression : null;
 }
 
-function isAllowedSecretAssignment(rawValue, value, environmentBindings) {
+function isEnvironmentBoundExpression(rawValue, environmentBindings) {
   if (isEnvironmentOrSecretExpression(rawValue)) return true;
   const reference = bareIdentifierReference(rawValue);
-  if (reference && environmentBindings.has(reference)) return true;
+  return reference !== null && environmentBindings.has(reference);
+}
+
+function isAllowedSecretAssignment(rawValue, value, environmentBindings) {
+  if (isEnvironmentBoundExpression(rawValue, environmentBindings)) return true;
   if (value === null) return false;
   const lower = value.toLowerCase();
   if (PLACEHOLDER_VALUES.has(lower)) return true;
@@ -180,7 +185,78 @@ function isAllowedSecretAssignment(rawValue, value, environmentBindings) {
 }
 
 function isStructuralContainer(rawValue) {
-  return ["{", "["].includes(normalizedAssignmentExpression(rawValue));
+  return ["{", "["].includes(normalizedAssignmentExpression(rawValue)[0]);
+}
+
+function assignmentExpressionAt(line, start) {
+  let index = start;
+  while (/\s/.test(line[index] ?? "")) index += 1;
+  const expressionStart = index;
+  const closers = [];
+  let quote = null;
+  let escaped = false;
+
+  for (; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote !== null) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (["\"", "'", "`"].includes(character)) {
+      quote = character;
+      continue;
+    }
+    if (character === "/" && line[index + 1] === "/" && closers.length === 0) break;
+    if (character === "(") closers.push(")");
+    else if (character === "[") closers.push("]");
+    else if (character === "{") closers.push("}");
+    else if (closers.at(-1) === character) closers.pop();
+    else if (closers.length === 0 && [",", ";", "}", "]"].includes(character)) break;
+  }
+  return line.slice(expressionStart, index).trim();
+}
+
+function assignmentsForLine(line) {
+  const assignments = [];
+  let quote = null;
+  let escaped = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote !== null) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (["\"", "'", "`"].includes(character)) {
+      quote = character;
+      continue;
+    }
+    if (character === "/" && line[index + 1] === "/") break;
+    if (![":", "="].includes(character)) continue;
+    if (character === "=" && ["=", ">"].includes(line[index + 1])) continue;
+    if (character === "=" && ["!", "<", ">", "="].includes(line[index - 1])) continue;
+
+    const prefix = line.slice(0, index);
+    const nameMatch = prefix.match(ASSIGNMENT_NAME_PATTERN);
+    if (!nameMatch) continue;
+    const name = nameMatch[2] ?? nameMatch[3];
+    const beforeName = prefix.slice(0, nameMatch.index).trimEnd();
+    if (character === ":") {
+      const boundary = beforeName.at(-1);
+      if (boundary && !["{", "[", ","].includes(boundary)) continue;
+      if (/(?:^|[;{}])\s*(?:export\s+)?(?:const|let|var)\s*$/.test(beforeName)) continue;
+    }
+    assignments.push({
+      name,
+      rawValue: assignmentExpressionAt(line, index + 1),
+      updatesBinding: character === "=" && BINDING_NAME_PATTERN.test(name),
+    });
+  }
+  return assignments;
 }
 
 function hasWalletKeyArray(content) {
@@ -214,10 +290,6 @@ function hasWalletKeyArray(content) {
 function secretRulesForContent(content, relative) {
   const rules = new Set();
   const environmentBindings = new Set();
-  for (const line of content.split(/\r?\n/)) {
-    const match = line.match(ASSIGNMENT_PATTERN);
-    if (match && isEnvironmentOrSecretExpression(match[2])) environmentBindings.add(match[1]);
-  }
   if (PRIVATE_KEY_MATERIAL_NEEDLES.some((needle) => content.includes(needle))) {
     rules.add("secret-private-key-material");
   }
@@ -231,23 +303,26 @@ function secretRulesForContent(content, relative) {
   for (const line of content.split(/\r?\n/)) {
     if (relative === "scripts/check-repo.mjs" && SCANNER_DEFINITION_LINES.has(line.trim())) continue;
     if (KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES.has(`${relative}\0${line.trim()}`)) continue;
-    const match = line.match(ASSIGNMENT_PATTERN);
-    if (!match) continue;
-    const [, name, rawValue] = match;
-    const value = literalValue(rawValue);
-    if (
-      isCredentialName(name)
-      && !isStructuralContainer(rawValue)
-      && !isAllowedSecretAssignment(rawValue, value, environmentBindings)
-    ) {
-      rules.add("secret-credential-assignment");
-    }
-    const key = normalized(name);
-    if (["mnemonic", "seedphrase", "recoveryphrase"].includes(key)) {
-      const phrase = value ?? rawValue.trim().replace(/[,;]$/, "").replace(/^["'`]|["'`]$/g, "").trim();
-      const words = phrase.split(/\s+/);
-      if (words.length >= 12 && words.length <= 24 && words.every((word) => /^[a-z]+$/i.test(word))) {
-        rules.add("secret-mnemonic-phrase");
+    for (const { name, rawValue, updatesBinding } of assignmentsForLine(line)) {
+      const value = literalValue(rawValue);
+      if (
+        isCredentialName(name)
+        && !isStructuralContainer(rawValue)
+        && !isAllowedSecretAssignment(rawValue, value, environmentBindings)
+      ) {
+        rules.add("secret-credential-assignment");
+      }
+      const key = normalized(name);
+      if (["mnemonic", "seedphrase", "recoveryphrase"].includes(key)) {
+        const phrase = value ?? rawValue.trim().replace(/[,;]$/, "").replace(/^["'`]|["'`]$/g, "").trim();
+        const words = phrase.split(/\s+/);
+        if (words.length >= 12 && words.length <= 24 && words.every((word) => /^[a-z]+$/i.test(word))) {
+          rules.add("secret-mnemonic-phrase");
+        }
+      }
+      if (updatesBinding) {
+        if (isEnvironmentBoundExpression(rawValue, environmentBindings)) environmentBindings.add(name);
+        else environmentBindings.delete(name);
       }
     }
   }

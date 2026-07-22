@@ -98,6 +98,42 @@ test("credential assignments cannot hide behind names, uppercase literals, or pu
   ]);
 });
 
+test("detects credential assignments embedded in ordinary single-line code without flagging unrelated properties", async () => {
+  const credentialProperty = ["api", "Key"].join("");
+  const opaqueLiteral = ["SYNTHETIC", "OPAQUE", "LITERAL"].join("_");
+  const violations = await scanFixture({
+    "inline-safe.mjs": `const config = { monkey: "${opaqueLiteral}", apiUrl: "https://example.test" };\n`,
+    "inline-sensitive.mjs": `const config = { ${credentialProperty}: "${opaqueLiteral}" };\n`,
+  });
+
+  assert.deepEqual(violations, [
+    { file: "inline-sensitive.mjs", rule: "secret-credential-assignment" },
+  ]);
+});
+
+test("invalidates an environment alias after reassignment while preserving an unchanged alias", async () => {
+  const environmentName = ["API", "KEY"].join("_");
+  const credentialProperty = ["api", "Key"].join("");
+  const opaqueLiteral = ["SYNTHETIC", "OPAQUE", "LITERAL"].join("_");
+  const changedAlias = ["runtime", "Credential"].join("");
+  const stableAlias = ["stable", "Credential"].join("");
+  const violations = await scanFixture({
+    "changed-alias.mjs": [
+      `let ${changedAlias} = process.env.${environmentName};`,
+      `${changedAlias} = "${opaqueLiteral}";`,
+      `const config = { ${credentialProperty}: ${changedAlias} };`,
+    ].join("\n"),
+    "stable-alias.mjs": [
+      `const ${stableAlias} = process.env.${environmentName};`,
+      `const config = { ${credentialProperty}: ${stableAlias} };`,
+    ].join("\n"),
+  });
+
+  assert.deepEqual(violations, [
+    { file: "changed-alias.mjs", rule: "secret-credential-assignment" },
+  ]);
+});
+
 test("explicit placeholder and environment-reference allowlist avoids false positives", async () => {
   const environmentName = ["API", "KEY"].join("_");
   const boundReferenceName = ["RUNTIME", "CREDENTIAL", "REFERENCE"].join("_");

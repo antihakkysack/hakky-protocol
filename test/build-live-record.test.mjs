@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  open,
+  readFile,
+  readdir,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -132,6 +140,77 @@ test("writes only after both canonical artifacts pass validation", async () => {
     createCanonicalMintProof(),
     createCanonicalLaunchlabProof(),
   ), []);
+});
+
+test("publishes atomically and preserves exact source bytes after partial-write or rename failure", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-live-record-"));
+  const dataDirectory = path.join(root, "web", "data");
+  const launchPath = path.join(dataDirectory, "launch.json");
+  await mkdir(dataDirectory, { recursive: true });
+  await mkdir(path.join(root, "proof"), { recursive: true });
+  const source = `${JSON.stringify(prelaunch, null, 2)}\n`;
+  await writeFile(launchPath, source);
+  await writeFile(
+    path.join(root, "proof", "mainnet-mint.json"),
+    `${JSON.stringify(createCanonicalMintProof(), null, 2)}\n`,
+  );
+  await writeFile(
+    path.join(root, "proof", "mainnet-launchlab.json"),
+    `${JSON.stringify(createCanonicalLaunchlabProof(), null, 2)}\n`,
+  );
+
+  const collisionPath = path.join(dataDirectory, `.launch.json.${process.pid}.collision.tmp`);
+  const collisionContents = "pre-existing exclusive-path sentinel\n";
+  await writeFile(collisionPath, collisionContents);
+  await assert.rejects(
+    buildLiveRecordFile({
+      root,
+      verifiedAt: WEB_VERIFIED_AT,
+      randomUUIDImpl: () => "collision",
+    }),
+    { code: "EEXIST" },
+  );
+  assert.equal(await readFile(launchPath, "utf8"), source);
+  assert.equal(await readFile(collisionPath, "utf8"), collisionContents);
+  await unlink(collisionPath);
+
+  const partialWriteOpen = async (...arguments_) => {
+    const handle = await open(...arguments_);
+    return {
+      async writeFile(contents, options) {
+        await handle.truncate(0);
+        await handle.writeFile(contents.slice(0, 31), options);
+        throw new Error("injected partial write failure");
+      },
+      sync: () => handle.sync(),
+      close: () => handle.close(),
+    };
+  };
+  await assert.rejects(
+    buildLiveRecordFile({ root, verifiedAt: WEB_VERIFIED_AT, openImpl: partialWriteOpen }),
+    /injected partial write failure/,
+  );
+  assert.equal(await readFile(launchPath, "utf8"), source);
+  assert.deepEqual(await readdir(dataDirectory), ["launch.json"]);
+
+  await assert.rejects(
+    buildLiveRecordFile({
+      root,
+      verifiedAt: WEB_VERIFIED_AT,
+      renameImpl: async () => {
+        const error = new Error("injected rename failure");
+        error.code = "EIO";
+        throw error;
+      },
+    }),
+    /injected rename failure/,
+  );
+  assert.equal(await readFile(launchPath, "utf8"), source);
+  assert.deepEqual(await readdir(dataDirectory), ["launch.json"]);
+
+  const live = await buildLiveRecordFile({ root, verifiedAt: WEB_VERIFIED_AT });
+  assert.deepEqual(JSON.parse(await readFile(launchPath, "utf8")), live);
+  assert.deepEqual(await readdir(dataDirectory), ["launch.json"]);
 });
 
 test("documents and exposes the deterministic operator command", async () => {
