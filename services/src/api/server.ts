@@ -3,6 +3,7 @@ import { pinoHttp } from "pino-http";
 import { config } from "../shared/config.js";
 import { logger } from "../shared/logger.js";
 import { provider, cleanBtc, reserveOracle, attestationRegistry } from "../shared/chain.js";
+import { pool, initDb } from "../shared/db.js";
 
 const app = express();
 app.use(pinoHttp({ logger }));
@@ -88,6 +89,26 @@ app.get("/attestation/:address", async (req, res) => {
   }
 });
 
-app.listen(config.PORT, () => {
-  logger.info(`Hakky proof-of-reserves API on :${config.PORT} (chain ${config.CHAIN_ID})`);
+/** Recent protocol activity from the audit log (screens, mints, settles, reserve updates). */
+app.get("/activity", async (_req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT service, event, payload, created_at
+         FROM audit_log
+        ORDER BY id DESC
+        LIMIT 25`,
+    );
+    res.json({ events: rows });
+  } catch (e) {
+    res.status(500).json({ error: (e as Error).message });
+  }
 });
+
+// Ensure the audit_log table exists before serving /activity, then listen.
+initDb()
+  .catch((e) => logger.error({ err: e }, "initDb failed — /activity empty until a worker writes"))
+  .finally(() => {
+    app.listen(config.PORT, () => {
+      logger.info(`Hakky proof-of-reserves API on :${config.PORT} (chain ${config.CHAIN_ID})`);
+    });
+  });

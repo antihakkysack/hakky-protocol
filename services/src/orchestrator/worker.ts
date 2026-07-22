@@ -5,6 +5,7 @@ import { config } from "../shared/config.js";
 import { logger } from "../shared/logger.js";
 import { initDb, audit } from "../shared/db.js";
 import { provider, reserveVault, requireContract, requireSigner } from "../shared/chain.js";
+import { requireWriteAuth } from "../shared/auth.js";
 
 const log = logger.child({ service: "orchestrator" });
 
@@ -22,7 +23,7 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "orchestrator" }
  *
  *   POST /deposit { "to": "0x...", "amountSats": "100000000", "btcTxid"?: "0x..." }
  */
-app.post("/deposit", async (req, res) => {
+app.post("/deposit", requireWriteAuth, async (req, res) => {
   const to = (req.body?.to ?? "").toString();
   if (!isAddress(to)) return res.status(400).json({ error: "invalid recipient address" });
   const recipient = getAddress(to);

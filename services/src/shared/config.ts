@@ -30,6 +30,9 @@ const schema = z.object({
 
   // orchestrator: deposit/redeem loop.
   ORCHESTRATOR_PORT: z.coerce.number().default(8082),
+
+  // write-endpoint auth: bearer token required for POST /screen and /deposit.
+  WRITE_API_KEY: z.string().default(""), // empty => writes are refused (fail-closed)
 });
 
 export const config = schema.parse(process.env);

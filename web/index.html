@@ -473,6 +473,40 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
   </div>
 </section>
 
+<!-- LIVE / INTERACTIVE -->
+<section class="section" id="live">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Live on Sepolia</span>
+      <h2 style="margin-top:14px">See it working — right now.</h2>
+      <p>These read straight from the deployed contracts through the public API at <span class="mono">api.hakky.xyz</span>. Testnet data, live on-chain.</p>
+    </div>
+    <div class="grid g2">
+      <!-- Attestation checker -->
+      <div class="card reveal">
+        <div class="kicker">Attestation lookup</div>
+        <h3 style="margin-bottom:10px">Check an address</h3>
+        <p style="margin-bottom:16px">Enter any address to read its on-chain cleanliness attestation.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <input id="attInput" class="mono" type="text" spellcheck="false" autocomplete="off"
+            placeholder="0x1111111111111111111111111111111111111111"
+            style="flex:1;min-width:0;padding:11px 14px;border:1px solid var(--line-strong);border-radius:var(--radius-sm);background:var(--surface-2);color:var(--ink);font-size:13px" />
+          <button id="attBtn" class="btn btn-primary" type="button">Check</button>
+        </div>
+        <div id="attResult" class="mono" style="margin-top:16px;font-size:13.5px;color:var(--ink-mute)">Try the demo address above, or paste your own.</div>
+      </div>
+      <!-- Activity feed -->
+      <div class="card reveal">
+        <div class="kicker">Recent activity</div>
+        <h3 style="margin-bottom:10px">Protocol activity</h3>
+        <div id="feed" class="mono" style="font-size:12.5px;color:var(--ink-soft);display:flex;flex-direction:column;gap:8px;max-height:280px;overflow:auto">
+          <span style="color:var(--ink-mute)">Loading recent events…</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- ROADMAP -->
 <section class="section" id="roadmap">
   <div class="wrap">
@@ -593,6 +627,57 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
       tag.style.background='color-mix(in srgb,var(--teal) 14%,transparent)';}
     if(d.lastUpdated){set('rBlock','updated '+new Date(d.lastUpdated*1000).toISOString().slice(0,10));}
   }).catch(function(){/* keep illustrative values */});
+})();
+</script>
+
+<script>
+// Interactive: attestation lookup + live protocol activity feed (Sepolia, read-only API).
+(function(){
+  var API='https://api.hakky.xyz';
+
+  // --- Attestation checker ---
+  var input=document.getElementById('attInput');
+  var btn=document.getElementById('attBtn');
+  var out=document.getElementById('attResult');
+  function esc(s){return String(s).replace(/[<>&]/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;'}[c];});}
+  async function check(){
+    if(!input||!out) return;
+    var addr=input.value.trim();
+    if(!/^0x[0-9a-fA-F]{40}$/.test(addr)){out.innerHTML='<span style="color:var(--danger)">Enter a valid 0x… address (40 hex chars).</span>';return;}
+    out.textContent='Checking on-chain…';
+    try{
+      var r=await fetch(API+'/attestation/'+addr,{cache:'no-store'});
+      var d=await r.json();
+      if(d.error){out.innerHTML='<span style="color:var(--danger)">'+esc(d.error)+'</span>';return;}
+      if(!d.hasLiveAttestation){out.innerHTML='<span style="color:var(--ink-mute)">No live attestation for this address.</span>';return;}
+      var clean=!d.sanctioned;
+      var color=clean?'var(--teal-deep)':'var(--danger)';
+      var verdict=clean?'✓ CLEAN':'⛔ SANCTIONED';
+      var exp=d.expiresAt?new Date(d.expiresAt*1000).toISOString().slice(0,10):'never';
+      out.innerHTML='<div style="display:flex;flex-direction:column;gap:5px">'
+        +'<span style="color:'+color+';font-weight:700;font-size:15px">'+verdict+' · score '+d.score+'/100</span>'
+        +'<span style="color:var(--ink-soft)">attestor '+esc(d.provider.slice(0,10))+'… · expires '+exp+'</span>'
+        +'</div>';
+    }catch(e){out.innerHTML='<span style="color:var(--danger)">Lookup failed — API unreachable.</span>';}
+  }
+  if(btn) btn.addEventListener('click',check);
+  if(input) input.addEventListener('keydown',function(e){if(e.key==='Enter')check();});
+
+  // --- Activity feed ---
+  var feed=document.getElementById('feed');
+  var LABELS={'reserves-updated':'Reserves updated','attested':'Address attested','deposit-processed':'cBTC minted','redeem-settled':'Redemption settled'};
+  if(feed){
+    fetch(API+'/activity',{cache:'no-store'}).then(function(r){return r.ok?r.json():Promise.reject();}).then(function(d){
+      if(!d.events||!d.events.length){feed.innerHTML='<span style="color:var(--ink-mute)">No activity yet.</span>';return;}
+      feed.innerHTML=d.events.map(function(e){
+        var when=(e.created_at||'').replace('T',' ').slice(0,16);
+        var label=LABELS[e.event]||e.event;
+        return '<div style="display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--line);padding-bottom:7px">'
+          +'<span><b style="color:var(--ink)">'+esc(label)+'</b> <span style="color:var(--ink-mute)">'+esc(e.service)+'</span></span>'
+          +'<span style="color:var(--ink-mute);white-space:nowrap">'+esc(when)+'</span></div>';
+      }).join('');
+    }).catch(function(){feed.innerHTML='<span style="color:var(--ink-mute)">Activity feed unavailable.</span>';});
+  }
 })();
 </script>
 </body>

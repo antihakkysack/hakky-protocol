@@ -6,6 +6,7 @@ import { logger } from "../shared/logger.js";
 import { initDb, audit } from "../shared/db.js";
 import { attestationRegistry, requireContract, requireSigner } from "../shared/chain.js";
 import { screenAddress } from "../shared/screening.js";
+import { requireWriteAuth } from "../shared/auth.js";
 
 const log = logger.child({ service: "attestation" });
 
@@ -24,7 +25,7 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "attestation" })
  * Re-screening the same address overwrites its attestation (the registry is
  * additive/latest-wins), so this is safe to call repeatedly.
  */
-app.post("/screen", async (req, res) => {
+app.post("/screen", requireWriteAuth, async (req, res) => {
   const address = (req.body?.address ?? "").toString();
   if (!isAddress(address)) return res.status(400).json({ error: "invalid EVM address" });
   const subject = getAddress(address);
