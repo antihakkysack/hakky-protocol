@@ -14,6 +14,15 @@ test("detects disallowed agency attribution without storing the name in source",
   assert.equal(violations[0].rule, "personal-project-only");
 });
 
+test("detects an active legacy product marker without storing it in source", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-hygiene-"));
+  const legacyMarker = Buffer.from("c29saWRpdHk=", "base64").toString("utf8");
+  await writeFile(path.join(root, "README.md"), `Built with ${legacyMarker}`);
+  const violations = await scanRepository(root);
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0].rule, "legacy-product-active");
+});
+
 test("the repository contains no disallowed attribution or active legacy product", async () => {
   assert.deepEqual(await scanRepository(process.cwd()), []);
 });
