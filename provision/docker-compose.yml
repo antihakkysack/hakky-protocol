@@ -1,0 +1,51 @@
+# Hakky Protocol — server stack (run on the Hetzner box from this folder).
+# Brings up Postgres, the read API, and Caddy (auto-HTTPS reverse proxy).
+# Reads env from ../services/.env
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hakky
+      POSTGRES_PASSWORD: hakky
+      POSTGRES_DB: hakky
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hakky"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No host port — Postgres stays internal to the compose network.
+
+  api:
+    build: ../services
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/api/server.ts"]
+    env_file: ../services/.env
+    environment:
+      DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+    ports:
+      - "8080:8080" # direct access for verification; Caddy fronts it on 443
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,6 @@
+# Caddy auto-provisions a Let's Encrypt TLS cert for this domain once its
+# DNS A record points at this server. Until then, the API is reachable on :8080.
+api.hakky.xyz {
+	encode gzip
+	reverse_proxy api:8080
+}
