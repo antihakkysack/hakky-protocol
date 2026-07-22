@@ -36,6 +36,7 @@ const SELECTORS = [
   "[data-curve-qualifier]",
   "[data-liquidity-qualifier]",
   "[data-proof-qualifier]",
+  "[data-creator-spend-cap-qualifier]",
 ];
 
 class FakeElement {
@@ -96,6 +97,7 @@ function assertQualifierCopy(documentRef, { live }) {
     allocationLabel: "Verified token distribution",
     curve: "Verified: 80% public bonding curve",
     liquidity: "Verified: 20% liquidity",
+    creatorSpendCap: "verified creator spend cap",
   } : {
     commitments: "Planned launch commitments",
     fixedSupply: "planned fixed supply",
@@ -105,6 +107,7 @@ function assertQualifierCopy(documentRef, { live }) {
     allocationLabel: "Planned token distribution",
     curve: "Planned: 80% public bonding curve",
     liquidity: "Planned: 20% liquidity",
+    creatorSpendCap: "planned creator spend cap",
   };
   if (element("[data-commitments]")) {
     assert.equal(element("[data-commitments]").getAttribute("aria-label"), expected.commitments);
@@ -139,6 +142,12 @@ function assertQualifierCopy(documentRef, { live }) {
     } else {
       assert.match(element("[data-proof-qualifier]").textContent, /required.*not verified/i);
     }
+  }
+  if (element("[data-creator-spend-cap-qualifier]")) {
+    assert.equal(
+      element("[data-creator-spend-cap-qualifier]").textContent,
+      expected.creatorSpendCap,
+    );
   }
 }
 
@@ -181,6 +190,7 @@ test("homepage contains the approved story and safety contract", () => {
     "No official mint address exists yet",
     "no promised utility or returns",
     "1.00 SOL",
+    "planned creator spend cap",
   ]) {
     assert.match(
       html.toLowerCase(),
@@ -208,6 +218,7 @@ test("homepage presents the exact HakkyAgent identity and claim boundary", () =>
     html,
     /HakkyAgent verifies only the published HAKKY launch facts backed by this repository's deterministic checks and canonical evidence\./,
   );
+  assert.match(html, /data-creator-spend-cap-qualifier>planned creator spend cap</);
 });
 
 test("homepage keeps exact account destinations and complete live proof structure", () => {

@@ -7,7 +7,9 @@ are checked by HakkyAgent.
 
 **HakkyAgent verifies the facts. You decide the risk.**
 
-## Fair-launch commitments
+## Planned fair-launch commitments
+
+Until canonical proof is published, these policy values are planned commitments:
 
 - 1,000,000 HAKKY fixed supply
 - six decimals

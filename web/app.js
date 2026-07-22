@@ -31,6 +31,7 @@ const ELEMENT_SELECTORS = Object.freeze({
   curveQualifier: "[data-curve-qualifier]",
   liquidityQualifier: "[data-liquidity-qualifier]",
   proofQualifier: "[data-proof-qualifier]",
+  creatorSpendCapQualifier: "[data-creator-spend-cap-qualifier]",
 });
 const SAFE_TEXT = Object.freeze({
   mint: "Not published",
@@ -58,6 +59,7 @@ const QUALIFIER_TEXT = Object.freeze({
     curveQualifier: "Planned: 80% public bonding curve",
     liquidityQualifier: "Planned: 20% liquidity",
     proofQualifier: "Until complete proof is published here, every launch property below is required - not verified.",
+    creatorSpendCapQualifier: "planned creator spend cap",
   }),
   live: Object.freeze({
     fixedSupplyQualifier: "verified fixed supply",
@@ -67,6 +69,7 @@ const QUALIFIER_TEXT = Object.freeze({
     curveQualifier: "Verified: 80% public bonding curve",
     liquidityQualifier: "Verified: 20% liquidity",
     proofQualifier: "Complete canonical proof is published; every launch property below is verified.",
+    creatorSpendCapQualifier: "verified creator spend cap",
   }),
 });
 const QUALIFIER_ARIA = Object.freeze({

@@ -37,6 +37,7 @@ const REQUIRED_HTML = Object.freeze([
   "data-lp-policy",
   "data-creator-spend",
   "data-verification-time",
+  "data-creator-spend-cap-qualifier",
 ]);
 const REQUIRED_EXACT_HTML = Object.freeze([
   "<title>HAKKY — HakkyAgent</title>",
@@ -45,6 +46,7 @@ const REQUIRED_EXACT_HTML = Object.freeze([
   "HakkyAgent verifies the facts. You decide the risk.",
   "Does HakkyAgent verify every Solana transaction?",
   "HakkyAgent verifies only the published HAKKY launch facts backed by this repository's deterministic checks and canonical evidence.",
+  "data-creator-spend-cap-qualifier>planned creator spend cap",
 ]);
 const X_LINK_PATTERN = /<a href="https:\/\/x\.com\/antihakkysack" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent on X \(opens in a new tab\)">X ↗<\/a>/;
 const GITHUB_LINK_PATTERN = /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent source on GitHub \(opens in a new tab\)">GitHub ↗<\/a>/;
