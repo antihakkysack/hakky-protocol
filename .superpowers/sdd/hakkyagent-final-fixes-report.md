@@ -165,3 +165,125 @@ Changed code/test files:
   were outside this bounded pass.
 - Solana tests continue to emit the existing pure-JavaScript bigint fallback
   warning; all affected tests pass.
+
+---
+
+# Reviewer closure follow-up
+
+Date: 2026-07-23 (Asia/Bangkok)
+
+## Scope and result
+
+- Follow-up base: `b99ab7e`.
+- Confirmed reviewer findings closed: 4 Important, 0 Critical.
+- Code commit: `4bdede951e979a8b0aed26049a83346598fb0f58`
+  (`security: close final validation bypasses`).
+- Scope stayed limited to tracked secret scanning, detection-only rendered-text
+  normalization, public metadata host classification, and their regression
+  fixtures. Approved public facts, account destinations, and prelaunch state
+  were not changed.
+- No push, deployment, post, funding, transaction, wallet, devnet, mainnet,
+  Hetzner, or browser-control action was performed.
+
+## Findings closed
+
+### YAML sequence credential values
+
+- Multiline YAML credential headers now accept an optional sequence-item
+  prefix before a sensitive key.
+- Both `- api_key:` followed by an indented scalar and `- api_key: |` followed
+  by a block scalar are rejected when their values are opaque.
+- List-item placeholders, environment references, and nested containers retain
+  the existing allowlist behavior.
+
+### Current GitHub installation tokens
+
+- `ghs_` scanning now follows GitHub's current recommended body shape,
+  `[A-Za-z0-9.\-_]{36,}`, without an obsolete upper length bound.
+- A synthetic stateless JWT-shaped fixture longer than 520 characters, with
+  two dots, hyphens, and underscores, is detected.
+- Short values, unrelated prefixes, and values embedded inside a larger
+  identifier remain false-positive controls.
+- Primary source: GitHub Changelog, "GitHub App installation tokens:
+  Per-request override header" (2026-05-15), including the May 26 regex update.
+
+### Rendered character-reference bypasses
+
+- Added a detection-only character-reference decoder for valid decimal,
+  hexadecimal, relevant HTML/XML named, whitespace/invisible, punctuation,
+  and compatibility mathematical-letter references.
+- Shared HakkyAgent claim checking decodes before Unicode/invisible
+  normalization, so rendered variants of `every` and `HakkyAgent` cannot bypass
+  the prohibited-claim boundary.
+- Retired display/account identity checking decodes after masking the exact
+  literal approved account destinations. Encoded aliases are rejected, while
+  the unchanged literal X and GitHub destinations remain allowed.
+- Unknown named references remain literal and harmless encoded copy retains
+  negative controls.
+
+### Public metadata host policy
+
+- Added an auditable pure-JavaScript host classifier shared by launch-policy
+  validation. It rejects IANA special-use domain suffixes and subdomains,
+  single-label hosts, invalid DNS label shapes, and trailing-dot hosts.
+- IPv4 CIDRs cover this-network/private/link-local/loopback, CGNAT,
+  protocol assignments, documentation, AS112/AMT/6to4 special blocks,
+  benchmarking, multicast, future-use, and limited broadcast space.
+- IPv6 accepts assigned global unicast space only and rejects IETF protocol,
+  translation, discard/dummy, benchmarking, documentation, 6to4, AS112,
+  returned 6bone, unique-local, link/site-local, multicast, and other reserved
+  ranges.
+- Current project hosts remain valid, and public IPv4/IPv6 controls pass.
+  The previous passing `.test` fixture and `cdn.example.com` control were
+  replaced with `cdn.hakky.xyz`; reserved example hosts are now negative cases.
+- Registry basis: IANA IPv4/IPv6 Special-Purpose Address registries and IANA
+  Special-Use Domain Names registry; RFC 6761 supplies the documented
+  `.test`, `.localhost`, `.invalid`, and example-domain behavior.
+
+## TDD evidence
+
+- YAML/token RED: repository hygiene reported 30 tests, 28 passed and 2 failed
+  at the intended list-item and long punctuated `ghs_` boundaries. GREEN:
+  30/30.
+- Rendered-entity RED: the combined identity/repository suite reported 40
+  tests, 38 passed and 2 failed. GREEN: 40/40.
+- Metadata RED: launch policy reported 17 tests, 14 passed and 3 failed for
+  missing IPv4/special-domain rejection and public-IPv6 classification.
+  GREEN: 17/17.
+- Final focused integration: 72/72.
+
+## Final verification
+
+All shell commands were run through RTK.
+
+1. `rtk npm ci` - passed; 165 packages installed.
+2. `rtk npm run assets` - passed.
+3. `rtk npm run check` - passed; 133/133, repository and site checks clean.
+4. A second `rtk npm run assets` - passed with no generated drift.
+5. After staging the two new tracked modules, a second complete
+   `rtk npm run check` passed 133/133 with repository and site checks clean.
+
+Additional checks:
+
+- Standalone `check:repo`: `{ "ok": true, "violations": [] }`.
+- Standalone `check:site`: `ok: true` with empty missing, issue, safety, and
+  canonical arrays.
+- `node --check` passed for all ten changed JavaScript modules and tests.
+- `git diff --check` and staged diff checks passed.
+- The second asset render left `launch/assets`, `web/assets`, `package-lock.json`,
+  and `web/data/launch.json` unchanged.
+- Code commit scope: 10 files, 394 insertions, 33 deletions.
+
+## Residual gates and observations
+
+- The project remains intentionally prelaunch. Canonical mainnet mint and
+  LaunchLab proof artifacts are still absent and were not created.
+- The bounded devnet rehearsal remains externally gated by public faucet
+  availability; it was not retried.
+- Desktop/mobile browser certification remains externally gated by the
+  user-enabled ChatGPT Chrome Extension; it was not attempted.
+- `npm ci` continues to report 8 dependency vulnerabilities (5 moderate, 3
+  high) and the upstream `uuid@8.3.2` deprecation warning. Dependency upgrades
+  remain outside this bounded closure.
+- Solana tests continue to emit the existing pure-JavaScript bigint fallback
+  warning; all affected tests pass.
