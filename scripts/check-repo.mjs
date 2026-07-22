@@ -41,7 +41,8 @@ const APPROVED_RETIRED_ACCOUNT_ADDRESSES = Object.freeze([
 const UNICODE_LETTER_NUMBER_OR_MARK = /[\p{L}\p{N}\p{M}]/u;
 const INVISIBLE_OR_DIRECTIONAL_CHARACTER = /[\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u;
 const LEFT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", "(", "[", "{", "<", "=", ":"]);
-const RIGHT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", ")", "]", "}", ">", ".", ",", ";", ":", "!", "?"]);
+const RIGHT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", ")", "]", "}", ">", ",", ";", ":", "!"]);
+const TERMINAL_PERIOD_FOLLOWERS = new Set(["\"", "'", "`", ")", "]", "}", ">"]);
 const ACTIVE_PUBLIC_SCRIPT_FILES = new Set([
   "scripts/check-site.mjs",
   "scripts/render-assets.mjs",
@@ -146,14 +147,7 @@ function isAddressBoundary(content, start, end) {
   }
   const after = content[end];
   if (after === ".") {
-    const afterPeriod = content[end + 1];
-    if (
-      afterPeriod !== undefined
-      && (
-        UNICODE_LETTER_NUMBER_OR_MARK.test(afterPeriod)
-        || INVISIBLE_OR_DIRECTIONAL_CHARACTER.test(afterPeriod)
-      )
-    ) return false;
+    return isConservativeAddressDelimiter(content[end + 1], TERMINAL_PERIOD_FOLLOWERS);
   }
   return isConservativeAddressDelimiter(after, RIGHT_ACCOUNT_ADDRESS_DELIMITERS);
 }

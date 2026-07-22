@@ -142,6 +142,29 @@ test("repository checker rejects Unicode and zero-width extensions of retired ac
   ]);
 });
 
+test("repository checker rejects query, fragment, path, and dot-path account extensions", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const violations = await scanFixture({
+    "brand/handle-dot-path.svg": `@${retiredAlias}./status/1`,
+    "brand/handle-fragment.svg": `@${retiredAlias}#profile`,
+    "brand/handle-path.svg": `@${retiredAlias}/status/1`,
+    "brand/handle-query.svg": `@${retiredAlias}?utm=1`,
+    "launch/github-query.md": `https://github.com/${retiredAlias}/hakky-protocol.git?ref=x`,
+    "proof/x-dot-path.md": `https://x.com/${retiredAlias}./status/1`,
+    "web/x-query.html": `https://x.com/${retiredAlias}?utm=1`,
+  });
+
+  assert.deepEqual(violations, [
+    { file: "brand/handle-dot-path.svg", rule: "retired-agent-identity" },
+    { file: "brand/handle-fragment.svg", rule: "retired-agent-identity" },
+    { file: "brand/handle-path.svg", rule: "retired-agent-identity" },
+    { file: "brand/handle-query.svg", rule: "retired-agent-identity" },
+    { file: "launch/github-query.md", rule: "retired-agent-identity" },
+    { file: "proof/x-dot-path.md", rule: "retired-agent-identity" },
+    { file: "web/x-query.html", rule: "retired-agent-identity" },
+  ]);
+});
+
 test("repository checker allows only the exact approved retired account addresses", async () => {
   const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
   assert.deepEqual(await scanFixture({
@@ -153,6 +176,14 @@ test("repository checker allows only the exact approved retired account addresse
       repository: { url: `https://github.com/${retiredAlias}/hakky-protocol.git` },
     }),
     "web/account-link.html": `<a href="https://x.com/${retiredAlias}">X</a>`,
+    "web/account-sentences.html": [
+      `Follow @${retiredAlias}.`,
+      `X account: https://x.com/${retiredAlias}.`,
+      `Repository: https://github.com/${retiredAlias}/hakky-protocol.`,
+      `Clone URL: https://github.com/${retiredAlias}/hakky-protocol.git.`,
+      `Follow @${retiredAlias}, then verify the profile.`,
+      `Official X: https://x.com/${retiredAlias}!`,
+    ].join("\n"),
   }), []);
 });
 
