@@ -23,6 +23,8 @@ The launch must be easy to understand and independently verifiable:
 - public launch through Raydium LaunchLab;
 - creator-funded launch spending capped at 1.00 SOL;
 - no claims of utility, investment returns, or guaranteed scam detection.
+- no Fresh Digital name, attribution, internal doctrine reference, or agency
+  branding on any repository or public surface; HAKKY is a personal project.
 
 The old BTC/Solidity implementation will be removed from the current branch.
 It will remain recoverable through Git history and will not be copied into a
@@ -233,6 +235,12 @@ removed from the current branch once any reusable hosting configuration has been
 identified. Related CI, package scripts, security text, and documentation will
 be rewritten so no BTC-era product claim survives accidentally.
 
+All Fresh Digital references must also be removed from source files,
+documentation, metadata, generated assets, website copy, and social copy. The
+known current match is in `launch/README.md`; the implementation must still run
+a case-insensitive repository-wide scan rather than relying on that single known
+location. HAKKY must be represented solely as the owner's personal project.
+
 The local checkout currently contains a user-owned uncommitted change in
 `contracts/hardhat.config.js`. Before removing `contracts/`, implementation must
 export that exact diff to a recoverable out-of-tree patch, verify the patch can
@@ -351,15 +359,17 @@ plan is approved. These actions require an additional action-time confirmation:
 The project is ready for the mainnet approval gate when:
 
 1. the repository contains no active BTC-protocol product claim or code path;
-2. the pre-launch website matches the approved Meme Broadcast/Sack Sentinel
+2. a case-insensitive repository and public-surface scan finds no Fresh Digital
+   name, attribution, internal doctrine reference, or agency branding;
+3. the pre-launch website matches the approved Meme Broadcast/Sack Sentinel
    direction on desktop and mobile;
-3. the website clearly states that no official mint address exists yet;
-4. the token and launch manifest matches every approved parameter;
-5. devnet rehearsal and automated tests pass;
-6. X profile assets and posts are ready for review;
-7. the mainnet transaction is simulated and the creator-funded cost is no more
+4. the website clearly states that no official mint address exists yet;
+5. the token and launch manifest matches every approved parameter;
+6. devnet rehearsal and automated tests pass;
+7. X profile assets and posts are ready for review;
+8. the mainnet transaction is simulated and the creator-funded cost is no more
    than 1.00 SOL;
-8. the exact live operation can be explained before the user signs it.
+9. the exact live operation can be explained before the user signs it.
 
 The launch is complete only after the mainnet transaction succeeds, exact
 on-chain readback passes, the proof artifact is saved, and the verified website
