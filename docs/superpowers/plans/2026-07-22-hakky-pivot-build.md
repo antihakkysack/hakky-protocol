@@ -327,6 +327,7 @@ node_modules/
 # Generated and transient evidence
 artifacts/
 .superpowers/
+.worktrees/
 
 # Logs
 *.log

@@ -18,6 +18,9 @@ contracts/typechain-types/
 *.log
 npm-debug.log*
 
+# Isolated Codex worktrees
+.worktrees/
+
 # OS / editor
 .DS_Store
 Thumbs.db
