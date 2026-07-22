@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -240,6 +240,80 @@ test("atomically publishes complete JSON once and preserves an existing proof", 
   assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith(".tmp")), []);
   await assert.rejects(publishJsonProof(outputPath, { complete: false }), { code: "EEXIST" });
   assert.deepEqual(JSON.parse(await readFile(outputPath, "utf8")), proof);
+});
+
+test("never unlinks a temporary-name collision that the publisher did not create", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-publish-collision-"));
+  const outputPath = path.join(directory, "proof.json");
+  const collisionPath = path.join(directory, ".proof.json.existing-collision.tmp");
+  const sentinel = "pre-existing collision bytes\n";
+  await writeFile(collisionPath, sentinel);
+
+  try {
+    await assert.rejects(
+      publishJsonProof(outputPath, { complete: true }, {
+        randomUUIDImpl: () => "existing-collision",
+      }),
+      { code: "EEXIST" },
+    );
+    assert.equal(await readFile(collisionPath, "utf8"), sentinel);
+    await assert.rejects(readFile(outputPath, "utf8"), { code: "ENOENT" });
+  } finally {
+    await unlink(collisionPath);
+  }
+});
+
+test("reports a committed proof with unambiguous retry guidance when owned-temp unlink fails", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-publish-warning-"));
+  const outputPath = path.join(directory, "proof.json");
+  const proof = { schemaVersion: 1, complete: true };
+  let temporaryPath;
+  const cleanupFailure = Object.assign(new Error("synthetic owned-temp cleanup failure"), { code: "EPERM" });
+
+  const outcome = await publishJsonProof(outputPath, proof, {
+    randomUUIDImpl: () => "owned-temp-warning",
+    unlinkImpl: async (candidate) => {
+      temporaryPath = candidate;
+      throw cleanupFailure;
+    },
+  });
+
+  try {
+    assert.deepEqual(JSON.parse(await readFile(outputPath, "utf8")), proof);
+    assert.deepEqual(JSON.parse(await readFile(temporaryPath, "utf8")), proof);
+    assert.equal(outcome.published, true);
+    assert.equal(outcome.outputPath, outputPath);
+    assert.deepEqual(outcome.warnings.map(({ code }) => code), ["TEMP_UNLINK_FAILED"]);
+    assert.match(outcome.warnings[0].message, /Proof is published\./);
+    assert.match(outcome.warnings[0].message, /Do not retry publication\./);
+    assert.equal(outcome.warnings[0].temporaryPath, temporaryPath);
+  } finally {
+    if (temporaryPath) await unlink(temporaryPath);
+  }
+});
+
+test("CLI treats a committed proof cleanup warning as success and tells the operator not to retry", async () => {
+  let stdout = "";
+  let stderr = "";
+  const warning = {
+    code: "TEMP_UNLINK_FAILED",
+    message: "Proof is published. Temporary cleanup failed. Do not retry publication. Remove only the owned temporary file shown in this warning.",
+    temporaryPath: "proof/.proof.json.owned-temp.tmp",
+  };
+  const status = await main({
+    stdout: { write(value) { stdout += value; } },
+    stderr: { write(value) { stderr += value; } },
+    runVerifier: async () => ({
+      ok: true,
+      publication: { published: true, outputPath: "proof/proof.json", warnings: [warning] },
+    }),
+  });
+
+  assert.equal(status, 0);
+  assert.match(stdout, /"published": true/);
+  assert.match(stderr, /Proof is published\./);
+  assert.match(stderr, /Do not retry publication\./);
+  assert.doesNotMatch(stderr, /failed before publishing/i);
 });
 
 test("validates required CLI options before constructing a connection", async () => {

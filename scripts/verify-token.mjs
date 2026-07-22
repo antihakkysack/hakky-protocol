@@ -66,7 +66,13 @@ export async function run({
     creator: creatorAddress,
     ...evaluateMintEvidence(observed),
   };
-  if (proof.ok) await publishProof(outputPath, proof);
+  if (proof.ok) {
+    proof.publication = await publishProof(outputPath, proof) ?? {
+      published: true,
+      outputPath,
+      warnings: [],
+    };
+  }
   return proof;
 }
 
@@ -87,7 +93,12 @@ export async function main({ runVerifier = run, stdout = process.stdout, stderr 
   try {
     const proof = await runVerifier();
     stdout.write(`${JSON.stringify(proof, null, 2)}\n`);
-    return proof.ok ? 0 : 1;
+    for (const warning of proof.publication?.warnings ?? []) {
+      if (warning?.code === "TEMP_UNLINK_FAILED") {
+        stderr.write(`WARNING: ${warning.message}\nOwned temporary file: ${warning.temporaryPath}\n`);
+      }
+    }
+    return proof.ok && (proof.publication?.published ?? true) ? 0 : 1;
   } catch (error) {
     stderr.write(`${sanitizeCliError(error)}\n`);
     return 1;
