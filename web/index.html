@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hakky Protocol — Keep crypto clean. 1 cBTC = 1 verifiably clean BTC.</title>
+<meta name="description" content="Hakky Protocol is the clean-Bitcoin layer. cBTC is a 1:1 BTC-backed token whose backing coins pass provenance screening, with cleanliness proven on-chain. The transparent opposite of a mixer." />
+<meta property="og:title" content="Hakky Protocol — Keep crypto clean." />
+<meta property="og:description" content="cBTC: 1:1-backed, provenance-verified Bitcoin, with cleanliness attested on-chain. Not a mixer. Proof, not obscurity." />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='15' fill='%230E9B8E'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+</head>
+<body>
+<style>
+:root{
+  --paper:#F5F8F8; --surface:#FFFFFF; --surface-2:#EEF4F4;
+  --ink:#0A1E27; --ink-soft:#3E5761; --ink-mute:#6B838C;
+  --line:#D8E4E5; --line-strong:#C2D4D5;
+  --teal:#0E9B8E; --teal-deep:#0B6F72; --teal-wash:#E4F4F1;
+  --btc:#F7931A; --btc-wash:#FDEBD3;
+  --danger:#D6482B; --danger-wash:#FBE6E0; --amber:#C9871B;
+  --seal:#0E9B8E;
+  --shadow:0 1px 2px rgba(10,30,39,.04), 0 12px 32px -12px rgba(10,30,39,.14);
+  --shadow-lg:0 2px 4px rgba(10,30,39,.05), 0 30px 60px -24px rgba(10,30,39,.22);
+  --radius:16px; --radius-sm:10px;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,"Cascadia Code","SFMono-Regular","Segoe UI Mono",Consolas,"Liberation Mono",monospace;
+  --maxw:1120px;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#071319; --surface:#0D2029; --surface-2:#0A1A21;
+    --ink:#EAF4F4; --ink-soft:#A9C2C6; --ink-mute:#7B979C;
+    --line:#183038; --line-strong:#22434C;
+    --teal:#2FD4BF; --teal-deep:#5FE3D2; --teal-wash:#0E2A2C;
+    --btc:#FFA733; --btc-wash:#2A2012;
+    --danger:#FF7A5C; --danger-wash:#2A1712; --amber:#E7B24B;
+    --seal:#2FD4BF;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.6);
+    --shadow-lg:0 2px 6px rgba(0,0,0,.5), 0 40px 80px -30px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="light"]{
+  --paper:#F5F8F8; --surface:#FFFFFF; --surface-2:#EEF4F4;
+  --ink:#0A1E27; --ink-soft:#3E5761; --ink-mute:#6B838C;
+  --line:#D8E4E5; --line-strong:#C2D4D5;
+  --teal:#0E9B8E; --teal-deep:#0B6F72; --teal-wash:#E4F4F1;
+  --btc:#F7931A; --btc-wash:#FDEBD3; --danger:#D6482B; --danger-wash:#FBE6E0; --amber:#C9871B; --seal:#0E9B8E;
+  --shadow:0 1px 2px rgba(10,30,39,.04), 0 12px 32px -12px rgba(10,30,39,.14);
+  --shadow-lg:0 2px 4px rgba(10,30,39,.05), 0 30px 60px -24px rgba(10,30,39,.22);
+}
+:root[data-theme="dark"]{
+  --paper:#071319; --surface:#0D2029; --surface-2:#0A1A21;
+  --ink:#EAF4F4; --ink-soft:#A9C2C6; --ink-mute:#7B979C;
+  --line:#183038; --line-strong:#22434C;
+  --teal:#2FD4BF; --teal-deep:#5FE3D2; --teal-wash:#0E2A2C;
+  --btc:#FFA733; --btc-wash:#2A2012; --danger:#FF7A5C; --danger-wash:#2A1712; --amber:#E7B24B; --seal:#2FD4BF;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 16px 40px -16px rgba(0,0,0,.6);
+  --shadow-lg:0 2px 6px rgba(0,0,0,.5), 0 40px 80px -30px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{
+  margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+  font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;overflow-x:hidden;
+}
+h1,h2,h3{margin:0;line-height:1.08;letter-spacing:-.02em;text-wrap:balance;font-weight:760}
+p{margin:0}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+.eyebrow{
+  font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.18em;
+  text-transform:uppercase;color:var(--teal-deep);display:inline-flex;align-items:center;gap:8px;
+}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.section{padding:96px 0;border-top:1px solid var(--line)}
+.section-head{max-width:640px;margin-bottom:44px}
+.section-head h2{font-size:clamp(28px,4vw,42px)}
+.section-head p{margin-top:16px;color:var(--ink-soft);font-size:18px}
+
+/* NAV */
+.nav{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--paper) 86%,transparent);
+  backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--line)}
+.nav-in{display:flex;align-items:center;justify-content:space-between;height:66px;gap:20px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:740;letter-spacing:-.02em;font-size:19px}
+.brand .seal{width:30px;height:30px;flex:none}
+.brand small{font-family:var(--mono);font-size:11px;color:var(--ink-mute);letter-spacing:.06em;font-weight:500}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{color:var(--ink-soft);font-size:15px;font-weight:520}
+.nav-links a:hover{color:var(--ink)}
+.nav-cta{display:inline-flex;align-items:center;gap:8px;padding:9px 16px;border-radius:999px;
+  background:var(--ink);color:var(--paper);font-weight:640;font-size:14px}
+.nav-cta:hover{background:var(--teal-deep)}
+.nav-toggle{display:none;background:none;border:1px solid var(--line-strong);border-radius:10px;
+  width:42px;height:38px;color:var(--ink);cursor:pointer;align-items:center;justify-content:center}
+@media (max-width:860px){
+  .nav-links{position:absolute;top:66px;left:0;right:0;flex-direction:column;align-items:stretch;
+    gap:0;background:var(--surface);border-bottom:1px solid var(--line);padding:8px 16px 16px;
+    transform:translateY(-8px);opacity:0;pointer-events:none;transition:.18s}
+  .nav-links.open{transform:none;opacity:1;pointer-events:auto}
+  .nav-links a{padding:12px 4px;border-bottom:1px solid var(--line)}
+  .nav-links .nav-cta{margin-top:12px;justify-content:center}
+  .nav-toggle{display:inline-flex}
+}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:9px;padding:13px 22px;border-radius:999px;font-weight:640;
+  font-size:15px;cursor:pointer;border:1px solid transparent;transition:transform .12s ease,background .15s,border-color .15s}
+.btn:hover{transform:translateY(-1px)}
+.btn-primary{background:var(--teal);color:#032420}
+:root[data-theme="dark"] .btn-primary{color:#032420}
+.btn-primary:hover{background:var(--teal-deep);color:#032420}
+.btn-ghost{background:transparent;color:var(--ink);border-color:var(--line-strong)}
+.btn-ghost:hover{border-color:var(--ink);background:var(--surface)}
+
+/* HERO */
+.hero{padding:72px 0 84px;position:relative;overflow:hidden}
+.hero:before{content:"";position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(60% 55% at 82% 8%,var(--teal-wash),transparent 70%),
+             radial-gradient(40% 40% at 6% 92%,var(--btc-wash),transparent 72%);opacity:.7}
+.hero-grid{position:relative;display:grid;grid-template-columns:1.08fr .92fr;gap:56px;align-items:center}
+@media (max-width:920px){.hero-grid{grid-template-columns:1fr;gap:40px}}
+.hero h1{font-size:clamp(40px,6.4vw,68px);font-weight:800;letter-spacing:-.03em}
+.hero h1 .cln{color:var(--teal);position:relative;white-space:nowrap}
+.hero-sub{margin-top:22px;font-size:20px;color:var(--ink-soft);max-width:33ch}
+.hero-cta{margin-top:32px;display:flex;flex-wrap:wrap;gap:14px}
+.hero-meta{margin-top:28px;display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;color:var(--ink-mute);
+  font-family:var(--mono);font-size:12.5px;letter-spacing:.02em}
+.hero-meta b{color:var(--ink-soft);font-weight:600}
+.hero-meta .dot{width:6px;height:6px;border-radius:50%;background:var(--teal);display:inline-block;margin-right:7px;
+  box-shadow:0 0 0 4px var(--teal-wash)}
+
+/* proof panel */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-lg);overflow:hidden}
+.panel-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 18px;
+  border-bottom:1px solid var(--line);background:var(--surface-2)}
+.panel-top .lbl{font-family:var(--mono);font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute)}
+.verified{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;font-weight:600;
+  color:var(--teal-deep);background:var(--teal-wash);padding:4px 10px;border-radius:999px}
+.verified .v{width:14px;height:14px}
+.panel-body{padding:22px 20px}
+.peg{display:flex;align-items:center;justify-content:center;gap:16px;padding:8px 0 18px}
+.coin{width:60px;height:60px}
+.peg .eq{font-family:var(--mono);font-size:30px;font-weight:600;color:var(--ink-soft)}
+.reserve-row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:12px 0;border-top:1px dashed var(--line-strong)}
+.reserve-row .k{font-family:var(--mono);font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-mute)}
+.reserve-row .val{font-family:var(--mono);font-size:17px;font-weight:600;color:var(--ink)}
+.invariant{margin-top:16px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:12px 14px;font-family:var(--mono);font-size:13px;color:var(--ink-soft);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.invariant .ok{color:var(--teal-deep);font-weight:700}
+.tag-illus{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--amber);background:color-mix(in srgb,var(--amber) 14%,transparent);padding:3px 8px;border-radius:6px}
+
+/* logos strip */
+.trust{display:flex;flex-wrap:wrap;gap:14px 28px;align-items:center;color:var(--ink-mute);font-size:14px;
+  padding-top:30px;margin-top:34px;border-top:1px solid var(--line)}
+.trust .pill{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12.5px}
+
+/* generic grid cards */
+.grid{display:grid;gap:20px}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:repeat(2,1fr)}
+@media (max-width:860px){.g3,.g2{grid-template-columns:1fr}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px 24px;
+  box-shadow:var(--shadow);transition:transform .16s ease,border-color .16s}
+.card:hover{transform:translateY(-3px);border-color:var(--line-strong)}
+.card h3{font-size:20px;margin-bottom:8px}
+.card p{color:var(--ink-soft);font-size:15.5px}
+.card .ic{width:40px;height:40px;margin-bottom:16px}
+.kicker{font-family:var(--mono);font-size:12px;letter-spacing:.05em;color:var(--teal-deep);margin-bottom:10px}
+
+/* problem stats */
+.stat{display:flex;flex-direction:column;gap:6px}
+.stat .n{font-family:var(--mono);font-size:34px;font-weight:700;color:var(--ink);letter-spacing:-.02em}
+.stat .n b{color:var(--btc);font-weight:700}
+.stat .d{color:var(--ink-soft);font-size:15px}
+
+/* mixer contrast */
+.contrast{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:760px){.contrast{grid-template-columns:1fr}}
+.col-neg,.col-pos{border-radius:var(--radius);padding:26px 24px;border:1px solid var(--line)}
+.col-neg{background:var(--danger-wash);border-color:color-mix(in srgb,var(--danger) 30%,var(--line))}
+.col-pos{background:var(--teal-wash);border-color:color-mix(in srgb,var(--teal) 34%,var(--line))}
+.col-neg h3,.col-pos h3{font-size:19px;display:flex;align-items:center;gap:10px;margin-bottom:16px}
+.clist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:12px}
+.clist li{display:flex;gap:11px;font-size:15.5px;color:var(--ink-soft);align-items:flex-start}
+.clist li svg{flex:none;margin-top:3px}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px;counter-reset:s}
+@media (max-width:860px){.steps{grid-template-columns:1fr}}
+.step{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;position:relative;box-shadow:var(--shadow)}
+.step .num{font-family:var(--mono);font-size:12px;color:var(--teal-deep);font-weight:700;letter-spacing:.1em}
+.step h3{font-size:18px;margin:12px 0 8px}
+.step p{color:var(--ink-soft);font-size:15px}
+.step code{font-family:var(--mono);font-size:12.5px;background:var(--surface-2);border:1px solid var(--line);
+  padding:2px 7px;border-radius:6px;color:var(--teal-deep)}
+
+/* roadmap */
+.road{display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+@media (max-width:860px){.road{grid-template-columns:1fr 1fr}}
+@media (max-width:520px){.road{grid-template-columns:1fr}}
+.phase{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--surface);box-shadow:var(--shadow)}
+.phase .ph{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute)}
+.phase.live{border-color:var(--teal);box-shadow:0 0 0 1px var(--teal),var(--shadow)}
+.phase.live .ph{color:var(--teal-deep)}
+.phase h3{font-size:17px;margin:8px 0 10px}
+.phase ul{margin:0;padding-left:18px;color:var(--ink-soft);font-size:14.5px;display:flex;flex-direction:column;gap:6px}
+.badge{display:inline-block;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+  padding:3px 8px;border-radius:999px;margin-top:12px}
+.badge.now{background:var(--teal-wash);color:var(--teal-deep)}
+.badge.next{background:var(--surface-2);color:var(--ink-mute)}
+
+/* faq */
+.faq{display:flex;flex-direction:column;gap:12px;max-width:820px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:4px 20px;box-shadow:var(--shadow)}
+details[open]{border-color:var(--line-strong)}
+summary{cursor:pointer;list-style:none;padding:16px 0;font-weight:640;font-size:16.5px;display:flex;
+  align-items:center;justify-content:space-between;gap:16px}
+summary::-webkit-details-marker{display:none}
+summary .chev{transition:transform .2s;color:var(--ink-mute);flex:none}
+details[open] summary .chev{transform:rotate(180deg)}
+details p{color:var(--ink-soft);font-size:15.5px;padding:0 0 18px}
+
+/* cta band */
+.cta-band{background:linear-gradient(135deg,var(--ink),color-mix(in srgb,var(--ink) 78%,var(--teal-deep)));
+  color:#EAF4F4;border-radius:24px;padding:52px 44px;text-align:center;position:relative;overflow:hidden}
+.cta-band:before{content:"";position:absolute;inset:0;background:radial-gradient(50% 80% at 88% 10%,rgba(47,212,191,.22),transparent 70%);pointer-events:none}
+.cta-band h2{font-size:clamp(26px,4vw,38px);color:#fff;position:relative}
+.cta-band p{margin:16px auto 0;max-width:560px;color:#B9D2D4;position:relative;font-size:17px}
+.cta-band .hero-cta{justify-content:center;position:relative}
+.cta-band .btn-ghost{color:#EAF4F4;border-color:rgba(255,255,255,.28)}
+.cta-band .btn-ghost:hover{background:rgba(255,255,255,.08);border-color:#fff}
+
+/* disclaimer */
+.disclaimer{border:1px dashed var(--line-strong);border-radius:var(--radius);padding:22px 24px;
+  background:var(--surface-2);color:var(--ink-mute);font-size:13.5px;line-height:1.7}
+.disclaimer b{color:var(--ink-soft)}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute)}
+.foot-grid{display:flex;justify-content:space-between;gap:32px;flex-wrap:wrap;align-items:flex-start}
+.foot-links{display:flex;gap:40px;flex-wrap:wrap}
+.foot-col{display:flex;flex-direction:column;gap:10px;font-size:14.5px}
+.foot-col b{color:var(--ink-soft);font-size:12px;font-family:var(--mono);letter-spacing:.1em;text-transform:uppercase;margin-bottom:2px}
+.foot-col a{color:var(--ink-mute)}.foot-col a:hover{color:var(--ink)}
+.foot-bottom{margin-top:36px;padding-top:22px;border-top:1px solid var(--line);display:flex;justify-content:space-between;
+  gap:16px;flex-wrap:wrap;font-size:13px;font-family:var(--mono)}
+
+/* reveal */
+.reveal{opacity:0;transform:translateY(18px);transition:opacity .6s ease,transform .6s ease}
+.reveal.in{opacity:1;transform:none}
+@media (prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}}
+</style>
+
+<!-- NAV -->
+<header class="nav">
+  <div class="wrap nav-in">
+    <a class="brand" href="#top" aria-label="Hakky Protocol home">
+      <svg class="seal" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--seal)"/><path d="M9 16.5l4.5 4.5L23 11" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Hakky<br><small>PROTOCOL</small></span>
+    </a>
+    <nav class="nav-links" id="navLinks">
+      <a href="#problem">The problem</a>
+      <a href="#how">How it works</a>
+      <a href="#reserves">Proof of reserves</a>
+      <a href="#roadmap">Roadmap</a>
+      <a href="#faq">FAQ</a>
+      <a class="nav-cta" href="https://github.com/antihakkysack/hakky-protocol" target="_blank" rel="noopener">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.25c0 4.53 2.87 8.37 6.84 9.73.5.1.68-.22.68-.49l-.01-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.89 1.56 2.34 1.11 2.91.85.09-.66.35-1.11.63-1.36-2.22-.26-4.55-1.14-4.55-5.07 0-1.12.39-2.03 1.03-2.75-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05a9.4 9.4 0 0 1 5 0c1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.63 1.03 2.75 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.6.69.49A10.02 10.02 0 0 0 22 12.25C22 6.58 17.52 2 12 2Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+    <button class="nav-toggle" id="navToggle" aria-label="Menu" aria-expanded="false">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+  </div>
+</header>
+
+<main id="top">
+<!-- HERO -->
+<section class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow reveal">The clean-Bitcoin layer</span>
+      <h1 class="reveal" style="margin-top:16px">Keep crypto <span class="cln">clean.</span></h1>
+      <p class="hero-sub reveal">Not all Bitcoin is treated equally. Coins that trace to hacks or sanctions get frozen on arrival. <b style="color:var(--ink)">cBTC</b> is Bitcoin you can <em>prove</em> is clean — backed 1:1, provenance-screened, verifiable on-chain.</p>
+      <div class="hero-cta reveal">
+        <a class="btn btn-primary" href="https://github.com/antihakkysack/hakky-protocol/blob/main/docs/whitepaper.md" target="_blank" rel="noopener">Read the whitepaper</a>
+        <a class="btn btn-ghost" href="https://github.com/antihakkysack/hakky-protocol" target="_blank" rel="noopener">View the code</a>
+      </div>
+      <div class="hero-meta reveal">
+        <span><span class="dot"></span><b>Open-source</b> · MIT</span>
+        <span><b>15/15</b> contract tests passing</span>
+        <span><b>Not</b> a mixer</span>
+      </div>
+    </div>
+
+    <!-- PROOF PANEL -->
+    <div class="panel reveal" aria-label="Proof of reserves illustration">
+      <div class="panel-top">
+        <span class="lbl">Proof of Reserves</span>
+        <span class="verified"><svg class="v" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>VERIFIED</span>
+      </div>
+      <div class="panel-body">
+        <div class="peg">
+          <svg class="coin" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="var(--btc-wash)" stroke="var(--btc)" stroke-width="2"/><text x="32" y="43" text-anchor="middle" font-family="var(--sans)" font-size="34" font-weight="800" fill="var(--btc)">₿</text></svg>
+          <span class="eq">=</span>
+          <svg class="coin" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="var(--teal-wash)" stroke="var(--teal)" stroke-width="2"/><text x="32" y="42" text-anchor="middle" font-family="var(--sans)" font-size="26" font-weight="800" fill="var(--teal-deep)">₿</text><circle cx="47" cy="18" r="9" fill="var(--teal)"/><path d="M43 18l3 3 5-5.5" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div style="text-align:center;font-family:var(--mono);font-size:14px;color:var(--ink-soft);margin-bottom:6px">
+          <b style="color:var(--ink)">1 cBTC</b> &nbsp;=&nbsp; <b style="color:var(--ink)">1 clean BTC</b>
+        </div>
+        <div class="reserve-row"><span class="k">BTC in reserve</span><span class="val" id="rReserve">128.40000000</span></div>
+        <div class="reserve-row"><span class="k">cBTC supply</span><span class="val" id="rSupply">128.40000000</span></div>
+        <div class="reserve-row"><span class="k">Collateral ratio</span><span class="val" style="color:var(--teal-deep)">100.00%</span></div>
+        <div class="invariant">
+          <span class="ok">✓ invariant</span>
+          <span>totalSupply()&nbsp;≤&nbsp;reserveSats()</span>
+        </div>
+        <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span class="tag-illus">Illustrative · testnet</span>
+          <span class="mono" style="font-size:11px;color:var(--ink-mute)">block #verifiable</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <div class="trust">
+      <span>Built for people who move real Bitcoin:</span>
+      <span class="pill">Honest BTC holders</span>
+      <span class="pill">OTC desks</span>
+      <span class="pill">Exchanges</span>
+      <span class="pill">Compliance-conscious funds</span>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section class="section" id="problem">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">The problem</span>
+      <h2 style="margin-top:14px">Your Bitcoin has a history — and you can't see it.</h2>
+      <p>Blockchain analytics can trace any coin back through hacks, scams and sanctioned wallets. Exchanges use it to freeze deposits on arrival. You did nothing wrong, but the coin's past is now your problem.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card reveal stat"><span class="n"><b>Frozen</b></span><span class="d">Tainted deposits can be locked the moment they land — no warning, no appeal, funds stuck in review.</span></div>
+      <div class="card reveal stat"><span class="n">Premium</span><span class="d">"Clean" / newly-mined BTC already trades at a premium on OTC desks. Provenance has a price.</span></div>
+      <div class="card reveal stat"><span class="n">Opaque</span><span class="d">Screening today is off-chain, siloed and non-portable. Every venue re-screens from scratch, and you never see the result.</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- SOLUTION / NOT A MIXER -->
+<section class="section" id="what">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">The Hakky approach</span>
+      <h2 style="margin-top:14px">Prove your coins are clean. Don't hide them.</h2>
+      <p>Hakky turns cleanliness into a portable, on-chain asset. Mint <b style="color:var(--ink)">cBTC</b> from screened Bitcoin, carry a verifiable attestation of provenance with it, and redeem 1:1 for BTC anytime. Mixers do the opposite of this — and so do we.</p>
+    </div>
+    <div class="contrast">
+      <div class="col-neg reveal">
+        <h3><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg> A mixer / tumbler</h3>
+        <ul class="clist">
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg> Breaks the link between sender and receiver</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg> Obscures where funds came from</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg> Serves people with something to hide</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg> Makes coins <em>more</em> suspect, not less</li>
+        </ul>
+      </div>
+      <div class="col-pos reveal">
+        <h3><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--teal-deep)" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg> Hakky Protocol</h3>
+        <ul class="clist">
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--teal-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Keeps provenance transparent and on-chain</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--teal-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Attests where funds came from, in public</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--teal-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Serves honest holders who want to prove it</li>
+          <li><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--teal-deep)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg> Makes coins <em>portably clean</em> across venues</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="section" id="how">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">How it works</span>
+      <h2 style="margin-top:14px">Three moves: screen, mint, redeem.</h2>
+      <p>Every cBTC is minted only against BTC that has passed screening, and can never exceed the Bitcoin held in reserve. The whole loop is enforced by five open-source contracts.</p>
+    </div>
+    <div class="steps">
+      <div class="step reveal"><span class="num">STEP 01 · SCREEN</span><h3>Deposit is screened</h3><p>You send BTC to protocol custody. Its provenance is checked and an accredited attestor publishes a signed cleanliness attestation on-chain via the <code>AttestationRegistry</code>.</p></div>
+      <div class="step reveal"><span class="num">STEP 02 · MINT</span><h3>cBTC is minted 1:1</h3><p>The <code>ReserveVault</code> verifies the deposit and mints cBTC — but only if supply stays within attested reserves: <code>totalSupply() ≤ reserveSats()</code>.</p></div>
+      <div class="step reveal"><span class="num">STEP 03 · USE &amp; REDEEM</span><h3>Move it, prove it, cash out</h3><p>Hold or transfer cBTC anywhere. Burn it through the vault to redeem native BTC 1:1 — the reserve shrinks to match. Always fully backed.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- MODULES -->
+<section class="section" id="modules">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Architecture</span>
+      <h2 style="margin-top:14px">Five contracts. One clean invariant.</h2>
+      <p>A small, auditable surface. Each module does one job, and every one of them is public.</p>
+    </div>
+    <div class="grid g3">
+      <div class="card reveal">
+        <svg class="ic" viewBox="0 0 40 40" fill="none" aria-hidden="true"><circle cx="20" cy="20" r="17" fill="var(--teal-wash)" stroke="var(--teal)" stroke-width="1.5"/><text x="20" y="27" text-anchor="middle" font-size="18" font-weight="800" fill="var(--teal-deep)">₿</text></svg>
+        <div class="kicker">cBTC · ERC-20</div><h3>Clean BTC</h3>
+        <p>8-decimal, 1:1 BTC-backed token. Supply is capped by proven reserves; transfers can be compliance-gated but ship open by default.</p>
+      </div>
+      <div class="card reveal">
+        <svg class="ic" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="6" y="6" width="28" height="28" rx="7" fill="var(--teal-wash)" stroke="var(--teal)" stroke-width="1.5"/><path d="M14 20.5l4 4 8-9" stroke="var(--teal-deep)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="kicker">AttestationRegistry</div><h3>Cleanliness attestations</h3>
+        <p>Accredited attestors publish signed, expiring provenance attestations per address — score, sanctions flag and an evidence link. Public and revocable.</p>
+      </div>
+      <div class="card reveal">
+        <svg class="ic" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="6" y="10" width="28" height="20" rx="4" fill="var(--btc-wash)" stroke="var(--btc)" stroke-width="1.5"/><path d="M12 20h16M12 24h10" stroke="var(--btc)" stroke-width="2" stroke-linecap="round"/></svg>
+        <div class="kicker">ReserveOracle</div><h3>Proof of reserves</h3>
+        <p>Publishes the attested BTC reserve balance that backs cBTC, plus a pointer to the signed custody report. Anyone can verify the peg on-chain.</p>
+      </div>
+      <div class="card reveal">
+        <svg class="ic" viewBox="0 0 40 40" fill="none" aria-hidden="true"><path d="M20 5l13 5v9c0 8-5.5 13-13 16-7.5-3-13-8-13-16v-9z" fill="var(--teal-wash)" stroke="var(--teal)" stroke-width="1.5"/><path d="M14 20.5l4 4 8-9" stroke="var(--teal-deep)" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="kicker">CompliancePolicy</div><h3>Configurable policy</h3>
+        <p>Monitor · Gated · Allowlist modes. Ships in <b>monitor-only</b> — cBTC behaves like any ERC-20 until governance ever chooses to enable gating.</p>
+      </div>
+      <div class="card reveal">
+        <svg class="ic" viewBox="0 0 40 40" fill="none" aria-hidden="true"><rect x="6" y="12" width="28" height="20" rx="4" fill="var(--teal-wash)" stroke="var(--teal)" stroke-width="1.5"/><path d="M13 12V10a7 7 0 0 1 14 0v2" stroke="var(--teal)" stroke-width="1.8" fill="none"/><circle cx="20" cy="22" r="3" fill="var(--teal-deep)"/></svg>
+        <div class="kicker">ReserveVault</div><h3>Mint &amp; redeem gateway</h3>
+        <p>The one door in and out: mints against verified deposits with replay protection, and burns cBTC to release BTC 1:1 on redemption.</p>
+      </div>
+      <div class="card reveal" style="background:var(--surface-2);display:flex;flex-direction:column;justify-content:center">
+        <div class="kicker">Read the source</div><h3 style="margin-bottom:12px">Nothing hidden.</h3>
+        <p style="margin-bottom:18px">Every contract, test and deploy script is MIT-licensed and public.</p>
+        <a class="btn btn-ghost" href="https://github.com/antihakkysack/hakky-protocol/tree/main/contracts" target="_blank" rel="noopener" style="align-self:flex-start">Browse contracts →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROOF OF RESERVES / TRUST -->
+<section class="section" id="reserves">
+  <div class="wrap hero-grid" style="align-items:center">
+    <div class="reveal">
+      <span class="eyebrow">Proof, not trust-me</span>
+      <h2 style="margin-top:14px;font-size:clamp(28px,4vw,40px)">Fully backed, and honest about how.</h2>
+      <p style="margin-top:16px;color:var(--ink-soft);font-size:17px">The peg is protected by a single public invariant enforced at mint time: cBTC in circulation can never exceed the BTC held in reserve. You don't have to trust a dashboard — you can read it from the chain.</p>
+      <p style="margin-top:16px;color:var(--ink-soft);font-size:17px">We're equally clear about what v1 <em>isn't</em>: like every 1:1 BTC-backed token today, reserves sit with qualified custody and a multisig publishes the attestation. That's not trustless — and we say so. The roadmap moves toward decentralized custody and zk proof-of-reserves.</p>
+      <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
+        <a class="btn btn-primary" href="https://github.com/antihakkysack/hakky-protocol/blob/main/docs/whitepaper.md" target="_blank" rel="noopener">How the peg is secured</a>
+      </div>
+    </div>
+    <div class="panel reveal">
+      <div class="panel-top"><span class="lbl">Solvency check</span><span class="verified"><svg class="v" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>PASSING</span></div>
+      <div class="panel-body" style="font-family:var(--mono);font-size:13.5px;line-height:1.9;color:var(--ink-soft)">
+        <div><span style="color:var(--teal-deep)">require</span>(</div>
+        <div style="padding-left:20px">totalSupply() <span style="color:var(--btc)">+</span> amount</div>
+        <div style="padding-left:20px"><span style="color:var(--teal-deep)">&lt;=</span> reserveOracle.reserveSats()</div>
+        <div>);</div>
+        <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line-strong);color:var(--ink-mute)">// mint reverts with <span style="color:var(--danger)">ExceedsReserves</span></div>
+        <div style="color:var(--ink-mute)">// if the peg would ever break.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ROADMAP -->
+<section class="section" id="roadmap">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Roadmap</span>
+      <h2 style="margin-top:14px">From honest custody to trust-minimized.</h2>
+      <p>We ship what works today and decentralize deliberately — no vaporware milestones.</p>
+    </div>
+    <div class="road">
+      <div class="phase live reveal"><span class="ph">Phase 1 · Now</span><h3>Foundation</h3><ul><li>cBTC + full contract suite</li><li>Attestation registry</li><li>Proof-of-reserves oracle</li><li>Testnet + audit prep</li></ul><span class="badge now">Shipped in this repo</span></div>
+      <div class="phase reveal"><span class="ph">Phase 2</span><h3>Live peg</h3><ul><li>Qualified-custody reserves</li><li>Attestor onboarding</li><li>Mainnet cBTC</li><li>Public PoR reporting</li></ul><span class="badge next">Next</span></div>
+      <div class="phase reveal"><span class="ph">Phase 3</span><h3>Decentralize</h3><ul><li>MPC / threshold custody</li><li>Multi-attestor network</li><li>zk proof-of-reserves</li><li>DeFi integrations</li></ul><span class="badge next">Planned</span></div>
+      <div class="phase reveal"><span class="ph">Phase 4</span><h3>Governance</h3><ul><li>$HAKKY governance</li><li>Community attestor accreditation</li><li>Parameter &amp; fee governance</li></ul><span class="badge next">Roadmap</span></div>
+    </div>
+    <p class="mono reveal" style="margin-top:22px;font-size:12.5px;color:var(--ink-mute)">$HAKKY is a roadmap governance token. There is no token sale, presale, or airdrop, and none is implied by this page.</p>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section class="section" id="faq">
+  <div class="wrap">
+    <div class="section-head reveal">
+      <span class="eyebrow">Straight answers</span>
+      <h2 style="margin-top:14px">The questions you should be asking.</h2>
+    </div>
+    <div class="faq">
+      <details class="reveal"><summary>Is this a mixer? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>No — it's the opposite. A mixer breaks the link between sender and receiver to <em>obscure</em> where funds came from. Hakky keeps provenance fully transparent and on-chain, and helps honest holders <em>prove</em> their coins are clean. Nothing is hidden, mixed, or anonymized.</p></details>
+      <details class="reveal"><summary>Is it a surveillance tool, then? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>No. Attestations are user-consented, portable proofs you opt into to unlock clean liquidity — not blanket monitoring. The registry only records the attestations that attestors publish; it doesn't track your activity, and cBTC ships in monitor-only mode where transfers aren't gated at all.</p></details>
+      <details class="reveal"><summary>What actually backs cBTC? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Native Bitcoin, 1:1. Each cBTC (8 decimals, so 1 base unit = 1 satoshi) is minted only against BTC in reserve, and a smart-contract invariant makes it impossible for supply to exceed the attested reserves. Burn cBTC to redeem BTC at any time.</p></details>
+      <details class="reveal"><summary>Is v1 trustless? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>No, and we won't pretend otherwise. v1 uses qualified-custody reserves and a multisig-published proof-of-reserves, exactly like every 1:1 BTC-backed token in production today. The roadmap moves custody and attestation toward MPC/threshold signing and zk proof-of-reserves.</p></details>
+      <details class="reveal"><summary>Is $HAKKY a token I can buy? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Not now. $HAKKY is a roadmap governance token. There is no sale, presale, or airdrop today, and this page is not an offer of any security or a solicitation to buy anything. Ignore anyone claiming otherwise.</p></details>
+      <details class="reveal"><summary>Can I read the code? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Yes. The entire protocol — contracts, tests, deploy scripts, and the whitepaper — is MIT-licensed and public on <a href="https://github.com/antihakkysack/hakky-protocol" target="_blank" rel="noopener" style="color:var(--teal-deep);text-decoration:underline">GitHub</a>. Audit, don't assume.</p></details>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section" style="border-top:none">
+  <div class="wrap">
+    <div class="cta-band reveal">
+      <h2>Clean coins deserve proof.</h2>
+      <p>Read the whitepaper, browse the contracts, and follow the build. Hakky is open-source and open to scrutiny.</p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="https://github.com/antihakkysack/hakky-protocol/blob/main/docs/whitepaper.md" target="_blank" rel="noopener">Read the whitepaper</a>
+        <a class="btn btn-ghost" href="https://x.com/HakkyProtocol" target="_blank" rel="noopener">Follow @HakkyProtocol</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DISCLAIMER -->
+<section class="wrap" style="padding-bottom:20px">
+  <div class="disclaimer reveal">
+    <b>Disclaimer.</b> This website and the linked materials are provided for informational purposes only. They are not financial, investment, legal, or tax advice, and they are not an offer to sell or a solicitation to buy any security, token, or financial instrument. Digital assets are volatile and carry risk, including smart-contract risk, custody risk, regulatory risk, and the risk of de-peg or total loss. Hakky Protocol is compliance and provenance tooling; it is not a means to evade lawful process or launder funds. Nothing here guarantees any outcome, return, listing, or token distribution. Always do your own research and consult qualified professionals. Product names, figures, and reserve values shown are illustrative unless explicitly verified on-chain.
+  </div>
+</section>
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div style="max-width:300px">
+        <a class="brand" href="#top" style="margin-bottom:14px">
+          <svg class="seal" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="15" fill="var(--seal)"/><path d="M9 16.5l4.5 4.5L23 11" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span>Hakky<br><small>PROTOCOL</small></span>
+        </a>
+        <p style="color:var(--ink-mute);font-size:14px;margin-top:6px">The clean-Bitcoin layer. 1 cBTC = 1 verifiably clean BTC. Keep crypto clean.</p>
+      </div>
+      <div class="foot-links">
+        <div class="foot-col"><b>Protocol</b><a href="#how">How it works</a><a href="#modules">Architecture</a><a href="#reserves">Proof of reserves</a><a href="#roadmap">Roadmap</a></div>
+        <div class="foot-col"><b>Build</b><a href="https://github.com/antihakkysack/hakky-protocol" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/antihakkysack/hakky-protocol/blob/main/docs/whitepaper.md" target="_blank" rel="noopener">Whitepaper</a><a href="https://github.com/antihakkysack/hakky-protocol/tree/main/contracts" target="_blank" rel="noopener">Contracts</a></div>
+        <div class="foot-col"><b>Follow</b><a href="https://x.com/HakkyProtocol" target="_blank" rel="noopener">X / Twitter</a></div>
+      </div>
+    </div>
+    <div class="foot-bottom">
+      <span>© <span id="yr">2026</span> Hakky Protocol · MIT License</span>
+      <span>Not financial advice · Audit, don't assume.</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  // year
+  var y=document.getElementById('yr'); if(y) y.textContent=new Date().getFullYear();
+  // mobile nav
+  var t=document.getElementById('navToggle'), l=document.getElementById('navLinks');
+  if(t&&l){t.addEventListener('click',function(){var o=l.classList.toggle('open');t.setAttribute('aria-expanded',o);});
+    l.querySelectorAll('a').forEach(function(a){a.addEventListener('click',function(){l.classList.remove('open');t.setAttribute('aria-expanded',false);});});}
+  // reveal on scroll
+  var reduce=window.matchMedia('(prefers-reduced-motion:reduce)').matches;
+  var els=document.querySelectorAll('.reveal');
+  if(reduce||!('IntersectionObserver'in window)){els.forEach(function(e){e.classList.add('in');});}
+  else{var io=new IntersectionObserver(function(en){en.forEach(function(x){if(x.isIntersecting){x.target.classList.add('in');io.unobserve(x.target);}});},{rootMargin:'0px 0px -8% 0px',threshold:.08});
+    els.forEach(function(e){io.observe(e);});}
+})();
+</script>
+</body>
+</html>

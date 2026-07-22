@@ -1,0 +1,30 @@
+{
+  "name": "hakky-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Hakky Protocol — the clean-Bitcoin layer. cBTC is a 1:1 BTC-backed token whose backing coins pass provenance screening, with cleanliness proven on-chain. The transparent opposite of a mixer.",
+  "keywords": [
+    "bitcoin",
+    "btc",
+    "defi",
+    "proof-of-reserves",
+    "compliance",
+    "aml",
+    "provenance",
+    "attestation",
+    "ethereum",
+    "solidity"
+  ],
+  "homepage": "https://hakky.xyz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/antihakkysack/hakky-protocol.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "npm --prefix contracts run build",
+    "test": "npm --prefix contracts test",
+    "deploy:local": "npm --prefix contracts run deploy:local",
+    "web": "npx serve web"
+  }
+}

@@ -1,0 +1,8 @@
+# Normalize line endings across platforms; store text as LF in the repo.
+* text=auto eol=lf
+
+# Binary assets (none yet, but keep git from touching them if added)
+*.png binary
+*.jpg binary
+*.woff binary
+*.woff2 binary

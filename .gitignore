@@ -1,0 +1,26 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Hardhat / Solidity build output
+contracts/artifacts/
+contracts/cache/
+contracts/coverage/
+contracts/coverage.json
+contracts/typechain-types/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
