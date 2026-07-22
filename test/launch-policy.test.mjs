@@ -10,6 +10,24 @@ test("approved prelaunch record is valid", () => {
   assert.deepEqual(validateLaunchRecord(record), []);
 });
 
+test("launch records reject unknown fields at every schema layer", () => {
+  const layers = [
+    ["launch record", (changed) => { changed.extra = true; }],
+    ["project", (changed) => { changed.project.extra = true; }],
+    ["token", (changed) => { changed.token.extra = true; }],
+    ["launch", (changed) => { changed.launch.extra = true; }],
+    ["proof", (changed) => { changed.proof.extra = true; }],
+  ];
+  for (const [label, mutate] of layers) {
+    const changed = label === "proof" ? createValidLiveRecord(record) : structuredClone(record);
+    mutate(changed);
+    assert.ok(
+      validateLaunchRecord(changed).includes(`${label} has unexpected field extra`),
+      `${label} accepted an unknown field`,
+    );
+  }
+});
+
 test("rejects supply inflation and team allocation", () => {
   const changed = structuredClone(record);
   changed.token.supplyBaseUnits = "2000000000000";

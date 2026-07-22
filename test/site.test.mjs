@@ -27,6 +27,15 @@ const SELECTORS = [
   "[data-launch-transaction]",
   "[data-solscan]",
   "[data-raydium]",
+  "[data-commitments]",
+  "[data-fixed-supply-qualifier]",
+  "[data-team-allocation-qualifier]",
+  "[data-presale-qualifier]",
+  "[data-launch-qualifier]",
+  "[data-allocation-label]",
+  "[data-curve-qualifier]",
+  "[data-liquidity-qualifier]",
+  "[data-proof-qualifier]",
 ];
 
 class FakeElement {
@@ -76,6 +85,63 @@ const responseFor = (value) => async () => ({
   },
 });
 
+function assertQualifierCopy(documentRef, { live }) {
+  const element = (selector) => documentRef.elements.get(selector);
+  const expected = live ? {
+    commitments: "Verified launch commitments",
+    fixedSupply: "verified fixed supply",
+    teamAllocation: "verified team allocation",
+    presale: "verified presale tokens",
+    launch: "Verified:",
+    allocationLabel: "Verified token distribution",
+    curve: "Verified: 80% public bonding curve",
+    liquidity: "Verified: 20% liquidity",
+  } : {
+    commitments: "Planned launch commitments",
+    fixedSupply: "planned fixed supply",
+    teamAllocation: "planned team allocation",
+    presale: "planned presale tokens",
+    launch: "Planned:",
+    allocationLabel: "Planned token distribution",
+    curve: "Planned: 80% public bonding curve",
+    liquidity: "Planned: 20% liquidity",
+  };
+  if (element("[data-commitments]")) {
+    assert.equal(element("[data-commitments]").getAttribute("aria-label"), expected.commitments);
+  }
+  if (element("[data-fixed-supply-qualifier]")) {
+    assert.equal(element("[data-fixed-supply-qualifier]").textContent, expected.fixedSupply);
+  }
+  if (element("[data-team-allocation-qualifier]")) {
+    assert.equal(element("[data-team-allocation-qualifier]").textContent, expected.teamAllocation);
+  }
+  if (element("[data-presale-qualifier]")) {
+    assert.equal(element("[data-presale-qualifier]").textContent, expected.presale);
+  }
+  if (element("[data-launch-qualifier]")) {
+    assert.equal(element("[data-launch-qualifier]").textContent, expected.launch);
+  }
+  if (element("[data-allocation-label]")) {
+    assert.equal(element("[data-allocation-label]").getAttribute("aria-label"), expected.allocationLabel);
+  }
+  if (element("[data-curve-qualifier]")) {
+    assert.equal(element("[data-curve-qualifier]").textContent, expected.curve);
+  }
+  if (element("[data-liquidity-qualifier]")) {
+    assert.equal(element("[data-liquidity-qualifier]").textContent, expected.liquidity);
+  }
+  if (element("[data-proof-qualifier]")) {
+    if (live) {
+      assert.equal(
+        element("[data-proof-qualifier]").textContent,
+        "Complete canonical proof is published; every launch property below is verified.",
+      );
+    } else {
+      assert.match(element("[data-proof-qualifier]").textContent, /required.*not verified/i);
+    }
+  }
+}
+
 function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {}) {
   const element = (selector) => documentRef.elements.get(selector);
   assert.match(element("[data-launch-status]").textContent, statusPattern);
@@ -102,6 +168,7 @@ function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {})
     assert.equal(element("[data-launch-transaction]").getAttribute("href"), null);
   }
   assert.equal(element("[data-live-actions]").hidden, true);
+  assertQualifierCopy(documentRef, { live: false });
 }
 
 test("homepage contains the approved story and safety contract", () => {
@@ -137,6 +204,15 @@ test("homepage contains exact GitHub navigation and complete live proof structur
     "data-creator-spend",
     "data-verification-time",
     "data-launch-transaction",
+    "data-commitments",
+    "data-fixed-supply-qualifier",
+    "data-team-allocation-qualifier",
+    "data-presale-qualifier",
+    "data-launch-qualifier",
+    "data-allocation-label",
+    "data-curve-qualifier",
+    "data-liquidity-qualifier",
+    "data-proof-qualifier",
   ]) {
     assert.match(html, new RegExp(`\\b${attribute}\\b`));
   }
@@ -184,6 +260,7 @@ test("valid live record renders exact verified evidence and official destination
   assert.equal(element("[data-solscan]").getAttribute("href"), live.proof.solscanUrl);
   assert.equal(element("[data-raydium]").getAttribute("href"), live.proof.raydiumUrl);
   assert.equal(element("[data-live-actions]").hidden, false);
+  assertQualifierCopy(documentRef, { live: true });
 });
 
 test("live followed by prelaunch clears every verified field and destination", async () => {
@@ -227,4 +304,17 @@ test("missing required live element never reveals actions or destinations", asyn
 
   assertFailClosed(documentRef);
   assert.equal(documentRef.elements.get("[data-solscan]").getAttribute("href"), null);
+});
+
+test("partial DOM failure after live restores every available prelaunch qualifier", async () => {
+  const documentRef = createDocument();
+  await renderLaunchState(documentRef, responseFor(createValidLiveRecord(record)));
+  documentRef.elements.delete("[data-proof-qualifier]");
+
+  await assert.rejects(
+    renderLaunchState(documentRef, responseFor(createValidLiveRecord(record))),
+    /Launch-state elements are missing/,
+  );
+
+  assertFailClosed(documentRef);
 });

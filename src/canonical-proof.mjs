@@ -263,10 +263,17 @@ async function readCanonicalJson(root, relativePath, readFileImpl) {
   }
   try {
     return JSON.parse(contents);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Cannot parse canonical ${relativePath}: ${detail}`);
+  } catch {
+    throw new Error(`Invalid JSON in canonical ${relativePath}`);
   }
+}
+
+export async function loadCanonicalProofArtifacts(
+  { root = process.cwd(), readFileImpl = readFile } = {},
+) {
+  const mintProof = await readCanonicalJson(root, "proof/mainnet-mint.json", readFileImpl);
+  const launchlabProof = await readCanonicalJson(root, "proof/mainnet-launchlab.json", readFileImpl);
+  return { mintProof, launchlabProof };
 }
 
 export async function loadCanonicalProofsForLaunch(
@@ -274,7 +281,5 @@ export async function loadCanonicalProofsForLaunch(
   { root = process.cwd(), readFileImpl = readFile } = {},
 ) {
   if (launch?.status !== "live") return { mintProof: null, launchlabProof: null };
-  const mintProof = await readCanonicalJson(root, "proof/mainnet-mint.json", readFileImpl);
-  const launchlabProof = await readCanonicalJson(root, "proof/mainnet-launchlab.json", readFileImpl);
-  return { mintProof, launchlabProof };
+  return loadCanonicalProofArtifacts({ root, readFileImpl });
 }

@@ -146,13 +146,18 @@ test("live loads and parses both exact canonical proof paths", async () => {
   assert.equal(result.launchlabProof.ok, true);
 });
 
-test("live rejects malformed canonical proof JSON", async () => {
+test("live rejects malformed canonical proof JSON without echoing its contents", async () => {
+  const malformedFragment = ["opaque", "credential", "fragment"].join("-");
   await assert.rejects(
     loadCanonicalProofsForLaunch(createValidLiveRecord(prelaunch), {
       root: "project-root",
-      readFileImpl: async () => "{not-json",
+      readFileImpl: async () => `${malformedFragment}{`,
     }),
-    /Cannot parse canonical proof\/mainnet-mint.json/,
+    (error) => {
+      assert.equal(error.message, "Invalid JSON in canonical proof/mainnet-mint.json");
+      assert.equal(error.message.includes(malformedFragment), false);
+      return true;
+    },
   );
 });
 

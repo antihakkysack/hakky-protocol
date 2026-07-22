@@ -22,6 +22,15 @@ const ELEMENT_SELECTORS = Object.freeze({
   launchTransaction: "[data-launch-transaction]",
   solscan: "[data-solscan]",
   raydium: "[data-raydium]",
+  commitments: "[data-commitments]",
+  fixedSupplyQualifier: "[data-fixed-supply-qualifier]",
+  teamAllocationQualifier: "[data-team-allocation-qualifier]",
+  presaleQualifier: "[data-presale-qualifier]",
+  launchQualifier: "[data-launch-qualifier]",
+  allocationLabel: "[data-allocation-label]",
+  curveQualifier: "[data-curve-qualifier]",
+  liquidityQualifier: "[data-liquidity-qualifier]",
+  proofQualifier: "[data-proof-qualifier]",
 });
 const SAFE_TEXT = Object.freeze({
   mint: "Not published",
@@ -39,6 +48,36 @@ const SAFE_TEXT = Object.freeze({
   creatorSpend: "Required: <= 1.00 SOL",
   verificationTime: "Not verified",
   launchTransaction: "Not published",
+});
+const QUALIFIER_TEXT = Object.freeze({
+  prelaunch: Object.freeze({
+    fixedSupplyQualifier: "planned fixed supply",
+    teamAllocationQualifier: "planned team allocation",
+    presaleQualifier: "planned presale tokens",
+    launchQualifier: "Planned:",
+    curveQualifier: "Planned: 80% public bonding curve",
+    liquidityQualifier: "Planned: 20% liquidity",
+    proofQualifier: "Until complete proof is published here, every launch property below is required - not verified.",
+  }),
+  live: Object.freeze({
+    fixedSupplyQualifier: "verified fixed supply",
+    teamAllocationQualifier: "verified team allocation",
+    presaleQualifier: "verified presale tokens",
+    launchQualifier: "Verified:",
+    curveQualifier: "Verified: 80% public bonding curve",
+    liquidityQualifier: "Verified: 20% liquidity",
+    proofQualifier: "Complete canonical proof is published; every launch property below is verified.",
+  }),
+});
+const QUALIFIER_ARIA = Object.freeze({
+  prelaunch: Object.freeze({
+    commitments: "Planned launch commitments",
+    allocationLabel: "Planned token distribution",
+  }),
+  live: Object.freeze({
+    commitments: "Verified launch commitments",
+    allocationLabel: "Verified token distribution",
+  }),
 });
 
 export function buildLaunchView(record) {
@@ -94,6 +133,16 @@ function findElement(documentRef, selector) {
   }
 }
 
+function setQualifierState(elements, state, { failClosed = false } = {}) {
+  const apply = failClosed ? bestEffort : (operation) => operation();
+  for (const [name, value] of Object.entries(QUALIFIER_TEXT[state])) {
+    apply(() => { if (elements[name]) elements[name].textContent = value; });
+  }
+  for (const [name, value] of Object.entries(QUALIFIER_ARIA[state])) {
+    apply(() => elements[name]?.setAttribute("aria-label", value));
+  }
+}
+
 function setFailClosedState(documentRef, message = FAILURE_MESSAGE) {
   const elements = Object.fromEntries(
     Object.entries(ELEMENT_SELECTORS).map(([name, selector]) => [name, findElement(documentRef, selector)]),
@@ -104,6 +153,7 @@ function setFailClosedState(documentRef, message = FAILURE_MESSAGE) {
   for (const [name, value] of Object.entries(SAFE_TEXT)) {
     bestEffort(() => { if (elements[name]) elements[name].textContent = value; });
   }
+  setQualifierState(elements, "prelaunch", { failClosed: true });
   bestEffort(() => elements.solscan?.removeAttribute("href"));
   bestEffort(() => elements.launchTransaction?.removeAttribute("href"));
   bestEffort(() => elements.raydium?.removeAttribute("href"));
@@ -149,6 +199,7 @@ export async function renderLaunchState(documentRef = document, fetchImpl = fetc
     elements.creatorSpend.textContent = view.creatorSpend;
     elements.verificationTime.textContent = view.verificationTime;
     elements.launchTransaction.textContent = view.launchTransaction;
+    setQualifierState(elements, "live");
     elements.launchTransaction.setAttribute("href", view.solscanTransactionUrl);
     elements.solscan.setAttribute("href", view.solscanUrl);
     elements.raydium.setAttribute("href", view.raydiumUrl);

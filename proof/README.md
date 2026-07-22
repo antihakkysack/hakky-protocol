@@ -29,3 +29,9 @@ For a live website, both artifacts must exist with `ok: true`, match the web
 record exactly, and satisfy mint-check time <= LaunchLab-check time <= final
 web-verification time. Prelaunch keeps `token.mint` and `proof` null and does not
 require either canonical file.
+
+Do not copy proof fields into the web record manually. Once both artifacts are
+valid, use
+`npm run build:live-record -- --verified-at <exact-ISO-8601-UTC-timestamp>` so
+the supported live schema is generated and cross-checked before
+`web/data/launch.json` is written.

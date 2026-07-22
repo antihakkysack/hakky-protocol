@@ -56,3 +56,9 @@ timestamp ordered after them. Canonical destinations are the Solscan token
 route, Solscan transaction route, and Raydium LaunchLab token route; credentials,
 non-default ports, fragments, alternate routes, and extra query parameters are
 rejected.
+
+After both canonical artifacts are complete, generate the exact live record
+with `npm run build:live-record -- --verified-at <exact-ISO-8601-UTC-timestamp>`.
+The command accepts no mint, launch, URL, allocation, metadata, or spend
+override: it copies those values from the validated artifacts and writes
+`web/data/launch.json` only after the complete cross-check passes.

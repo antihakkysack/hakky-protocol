@@ -21,6 +21,48 @@ export const EXPECTED_POLICY = Object.freeze({
 
 export const LAUNCH_RECORD_SCHEMA_VERSION = 1;
 
+export const LAUNCH_RECORD_FIELDS = Object.freeze([
+  "schemaVersion",
+  "status",
+  "network",
+  "project",
+  "token",
+  "launch",
+  "proof",
+]);
+export const PROJECT_FIELDS = Object.freeze(["name", "symbol", "personalProject"]);
+export const TOKEN_FIELDS = Object.freeze([
+  "mint",
+  "program",
+  "decimals",
+  "supplyUi",
+  "supplyBaseUnits",
+  "mintAuthority",
+  "freezeAuthority",
+  "transferFeeBps",
+  "transferHook",
+  "blacklistControl",
+  "permanentDelegate",
+  "metadataImmutable",
+  "metadataImage",
+  "metadataWebsite",
+  "metadataX",
+]);
+export const LAUNCH_FIELDS = Object.freeze([
+  "platform",
+  "quoteAsset",
+  "curveAllocationBps",
+  "liquidityAllocationBps",
+  "teamAllocationBps",
+  "presale",
+  "vesting",
+  "graduationTargetSol",
+  "creatorFirstBuySol",
+  "creatorFeeEnabled",
+  "lpPolicy",
+  "creatorSpendCapSol",
+]);
+
 export const LIVE_PROOF_FIELDS = Object.freeze([
   "mint",
   "creator",
@@ -57,6 +99,25 @@ export const LIVE_PROOF_FIELDS = Object.freeze([
 ]);
 
 const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function isObject(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function validateExactFields(value, fields, label, issues) {
+  if (!isObject(value)) {
+    issues.push(`${label} must be an object`);
+    return false;
+  }
+  const expected = new Set(fields);
+  for (const field of fields) {
+    if (!Object.hasOwn(value, field)) issues.push(`${label} requires ${field}`);
+  }
+  for (const field of Object.keys(value)) {
+    if (!expected.has(field)) issues.push(`${label} has unexpected field ${field}`);
+  }
+  return true;
+}
 
 function decodeBase58(value) {
   if (typeof value !== "string" || value.length === 0) return null;
@@ -157,6 +218,10 @@ export function isOfficialRaydiumLaunchUrl(value, mint) {
 
 export function validateLaunchRecord(record) {
   const issues = [];
+  if (!validateExactFields(record, LAUNCH_RECORD_FIELDS, "launch record", issues)) return issues;
+  validateExactFields(record.project, PROJECT_FIELDS, "project", issues);
+  validateExactFields(record.token, TOKEN_FIELDS, "token", issues);
+  validateExactFields(record.launch, LAUNCH_FIELDS, "launch", issues);
   const checks = [
     [record.schemaVersion === LAUNCH_RECORD_SCHEMA_VERSION, "schemaVersion must equal 1"],
     [record.network === EXPECTED_POLICY.network, `network must equal ${EXPECTED_POLICY.network}`],
@@ -196,6 +261,7 @@ export function validateLaunchRecord(record) {
   }
   if (record.status === "live") {
     if (!record.proof) issues.push("live status requires proof");
+    if (record.proof) validateExactFields(record.proof, LIVE_PROOF_FIELDS, "proof", issues);
     for (const key of [
       "mint",
       "creator",
@@ -209,9 +275,6 @@ export function validateLaunchRecord(record) {
       "verifiedAt",
     ]) {
       if (!record.proof?.[key]) issues.push(`live status requires proof.${key}`);
-    }
-    for (const key of Object.keys(record.proof ?? {})) {
-      if (!LIVE_PROOF_FIELDS.includes(key)) issues.push(`proof has unexpected field ${key}`);
     }
     const proofChecks = [
       [record.proof?.supplyBaseUnits === EXPECTED_POLICY.supplyBaseUnits, "proof.supplyBaseUnits must equal 1000000000000"],

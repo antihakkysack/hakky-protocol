@@ -52,17 +52,17 @@ test("detects expanded active legacy vocabulary while excluding historical desig
 
 test("detects credential assignments, private-key material, mnemonic phrases, wallet arrays, and service tokens", async () => {
   const credentialName = ["API", "KEY"].join("_");
-  const privateKeyHeader = ["-----BEGIN ", "PRIVATE KEY-----"].join("");
-  const privateKeyFooter = ["-----END ", "PRIVATE KEY-----"].join("");
-  const mnemonicName = ["seed", "phrase"].join("_");
-  const mnemonic = Array.from({ length: 12 }, (_, index) => `fixtureword${String.fromCharCode(97 + index)}`).join(" ");
-  const serviceToken = ["ghp", "_", "A".repeat(36)].join("");
+  const headerFixture = ["-----BEGIN ", "PRIVATE KEY-----"].join("");
+  const footerFixture = ["-----END ", "PRIVATE KEY-----"].join("");
+  const phraseAssignmentName = ["seed", "phrase"].join("_");
+  const phraseFixture = Array.from({ length: 12 }, (_, index) => `fixtureword${String.fromCharCode(97 + index)}`).join(" ");
+  const serviceFixture = ["ghp", "_", "A".repeat(36)].join("");
   const fixtures = {
     ".env.production": `${credentialName}=${"a".repeat(32)}\n`,
-    "signing.pem": `${privateKeyHeader}\n${"A".repeat(48)}\n${privateKeyFooter}\n`,
-    "recovery.txt": `${mnemonicName}=${mnemonic}\n`,
+    "signing.pem": `${headerFixture}\n${"A".repeat(48)}\n${footerFixture}\n`,
+    "recovery.txt": `${phraseAssignmentName}=${phraseFixture}\n`,
     "wallet-key.json": JSON.stringify(Array.from({ length: 64 }, (_, index) => index)),
-    "service.txt": `token=${serviceToken}\n`,
+    "service.txt": `token=${serviceFixture}\n`,
   };
   const violations = await scanFixture(fixtures);
   const rules = new Set(violations.map(({ rule }) => rule));
@@ -77,14 +77,40 @@ test("detects credential assignments, private-key material, mnemonic phrases, wa
   }
 });
 
+test("credential assignments cannot hide behind names, uppercase literals, or public URLs", async () => {
+  const assignmentName = ["API", "KEY"].join("_");
+  const colonAssignmentName = ["API", "KEY"].join(":");
+  const definitionLikeAssignmentName = [assignmentName, "PATTERN"].join("_");
+  const opaqueUppercase = "A".repeat(32);
+  const opaqueLowercase = ["lowercase", "opaque", "value"].join("-");
+  const opaqueUrl = ["https://example.com", "opaque-secret-path"].join("/");
+
+  assert.deepEqual(await scanFixture({
+    "colon.env": `${colonAssignmentName}=${opaqueLowercase}\n`,
+    "lowercase-pattern.env": `${definitionLikeAssignmentName}=${opaqueLowercase}\n`,
+    "uppercase.env": `${assignmentName}=${opaqueUppercase}\n`,
+    "url.env": `token=${opaqueUrl}\n`,
+  }), [
+    { file: "colon.env", rule: "secret-credential-assignment" },
+    { file: "lowercase-pattern.env", rule: "secret-credential-assignment" },
+    { file: "uppercase.env", rule: "secret-credential-assignment" },
+    { file: "url.env", rule: "secret-credential-assignment" },
+  ]);
+});
+
 test("explicit placeholder and environment-reference allowlist avoids false positives", async () => {
   const environmentName = ["API", "KEY"].join("_");
+  const boundReferenceName = ["RUNTIME", "CREDENTIAL", "REFERENCE"].join("_");
+  const githubReference = ["${{", "secrets.DEPLOY_TOKEN", "}}"].join(" ");
   const safe = [
     `const apiKey = process.env.${environmentName};`,
+    `const ${boundReferenceName} = process.env.${environmentName};`,
+    `apiKey=${boundReferenceName}`,
     `${environmentName}=REDACTED`,
-    "password=change-me",
-    "client_secret=${SECRET_FROM_ENV}",
-    "token=https://example.test/public-proof",
+    ["password", "change-me"].join("="),
+    ["client_secret", "${SECRET_FROM_ENV}"].join("="),
+    `token=${githubReference}`,
+    `${environmentName}=<API_KEY>`,
   ].join("\n");
   assert.deepEqual(await scanFixture({ "safe-fixtures.txt": safe }), []);
 });

@@ -389,9 +389,24 @@ Do not create the file with sample addresses, sample signatures, or incomplete f
 The URL fields reject credentials, non-default ports, fragments, alternate
 routes, and extra query parameters.
 
-- [ ] **Step 4: Promote the launch record with exact proof values**
+- [ ] **Step 4: Generate the live launch record from exact proof values**
 
-Use the file-editing tool to change `web/data/launch.json`:
+Record the final promotion-check time as an exact ISO-8601 timestamp, then run
+the deterministic builder:
+
+```powershell
+$env:HAKKY_WEB_VERIFIED_AT = Read-Host "Final promotion verification time (exact ISO-8601 UTC)"
+rtk npm run build:live-record -- --verified-at $env:HAKKY_WEB_VERIFIED_AT
+```
+
+The builder reads `web/data/launch.json` only as the exact validated prelaunch
+policy source and reads both canonical artifacts directly. It constructs the
+supported live schema field by field, cross-checks the complete candidate
+against both artifacts, and writes only after every validation passes. It does
+not infer identifiers, evidence, or the promotion timestamp. Do not assemble or
+edit the live proof object manually.
+
+The generated record has these effects:
 
 - `status` becomes `live`;
 - `token.mint` becomes the verified mint;

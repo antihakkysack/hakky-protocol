@@ -48,16 +48,22 @@ export const SECRET_ALLOWLIST_RULES = Object.freeze([
   }),
   Object.freeze({
     id: "environment-reference",
-    description: "Runtime environment lookups and interpolation-only values are allowed.",
+    description: "Exact runtime environment lookups and GitHub secret expressions are allowed.",
   }),
-  Object.freeze({
-    id: "public-url",
-    description: "Credential-free HTTPS URLs without query or fragment data are allowed.",
-  }),
-  Object.freeze({
-    id: "scanner-rule-definition",
-    description: "Identifiers ending in pattern, regex, rule, allowlist, field, or marker are scanner definitions.",
-  }),
+]);
+
+const SCANNER_DEFINITION_LINES = new Set([
+  "export const SECRET_ALLOWLIST_RULES = Object.freeze([",
+  "const SERVICE_TOKEN_PATTERNS = Object.freeze([",
+  "const PRIVATE_KEY_MATERIAL_NEEDLES = Object.freeze([",
+]);
+const KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES = new Set([
+  ".github/workflows/pages.yml\0id-token: write",
+  "package.json\0\"verify:token\": \"node scripts/verify-token.mjs\"",
+  "package-lock.json\0\"registry-auth-token\": \"3.3.2\",",
+  "scripts/build-live-record.mjs\0token: exactObject(prelaunchRecord.token, TOKEN_FIELDS, { mint: observed?.mint }),",
+  "docs/superpowers/plans/2026-07-22-hakky-pivot-build.md\0\"verify:token\": \"node scripts/verify-token.mjs\"",
+  "docs/superpowers/plans/2026-07-22-hakky-pivot-build.md\0id-token: write",
 ]);
 
 const SERVICE_TOKEN_PATTERNS = Object.freeze([
@@ -90,14 +96,19 @@ function isHistoricalDesignRecord(relative) {
   return relative.startsWith("docs/superpowers/");
 }
 
+function credentialNameParts(name) {
+  return name
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
 function isCredentialName(name) {
-  if (name.includes(":")) return false;
   const key = normalized(name);
-  if (/(?:pattern|regex|rule|allowlist|field|marker)$/.test(key)) return false;
-  return [
+  const parts = credentialNameParts(name);
+  if ([
     "apikey",
-    "secret",
-    "token",
     "password",
     "passwd",
     "privatekey",
@@ -108,7 +119,12 @@ function isCredentialName(name) {
     "mnemonic",
     "seedphrase",
     "recoveryphrase",
-  ].some((suffix) => key === suffix || key.endsWith(suffix));
+  ].some((marker) => key.includes(marker))) return true;
+  if (parts.includes("secret")) return true;
+  const tokenIndex = parts.indexOf("token");
+  return parts.length === 1 && tokenIndex === 0
+    || tokenIndex === parts.length - 1
+    || tokenIndex >= 0 && ["pattern", "regex", "rule", "allowlist", "field", "marker"].includes(parts[tokenIndex + 1]);
 }
 
 function literalValue(rawValue) {
@@ -123,25 +139,48 @@ function literalValue(rawValue) {
   return null;
 }
 
-function isAllowedSecretValue(value) {
-  if (value === null) return true;
+function normalizedAssignmentExpression(rawValue) {
+  let expression = rawValue.trim().replace(/[,;]$/, "").trim();
+  const quote = expression[0];
+  if ((quote === '"' || quote === "'" || quote === "`") && expression.at(-1) === quote) {
+    expression = expression.slice(1, -1).trim();
+  }
+  return expression;
+}
+
+function isEnvironmentOrSecretExpression(rawValue) {
+  const expression = normalizedAssignmentExpression(rawValue);
+  return [
+    /^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/,
+    /^\$\{\{\s*secrets\.[A-Za-z_][A-Za-z0-9_]*\s*\}\}$/,
+    /^process\.env(?:\.[A-Za-z_][A-Za-z0-9_]*|\[["'][A-Za-z_][A-Za-z0-9_]*["']\])(?:\s*(?:\?\?|\|\|)\s*(?:""|''|``))?$/,
+    /^Deno\.env\.get\(["'][A-Za-z_][A-Za-z0-9_]*["']\)$/,
+    /^Bun\.env(?:\.[A-Za-z_][A-Za-z0-9_]*|\[["'][A-Za-z_][A-Za-z0-9_]*["']\])$/,
+    /^os\.environ(?:\.get\(["'][A-Za-z_][A-Za-z0-9_]*["']\)|\[["'][A-Za-z_][A-Za-z0-9_]*["']\])$/,
+    /^getenv\(["'][A-Za-z_][A-Za-z0-9_]*["']\)$/,
+  ].some((pattern) => pattern.test(expression));
+}
+
+function bareIdentifierReference(rawValue) {
+  const expression = rawValue.trim().replace(/[,;]$/, "").trim();
+  if (["\"", "'", "`"].includes(expression[0])) return null;
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(expression) ? expression : null;
+}
+
+function isAllowedSecretAssignment(rawValue, value, environmentBindings) {
+  if (isEnvironmentOrSecretExpression(rawValue)) return true;
+  const reference = bareIdentifierReference(rawValue);
+  if (reference && environmentBindings.has(reference)) return true;
+  if (value === null) return false;
   const lower = value.toLowerCase();
   if (PLACEHOLDER_VALUES.has(lower)) return true;
   if (/^(?:fixture|synthetic|test)-[a-z0-9-]+$/i.test(value)) return true;
   if (/^<[^>]+>$/.test(value)) return true;
-  if (/^\$\{[A-Za-z_][A-Za-z0-9_]*\}$/.test(value)) return true;
-  if (/^[A-Z][A-Z0-9_]+$/.test(value)) return true;
-  if (/^(?:process\.env|Deno\.env|Bun\.env|os\.environ|getenv\()/.test(value)) return true;
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:"
-      && !url.username
-      && !url.password
-      && !url.search
-      && !url.hash;
-  } catch {
-    return false;
-  }
+  return false;
+}
+
+function isStructuralContainer(rawValue) {
+  return ["{", "["].includes(normalizedAssignmentExpression(rawValue));
 }
 
 function hasWalletKeyArray(content) {
@@ -172,8 +211,13 @@ function hasWalletKeyArray(content) {
   return false;
 }
 
-function secretRulesForContent(content) {
+function secretRulesForContent(content, relative) {
   const rules = new Set();
+  const environmentBindings = new Set();
+  for (const line of content.split(/\r?\n/)) {
+    const match = line.match(ASSIGNMENT_PATTERN);
+    if (match && isEnvironmentOrSecretExpression(match[2])) environmentBindings.add(match[1]);
+  }
   if (PRIVATE_KEY_MATERIAL_NEEDLES.some((needle) => content.includes(needle))) {
     rules.add("secret-private-key-material");
   }
@@ -185,11 +229,17 @@ function secretRulesForContent(content) {
   }
 
   for (const line of content.split(/\r?\n/)) {
+    if (relative === "scripts/check-repo.mjs" && SCANNER_DEFINITION_LINES.has(line.trim())) continue;
+    if (KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES.has(`${relative}\0${line.trim()}`)) continue;
     const match = line.match(ASSIGNMENT_PATTERN);
     if (!match) continue;
     const [, name, rawValue] = match;
     const value = literalValue(rawValue);
-    if (isCredentialName(name) && value !== null && value.length >= 8 && !isAllowedSecretValue(value)) {
+    if (
+      isCredentialName(name)
+      && !isStructuralContainer(rawValue)
+      && !isAllowedSecretAssignment(rawValue, value, environmentBindings)
+    ) {
       rules.add("secret-credential-assignment");
     }
     const key = normalized(name);
@@ -233,7 +283,7 @@ export async function scanRepository(root = process.cwd(), { trackedFiles } = {}
     if (!isHistoricalDesignRecord(relative) && LEGACY_NEEDLES.some((needle) => compact.includes(needle))) {
       violations.push({ file: relative, rule: "legacy-product-active" });
     }
-    for (const rule of secretRulesForContent(content)) violations.push({ file: relative, rule });
+    for (const rule of secretRulesForContent(content, relative)) violations.push({ file: relative, rule });
   }
   return violations.sort((left, right) => {
     const fileOrder = left.file === right.file ? 0 : left.file < right.file ? -1 : 1;
