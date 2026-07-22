@@ -51,6 +51,7 @@ export async function fetchMintEvidence({
     network,
     tokenProgram: "spl-token",
     mint: mint.toBase58(),
+    creator: creator.toBase58(),
     supplyBaseUnits: mintAccount.supply.toString(),
     decimals: mintAccount.decimals,
     mintAuthority: mintAccount.mintAuthority?.toBase58() ?? null,

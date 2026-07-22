@@ -1,9 +1,11 @@
-import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { evaluateMintEvidence } from "../src/mint-proof.mjs";
+import { publishJsonProof, resolveProofOutputPath } from "../src/proof-output.mjs";
 import { assertMainnetIdentity, fetchMintEvidence } from "../src/solana-rpc.mjs";
+
+const WORKTREE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function readRequiredOption(argv, name) {
   const index = argv.indexOf(name);
@@ -21,10 +23,10 @@ function readPublicKeyOption(argv, name) {
   }
 }
 
-export function readOptions(argv) {
+export function readOptions(argv, { cwd = WORKTREE_ROOT } = {}) {
   const mintAddress = readPublicKeyOption(argv, "--mint");
   const creatorAddress = readPublicKeyOption(argv, "--creator");
-  const outputPath = readRequiredOption(argv, "--out");
+  const outputPath = resolveProofOutputPath(readRequiredOption(argv, "--out"), { cwd });
   const rpcIndex = argv.indexOf("--rpc");
   const rpcValue = rpcIndex === -1 ? "https://api.mainnet-beta.solana.com" : readRequiredOption(argv, "--rpc");
   let rpc;
@@ -40,10 +42,12 @@ export function readOptions(argv) {
 
 export async function run({
   argv = process.argv.slice(2),
+  cwd = WORKTREE_ROOT,
   ConnectionClass = Connection,
   fetchEvidence = fetchMintEvidence,
+  publishProof = publishJsonProof,
 } = {}) {
-  const { mintAddress, creatorAddress, outputPath, rpcUrl, rpcHost } = readOptions(argv);
+  const { mintAddress, creatorAddress, outputPath, rpcUrl, rpcHost } = readOptions(argv, { cwd });
   const connection = new ConnectionClass(rpcUrl, "confirmed");
   await assertMainnetIdentity(connection);
   const observed = await fetchEvidence({
@@ -52,19 +56,44 @@ export async function run({
     mintAddress,
     creatorAddress,
   });
+  if (observed.creator !== creatorAddress) {
+    throw new Error("Observed creator does not match the requested creator");
+  }
   const proof = {
     schemaVersion: 1,
     checkedAt: new Date().toISOString(),
     rpcHost,
+    creator: creatorAddress,
     ...evaluateMintEvidence(observed),
   };
-  await mkdir(path.dirname(outputPath), { recursive: true });
-  await writeFile(outputPath, `${JSON.stringify(proof, null, 2)}\n`, { flag: "wx" });
+  await publishProof(outputPath, proof);
   return proof;
 }
 
+function sanitizeCliError(error) {
+  const message = error instanceof Error ? error.message : "";
+  if (
+    message.startsWith("Missing --")
+    || message.startsWith("Invalid --")
+    || message.startsWith("--rpc ")
+    || message.startsWith("--out ")
+  ) {
+    return message;
+  }
+  return "Verification failed before publishing a proof.";
+}
+
+export async function main({ runVerifier = run, stdout = process.stdout, stderr = process.stderr } = {}) {
+  try {
+    const proof = await runVerifier();
+    stdout.write(`${JSON.stringify(proof, null, 2)}\n`);
+    return proof.ok ? 0 : 1;
+  } catch (error) {
+    stderr.write(`${sanitizeCliError(error)}\n`);
+    return 1;
+  }
+}
+
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const proof = await run();
-  console.log(JSON.stringify(proof, null, 2));
-  if (!proof.ok) process.exitCode = 1;
+  process.exitCode = await main();
 }
