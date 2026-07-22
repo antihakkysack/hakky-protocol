@@ -1,0 +1,56 @@
+# Hakky Protocol services — local + Hetzner stack (Sepolia testnet).
+# Copy .env.example -> .env and fill in RPC + deployed contract addresses first.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hakky
+      POSTGRES_PASSWORD: hakky
+      POSTGRES_DB: hakky
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hakky"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/api/server.ts"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # ── Workers (Phase 2 — uncomment once their src/ entrypoints land) ──────────
+  # attestation:
+  #   build: .
+  #   command: ["npx", "tsx", "src/attestation/worker.ts"]
+  #   env_file: .env
+  #   environment: { DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky }
+  #   depends_on: { postgres: { condition: service_healthy } }
+  #
+  # reserve-oracle:
+  #   build: .
+  #   command: ["npx", "tsx", "src/reserve-oracle/cron.ts"]
+  #   env_file: .env
+  #   environment: { DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky }
+  #   depends_on: { postgres: { condition: service_healthy } }
+  #
+  # orchestrator:
+  #   build: .
+  #   command: ["npx", "tsx", "src/orchestrator/worker.ts"]
+  #   env_file: .env
+  #   environment: { DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky }
+  #   depends_on: { postgres: { condition: service_healthy } }
+
+volumes:
+  pgdata:
