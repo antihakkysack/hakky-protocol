@@ -20,6 +20,7 @@
 - Read-only research and review may fan out in parallel; agents must not concurrently edit the shared worktree.
 - Every task begins with its RED test and ends with its focused GREEN command and narrow commit.
 - No push, PR, merge, deployment, metadata upload, legal acceptance, wallet connection, mainnet signature, SOL spend, GitHub settings save, X save/post/pin, or server mutation occurs without its exact action-time gate.
+- An unavailable public warning remains identity-free, but content-addressed ignored copies of its exact finalized stage receipt and continuity receipt bind the exact warning bytes to that evidence. Verified recovery is same-stage or monotonic only and requires the complete canonical artifact set; no runtime fact override is accepted.
 - Current pinned official Raydium SDK/IDL coverage does not define the CPMM lock-program account layouts needed for a verified Burn & Earn rights proof. Implement the named fail-closed coverage result, but do not sign a Raydium launch whose future full-lock/no-fee-right invariant cannot be proved from official source and the exact unsigned transaction.
 
 ---

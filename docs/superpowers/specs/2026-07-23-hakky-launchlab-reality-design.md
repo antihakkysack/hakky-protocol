@@ -145,8 +145,9 @@ LaunchLab initialization. Its strict schema version is `2` and contains only:
 - zero creator HAKKY balance across every classic token account for the mint,
   explicitly qualified by finalized slot and time;
 - metadata account, update authority, `isMutable`, URI, and content hashes;
-- finalized account slot, block time, raw account-data hashes, check timestamp,
-  individual checks, and `ok: true` only when all checks pass.
+- finalized account slot, block time, raw account-data hashes, exact
+  `observation.checkedAt` verification timestamp, individual checks, and
+  `ok: true` only when all checks pass.
 
 `proof/mainnet-launchlab.json` records independent LaunchLab state and finalized
 transaction evidence. Its strict schema version is `2` and contains only:
@@ -168,8 +169,9 @@ transaction evidence. Its strict schema version is `2` and contains only:
 - creator-funded finalized cost through creation;
 - canonical Raydium and Solscan routes;
 - finalized transaction slot, finalized account-observation slot, block time,
-  raw account-data hashes, check timestamp, two-source reconciliation checks,
-  and `ok: true` only when all checks pass.
+  raw account-data hashes, exact `observation.checkedAt` verification
+  timestamp, two-source reconciliation checks, and `ok: true` only when all
+  checks pass.
 
 Neither file is hand-filled from memory. A deterministic read-only verifier
 must construct each supported field from RPC, decoded transaction, Raydium
@@ -243,8 +245,8 @@ Its strict schema version is `1` and contains only:
   cumulative mainnet cost;
 - canonical Raydium pool, LaunchLab, Solscan token, and transaction routes;
 - finalized transaction and account slots, block time, raw account-data hashes,
-  individual two-source checks, and `ok: true` only when all graduated
-  invariants pass.
+  exact `observation.checkedAt` verification timestamp, individual two-source
+  checks, and `ok: true` only when all graduated invariants pass.
 
 The artifact must prove zero creator and platform LP rights and full
 irreversible lock/burn treatment. Public wording must name the mechanism that
@@ -266,6 +268,12 @@ The `graduated` promotion builder reads all three canonical artifacts. It
 requires exact identity agreement, ordered timestamps, unchanged metadata and
 supply, null final authorities, and complete LP/fee evidence. It accepts no
 runtime fact overrides.
+
+Each artifact stores `observation.checkedAt` as exact UTC RFC 3339 with
+milliseconds. In the chronology below, `mintCheckedAt`,
+`launchlabCheckedAt`, and `graduationCheckedAt` mean the corresponding
+artifact's `observation.checkedAt`; they are not separate aliases or
+operator-authored values.
 
 ### 3.4 Ordered timestamps and append-only history
 
@@ -368,6 +376,34 @@ lifecycle stage, clears all verified facts and destinations using the exact
 unavailable schema branch, and never rewrites or accepts contradictory canonical
 artifacts. This makes the fail-closed page deployable immediately after an
 on-chain stage succeeds even when the stronger proof binding fails.
+
+Publishing an unavailable record also produces an ignored
+`unavailable-continuity-v1` receipt that binds the exact public-record bytes to
+the exact `observed-stage-v1` receipt hash, mint, launch ID, stage, and finalized
+slot/time. The exact observed-stage receipt bytes are retained at the ignored
+content-addressed path
+`artifacts/launch/stage-receipts/<stageReceiptSha256>.json`; the continuity
+receipt is retained at
+`artifacts/launch/unavailable-continuity/<publicRecordSha256>.json`. Both are
+public-only evidence, never committed or rendered. Advancing an identity-free
+unavailable source requires both receipts; the builder re-hashes the source
+record and retained stage receipt, validates both receipt paths/digests, and
+requires the new stage receipt to match their mint and launch ID. The public
+unavailable record remains the exact two-key proof branch with a null mint and
+no serialized identity. Publication writes/fsyncs the two immutable ignored
+artifacts before atomically replacing the public record; a failure before the
+public rename preserves the previous public bytes, while a completed rename
+always has its matching retained evidence.
+
+An unavailable warning is recoverable without stage regression. The
+stage-specific verified builder may replace `curve-live/unavailable` with
+`curve-live/verified` after the two canonical curve artifacts fully validate,
+and may replace `graduated/unavailable` with `graduated/verified` after all
+three canonical artifacts fully validate. A fully validated three-artifact
+binding may also promote `curve-live/unavailable` directly to
+`graduated/verified`. These paths accept only canonical artifacts plus the
+exact publication timestamp; they never accept an identity, fact, or policy
+override.
 
 ## 5. Metadata Integrity
 

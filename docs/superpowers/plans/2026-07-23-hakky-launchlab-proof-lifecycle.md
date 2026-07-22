@@ -19,8 +19,8 @@
 - The Raydium LaunchLab program ID is `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`; source-derived seeds, discriminators, layouts, and instruction meanings are pinned to official SDK commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`.
 - Classic SPL Token, six decimals, `1000000000000` base units, `800000000000` curve units, `200000000000` liquidity units, zero vesting/team/creator-first-buy, wrapped SOL quote, `24000000000` lamport configured minimum, zero creator fee rights, and cumulative creator cost no greater than `1000000000` lamports are invariant.
 - `cpmm` accepts only `burn-and-earn` with creator/platform shares `0` bps and irreversible locked share `10000` bps. `amm-v4` accepts only literal LP burn evidence with zero creator/platform/recoverable LP units, null withdrawal authority, and an empty fee-right list.
-- Canonical artifacts are append-only. Promotion may atomically replace only `web/data/launch.json` and may move only `prelaunch -> curve-live -> graduated`, or change proof availability from `verified` to `unavailable` without changing stage.
-- Promotion builders accept no operator-authored runtime fact overrides. Curve and graduated builders accept only the exact publication timestamp. The unavailable builder accepts exactly one evidence input—a validated ignored `observed-stage-v1` receipt produced by the fixed finalized stage observer—and accepts no timestamp or fact override; the receipt selects only the monotonic stage and is never serialized.
+- Canonical artifacts are append-only. Promotion may atomically replace only `web/data/launch.json` and may move only `prelaunch -> curve-live -> graduated`, change proof availability from `verified` to `unavailable` without changing stage, or restore `unavailable -> verified` at the same or a later stage only after the stage-specific builder validates the complete canonical artifact set.
+- Promotion builders accept no operator-authored runtime fact overrides. Curve and graduated builders accept only the exact publication timestamp. The unavailable builder accepts a validated ignored `observed-stage-v1` receipt produced by the fixed finalized stage observer and, only when the source record is already identity-free unavailable, the exact prior `observed-stage-v1` bytes plus the ignored `unavailable-continuity-v1` receipt that binds those source bytes to that prior stage evidence. It accepts no timestamp or fact override; no receipt is serialized into the public record.
 - `proof.availability: "unavailable"` is an exact schema branch containing only `stage` and `availability`. Its matching `token.mint` is null, and it contains no source artifacts, links, transactions, authorities, balances, pool, or LP fields.
 - The browser receives none of the Solana, Raydium, or AJV dependency graph.
 - Keep `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, and `entities@8.0.0` pinned; do not run `npm audit fix --force`. Recheck the two documented upstream exceptions by 2026-08-23.
@@ -177,7 +177,7 @@
   | Artifact/object | Exact child keys | Exact value rules |
   |---|---|---|
   | common artifact descriptor | `path`, `sha256`, `schemaVersion` | repository-relative canonical path; lowercase SHA-256; exact schema-version constant |
-  | common observation | `finalizedSlot`, `finalizedAt`, `rpcHost` | nonnegative safe integer; UTC RFC 3339 with milliseconds; public HTTPS hostname only |
+  | common observation | `finalizedSlot`, `finalizedAt`, `checkedAt`, `rpcHost` | nonnegative safe integer; both timestamps are UTC RFC 3339 with milliseconds; `checkedAt` is the artifact verification time and is at or after `finalizedAt`; public HTTPS hostname only |
   | common creator balance | `owner`, `accounts`, `totalAmountBaseUnits`, `finalizedSlot`, `finalizedAt` | creator public key; exhaustive array sorted by address; canonical total; qualified finalized observation |
   | each creator-balance account | `address`, `mint`, `owner`, `amountBaseUnits`, `state`, `accountSha256` | canonical public keys; canonical amount; state `initialized` or `frozen`; exact raw-account digest |
   | common metadata | `name`, `symbol`, `uri`, `metadataAccount`, `metadataAccountSha256`, `jsonSha256`, `imageUri`, `imageSha256`, `externalUrl`, `twitter`, `updateAuthority`, `isMutable` | exact `Hakky Protocol`/`HAKKY`; content-addressed URI and hashes; exact `https://hakky.xyz` and `https://x.com/antihakkysack`; observed canonical Metaplex update-authority public key; `isMutable: false` |
@@ -190,7 +190,7 @@
   | common fees | `protocolBuyFeeRateMillionths`, `protocolSellFeeRateMillionths`, `feeRateDenominator`, `creatorTradingFeeRateMillionths`, `creatorFeeKey`, `creatorFeeRights`, `snapshotImmutable` | canonical unsigned decimals; buy equals sell; denominator exactly `"1000000"` from the pinned SDK; creator rate `"0"`; key `null`; rights `false`; immutable snapshot `true` |
   | common cost | `metadataUploadLamports`, `creationDebitLamports`, `recoveryDebitLamports`, `graduationDebitLamports`, `cumulativeCreatorDebitLamports`, `capLamports`, `withinCap` | canonical unsigned decimals; exact four-term sum; pre-graduation uses graduation `"0"`; cap `1000000000`; boolean true only at or below cap |
   | mint-v2 `identities` | `mint`, `creator`, `metadataAccount`, `launchId`, `launchlabAuthority` | canonical public keys |
-  | mint-v2 `observation` | `genesisHash`, `creationSignature`, `creationSlot`, `creationTime`, `mintAccountSha256`, `metadataAccountSha256`, `finalizedSlot`, `finalizedAt`, `rpcHost` | exact mainnet genesis hash; canonical signature; raw mint/metadata digests; qualified finalized chronology |
+  | mint-v2 `observation` | `genesisHash`, `creationSignature`, `creationSlot`, `creationTime`, `mintAccountSha256`, `metadataAccountSha256`, `finalizedSlot`, `finalizedAt`, `checkedAt`, `rpcHost` | exact mainnet genesis hash; canonical signature; raw mint/metadata digests; qualified finalized chronology; exact verification timestamp |
   | mint-v2 `checks` | `mainnetGenesis`, `classicTokenProgram`, `exactSupply`, `launchlabAuthority`, `nullFreezeAuthority`, `zeroCreatorBalance`, `immutableMetadata`, `metadataDigestMatch`, `finalized` | booleans, all `true` when `ok: true` |
   | launchlab-v2 `identities` | `mint`, `creator`, `launchId`, `configId`, `platformConfig`, `launchlabAuthority`, `baseVault`, `quoteVault`, `metadataAccount` | canonical public keys |
   | launchlab-v2 `transaction` | `signature`, `finalizedSlot`, `finalizedAt`, `instruction`, `instructionDiscriminatorHex`, `transactionSha256` | `initialize-v2`; `4399af27da102620`; finalized observation and hashes |
@@ -198,7 +198,7 @@
   | launchlab-v2 `platformConfig` | `address`, `creationAccountSha256`, `verificationAccountSha256`, `updateAuthorities`, `mutableFields`, `mutabilityClassification`, `platformScaleRaw`, `creatorScaleRaw`, `burnScaleRaw`, `feeRateMillionths`, `creatorFeeRateMillionths`, `platformVestingScaleRaw`, `immutableBinding` | exact address/hashes/raw integers; `updateAuthorities` is an exhaustive sorted canonical-public-key array and includes the decoded platform administrator; `mutableFields` is the exhaustive sorted pinned-IDL set; classification is exactly `platform-mutable-per-launch-snapshot-verified`; fee-rate denominator is `1000000`; `immutableBinding` is `verified-per-launch-snapshot`; mutable-only binding fails |
   | launchlab-v2 `migration` | `type`, `lpPolicy`, `platformLpBps`, `creatorLpBps`, `irreversibleLpBps` | `cpmm` + `burn-and-earn`, or `amm-v4` + `lp-burn`; exactly 0/0/10000 |
   | launchlab-v2 `links` | `solscanMint`, `solscanCreationTransaction`, `raydiumLaunchlab` | canonical credential/query/fragment-free HTTPS destinations derived from identities |
-  | launchlab-v2 `observation` | `launchAccountSha256`, `baseVaultSha256`, `quoteVaultSha256`, `platformConfigSha256`, `finalizedSlot`, `finalizedAt`, `rpcHost` | exact account-byte hashes plus common observation fields |
+  | launchlab-v2 `observation` | `launchAccountSha256`, `baseVaultSha256`, `quoteVaultSha256`, `platformConfigSha256`, `finalizedSlot`, `finalizedAt`, `checkedAt`, `rpcHost` | exact account-byte hashes plus common observation fields |
   | launchlab-v2 `checks` | `transactionDecoded`, `accountsDecoded`, `sourcesAgree`, `immutableEconomics`, `allocationPolicy`, `feePolicy`, `costCap`, `metadataDigestMatch`, `finalized` | booleans, all `true` when `ok: true` |
   | graduation-v1 `identities` | `mint`, `creator`, `launchId`, `platformConfig`, `pool` | canonical public keys |
   | graduation-v1 `transaction` | `signature`, `finalizedSlot`, `finalizedAt`, `transactionSha256` | canonical finalized migration transaction |
@@ -209,7 +209,7 @@
   | AMM-v4 `lpDisposition` | `kind`, `lpMint`, `burnedBaseUnits`, `totalSupplyBaseUnits`, `creatorLpBaseUnits`, `platformLpBaseUnits`, `recoverableLpBaseUnits`, `withdrawalAuthority`, `feeKey`, `feeRights`, `evidenceAccounts` | `lp-burn`; burn equals total supply; all held/recoverable values `"0"`; both authorities `null`; `feeRights` exact empty array; branch-complete raw evidence array |
   | each LP `evidenceAccounts` item | `role`, `address`, `ownerProgram`, `accountSha256`, `finalizedSlot`, `finalizedAt` | exact canonical identities, raw-account digest, and qualified finalized observation; array sorted by role/address; CPMM roles are only `lp-mint`, `locked-position`, `lock-nft-mint`, `lock-nft-token-account`, `lock-vault`, `fee-right-account`; AMM-v4 roles are only `lp-mint`, `burn-source`, `creator-lp-account`, `platform-lp-account`, `withdrawal-queue`, `fee-right-account`; every branch-required role must be present and no unpinned/missing account can be zero-filled |
   | graduation-v1 `links` | `solscanMint`, `solscanCreationTransaction`, `solscanGraduationTransaction`, `raydiumLaunchlab`, `raydiumPool` | canonical credential/query/fragment-free HTTPS destinations |
-  | graduation-v1 `observation` | `launchAccountSha256`, `platformConfigSha256`, `poolAccountSha256`, `lpEvidenceSha256`, `finalizedSlot`, `finalizedAt`, `rpcHost` | exact launch/config/pool hashes; digest of canonical serialized `lpDisposition.evidenceAccounts`; common observation fields |
+  | graduation-v1 `observation` | `launchAccountSha256`, `platformConfigSha256`, `poolAccountSha256`, `lpEvidenceSha256`, `finalizedSlot`, `finalizedAt`, `checkedAt`, `rpcHost` | exact launch/config/pool hashes; digest of canonical serialized `lpDisposition.evidenceAccounts`; common observation fields |
   | graduation-v1 `checks` | `artifactsAgree`, `graduated`, `nullAuthorities`, `poolVerified`, `lpDispositionVerified`, `feePolicy`, `costCap`, `finalized` | booleans, all `true` when `ok: true` |
 
   `mint-v2` uses the exact common `supply`, `authorities`, `creatorBalance`, and `metadata` objects. `launchlab-v2` uses exact common `allocations`, `quote`, `creatorFirstBuy`, `vesting`, `fees`, `metadata`, and `cost`. `graduation-v1` uses exact common `supply`, `authorities`, `metadata`, `fees`, `creatorBalance`, and `cost`, plus the listed graduation objects. No nullable value is allowed except the explicitly named account/authority/Fee Key fields.
@@ -639,7 +639,7 @@
   // => string[]
 
   buildCurveLiveRecord({
-    prelaunchRecord,
+    sourceRecord,
     mintArtifact,
     launchlabArtifact,
     publishedAt
@@ -655,25 +655,41 @@
   })
   // => observed-stage-v1 receipt
 
-  buildUnavailableRecord({ sourceRecord, stageReceipt = null })
+  buildUnavailableRecord({
+    sourceRecord,
+    stageReceipt = null,
+    sourceStageReceipt = null,
+    sourceContinuityReceipt = null
+  })
+  // => { record, continuityReceipt }
+
+  publishUnavailableRecord({
+    targetPath,
+    record,
+    stageReceipt,
+    continuityReceipt,
+    artifactsRoot
+  })
 
   publishLaunchRecord(targetPath, record, options)
   ```
 
 - An `observed-stage-v1` receipt is a temporary, ignored public-only object with exact keys `schemaVersion`, `network`, `stage`, `mint`, `launchId`, `signature`, `finalizedSlot`, `finalizedAt`, `launchlabProgramId`, `checks`, `ok`. `checks` has exact booleans `mainnetGenesis`, `officialProgram`, `transactionFinalized`, `stageInstructionDecoded`, `launchAccountMatches`, and for graduated only `poolObserved`; all must be true. It is produced only from finalized RPC evidence using the fixed decoder, never from operator text, UI copy, an API, or a canonical proof artifact.
-- `buildUnavailableRecord` allows only three transitions: prelaunch + a valid curve-live receipt -> curve-live/unavailable; curve-live + a valid graduated receipt -> graduated/unavailable; or an already-unavailable record -> itself. It requires receipt identities to match any known source identity and validates monotonic finalized chronology. It preserves project, fixed token policy, and launch policy by exact-key copying; sets `token.mint` to null; and writes exactly `{ stage: targetStage, availability: "unavailable" }`. It never serializes the receipt, reason, mint, link, transaction, timestamp, authority, balance, pool, LP field, or canonical artifact content.
+- An `unavailable-continuity-v1` receipt is temporary, ignored, public-only, and has exact keys `schemaVersion`, `network`, `stage`, `mint`, `launchId`, `publicRecordSha256`, `stageReceiptSha256`, `finalizedSlot`, `finalizedAt`, `ok`. It binds the canonical unavailable-record bytes to the canonical `observed-stage-v1` receipt bytes. The exact stage receipt is retained at `artifacts/launch/stage-receipts/<stageReceiptSha256>.json`; continuity is retained at `artifacts/launch/unavailable-continuity/<publicRecordSha256>.json`. Both paths are lowercase content digests over their exact canonical bytes, are ignored and append-only, are never committed or rendered, and contain no secret or authenticated endpoint.
+- `buildUnavailableRecord` allows only four outcomes: prelaunch + a valid curve-live receipt -> curve-live/unavailable; curve-live + a valid graduated receipt -> graduated/unavailable; an already-unavailable record -> itself; or curve-live/unavailable + its exact prior stage receipt + valid continuity receipt + a matching graduated receipt -> graduated/unavailable. When the source is unavailable, it recomputes `publicRecordSha256` and `stageReceiptSha256`, validates both content-addressed paths and the source continuity receipt, and requires the new receipt identities and chronology to match. It preserves project, fixed token policy, and launch policy by exact-key copying; sets `token.mint` to null; and writes exactly `{ stage: targetStage, availability: "unavailable" }`. It returns the public record plus the next continuity receipt but never serializes any receipt, reason, mint, link, transaction, timestamp, authority, balance, pool, LP field, or canonical artifact content into the public record.
+- `publishUnavailableRecord` writes/fsyncs the exact stage-receipt bytes and continuity bytes to new content-addressed paths before atomically replacing `web/data/launch.json`. Existing content-addressed bytes must match or it fails. If either ignored write/rename/fsync fails, the public rename is not attempted and the prior public bytes remain exact. Once the public rename commits, both matching ignored receipts already exist; cleanup failure returns a committed warning that explicitly says not to retry.
 
 - [ ] **Step 1: Write failing canonical binding tests**
 
-  Test content hashes over the exact artifact bytes, schema versions, `ok: true`, identity equality, metadata/supply equality, PDA authority, account-slot ordering, canonical links, and `mintCheckedAt <= launchlabCheckedAt`. Add malformed JSON and error-redaction cases. Add a case where an existing graduation artifact makes a curve-live record internally stale.
+  Test content hashes over the exact artifact bytes, schema versions, `ok: true`, identity equality, metadata/supply equality, PDA authority, account-slot ordering, canonical links, and `mint.observation.checkedAt <= launchlab.observation.checkedAt`. Add malformed JSON and error-redaction cases. Add a case where an existing graduation artifact makes a curve-live record internally stale.
 
 - [ ] **Step 2: Write failing curve promotion tests**
 
-  Assert the builder consumes only prelaunch plus two artifact descriptors and `publishedAt`, emits `status: "curve-live"` and `proof.availability: "verified"`, records exact artifact paths/hashes, derives every public fact from artifacts, rejects an extra argument/property, and preserves source bytes after write/rename failure.
+  Assert the builder consumes either prelaunch or curve-live/unavailable plus two artifact descriptors and `publishedAt`, emits `status: "curve-live"` and `proof.availability: "verified"`, records exact artifact paths/hashes, derives every public fact from artifacts, rejects other source states and every extra argument/property, and preserves source bytes after write/rename failure.
 
 - [ ] **Step 3: Write failing minimally verified stage-receipt and unavailable-builder tests**
 
-  Test finalized creation decoding to a curve-live receipt and finalized migration/launch-account decoding to a graduated receipt. Reject processed/confirmed data, wrong genesis/program/instruction, mismatched mint/launch, missing pool for graduation, unknown stage, and unqualified time. Then test prelaunch -> curve-live/unavailable, curve-live -> graduated/unavailable, and idempotent same-stage unavailable. Assert exact two-key proof output, null mint, absence of every receipt/destination/evidence value in serialized JSON, schema validity, rejection of stage jumps/regressions or fabricated receipts, and atomic preservation on failure. Explicitly place contradictory canonical artifacts beside the source file and assert the builder never reads them.
+  Test finalized creation decoding to a curve-live receipt and finalized migration/launch-account decoding to a graduated receipt. Reject processed/confirmed data, wrong genesis/program/instruction, mismatched mint/launch, missing pool for graduation, unknown stage, and unqualified time. Then test prelaunch -> curve-live/unavailable, curve-live -> graduated/unavailable, idempotent same-stage unavailable, and curve-live/unavailable + exact prior stage receipt + exact source continuity + matching graduated receipt -> graduated/unavailable. Assert exact two-key public proof output, null mint, deterministic content-addressed paths/hashes, absence of every receipt/destination/evidence value in serialized JSON, schema validity, rejection of missing/tampered prior receipt or continuity, identity mismatch, stage jumps/regressions or fabricated receipts, and atomic preservation on every receipt/public-record write, fsync, rename, and cleanup failure. Explicitly place contradictory canonical artifacts beside the source file and assert the builder never reads them.
 
 - [ ] **Step 4: Run tests and verify RED**
 
@@ -773,7 +789,7 @@
 
 - [ ] **Step 1: Write failing invariant tests**
 
-  Test identity agreement across all three artifacts, unchanged supply/decimals and the exact common metadata object/digests, null mint/freeze authorities, finalized migration signature, pool identity/program, observed quote-vault balance, configured threshold, creator balance, and `launchlabCheckedAt <= graduationCheckedAt`. Cost tests preserve metadata/creation debits, sum every distinct finalized recovery transaction paid by the creator, add migration debit only when the creator is payer, reject duplicate/unlisted/wrong-payer/non-finalized signatures, and require the exact four-term cumulative value at or below the cap.
+  Test identity agreement across all three artifacts, unchanged supply/decimals and the exact common metadata object/digests, null mint/freeze authorities, finalized migration signature, pool identity/program, observed quote-vault balance, configured threshold, creator balance, and `launchlab.observation.checkedAt <= graduation.observation.checkedAt`. Cost tests preserve metadata/creation debits, sum every distinct finalized recovery transaction paid by the creator, add migration debit only when the creator is payer, reject duplicate/unlisted/wrong-payer/non-finalized signatures, and require the exact four-term cumulative value at or below the cap.
 
 - [ ] **Step 2: Write failing economic-drift tests**
 
@@ -842,7 +858,7 @@
 
 **Interfaces:**
 
-- Consumes: curve-live verified record and all three content-hashed canonical artifacts.
+- Consumes: a curve-live verified/unavailable or graduated unavailable source record and all three content-hashed canonical artifacts.
 - Produces:
 
   ```js
@@ -858,7 +874,7 @@
   // => string[]
 
   buildGraduatedRecord({
-    curveLiveRecord,
+    sourceRecord,
     mintArtifact,
     launchlabArtifact,
     graduationArtifact,
@@ -874,7 +890,7 @@
 
 - [ ] **Step 2: Write failing chronology and transition tests**
 
-  Test `mintCheckedAt <= launchlabCheckedAt <= curvePublishedAt <= graduationCheckedAt <= graduatedPublishedAt`. Reject prelaunch-to-graduated, unavailable-to-graduated without restoring and validating the curve artifacts, graduated-to-curve, repeated graduated promotion, rewritten curve artifact bytes, and any publication timestamp not exact UTC RFC 3339.
+  Test `mint.observation.checkedAt <= launchlab.observation.checkedAt <= curvePublishedAt <= graduation.observation.checkedAt <= graduatedPublishedAt`. Accept curve-live/verified -> graduated/verified, curve-live/unavailable -> graduated/verified, and graduated/unavailable -> graduated/verified only when all three artifacts and their chronology validate. Reject prelaunch-to-graduated, unavailable-to-verified with any missing/invalid artifact, graduated-to-curve, repeated verified graduation, rewritten curve artifact bytes, and any publication timestamp not exact UTC RFC 3339.
 
 - [ ] **Step 3: Write failing atomic publication tests**
 
@@ -894,7 +910,7 @@
 
 - [ ] **Step 6: Implement deterministic graduated promotion**
 
-  Parse exactly `--published-at <timestamp>`, require a schema-valid verified curve-live source record, construct verified graduated proof only from artifact descriptors and canonical values, then atomically replace `web/data/launch.json`. Add:
+  Parse exactly `--published-at <timestamp>`, require a schema-valid curve-live verified/unavailable or graduated unavailable source record, construct verified graduated proof only after all three artifacts and their chronology validate, then atomically replace `web/data/launch.json`. Add:
 
   ```json
   "build:graduated-record": "node scripts/build-graduated-record.mjs"
