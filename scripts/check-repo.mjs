@@ -41,8 +41,8 @@ const APPROVED_RETIRED_ACCOUNT_ADDRESSES = Object.freeze([
 const UNICODE_LETTER_NUMBER_OR_MARK = /[\p{L}\p{N}\p{M}]/u;
 const INVISIBLE_OR_DIRECTIONAL_CHARACTER = /[\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u;
 const LEFT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", "(", "[", "{", "<", "=", ":"]);
-const RIGHT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", ")", "]", "}", ">", ",", ";", ":", "!"]);
-const TERMINAL_PERIOD_FOLLOWERS = new Set(["\"", "'", "`", ")", "]", "}", ">"]);
+const CLOSING_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", ")", "]", "}", ">"]);
+const TERMINAL_SENTENCE_PUNCTUATION = new Set([".", ",", ";", ":", "!"]);
 const ACTIVE_PUBLIC_SCRIPT_FILES = new Set([
   "scripts/check-site.mjs",
   "scripts/render-assets.mjs",
@@ -146,10 +146,10 @@ function isAddressBoundary(content, start, end) {
     return false;
   }
   const after = content[end];
-  if (after === ".") {
-    return isConservativeAddressDelimiter(content[end + 1], TERMINAL_PERIOD_FOLLOWERS);
+  if (TERMINAL_SENTENCE_PUNCTUATION.has(after)) {
+    return isConservativeAddressDelimiter(content[end + 1], CLOSING_ACCOUNT_ADDRESS_DELIMITERS);
   }
-  return isConservativeAddressDelimiter(after, RIGHT_ACCOUNT_ADDRESS_DELIMITERS);
+  return isConservativeAddressDelimiter(after, CLOSING_ACCOUNT_ADDRESS_DELIMITERS);
 }
 
 function isApprovedRetiredAccountAddress(content, aliasIndex) {

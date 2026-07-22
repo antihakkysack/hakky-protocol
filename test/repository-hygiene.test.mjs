@@ -165,6 +165,67 @@ test("repository checker rejects query, fragment, path, and dot-path account ext
   ]);
 });
 
+test("repository checker rejects punctuation-led extensions after every approved account form", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const approvedForms = {
+    handle: `@${retiredAlias}`,
+    x: `https://x.com/${retiredAlias}`,
+    github: `https://github.com/${retiredAlias}/hakky-protocol`,
+    "github-git": `https://github.com/${retiredAlias}/hakky-protocol.git`,
+  };
+  const punctuationExtensions = {
+    semicolon: ";status",
+    colon: ":status",
+    comma: ",status",
+    exclamation: "!status",
+  };
+  const fixtures = Object.fromEntries(Object.entries(approvedForms).flatMap(
+    ([formName, address]) => Object.entries(punctuationExtensions).map(
+      ([punctuationName, extension]) => [
+        `web/${formName}-${punctuationName}-extension.txt`,
+        `${address}${extension}`,
+      ],
+    ),
+  ));
+  const violations = await scanFixture(fixtures);
+
+  assert.deepEqual(violations, Object.keys(fixtures).sort().map((file) => ({
+    file,
+    rule: "retired-agent-identity",
+  })));
+});
+
+test("repository checker preserves terminal punctuation before safe followers", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const address = `https://x.com/${retiredAlias}`;
+  const sentencePunctuation = {
+    period: ".",
+    comma: ",",
+    semicolon: ";",
+    colon: ":",
+    exclamation: "!",
+  };
+  const closingDelimiters = {
+    "double-quote": "\"",
+    "single-quote": "'",
+    backtick: "`",
+    bracket: "]",
+    parenthesis: ")",
+    brace: "}",
+    angle: ">",
+  };
+  const fixtures = {};
+  for (const [punctuationName, punctuation] of Object.entries(sentencePunctuation)) {
+    fixtures[`web/${punctuationName}-at-end.txt`] = `${address}${punctuation}`;
+    fixtures[`web/${punctuationName}-before-whitespace.txt`] = `${address}${punctuation} next`;
+    for (const [delimiterName, delimiter] of Object.entries(closingDelimiters)) {
+      fixtures[`web/${punctuationName}-before-${delimiterName}.txt`] = `${address}${punctuation}${delimiter}`;
+    }
+  }
+
+  assert.deepEqual(await scanFixture(fixtures), []);
+});
+
 test("repository checker allows only the exact approved retired account addresses", async () => {
   const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
   assert.deepEqual(await scanFixture({
