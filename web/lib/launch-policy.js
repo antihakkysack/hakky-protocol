@@ -1,0 +1,89 @@
+export const EXPECTED_POLICY = Object.freeze({
+  network: "mainnet-beta",
+  tokenProgram: "spl-token",
+  name: "Hakky Protocol",
+  symbol: "HAKKY",
+  decimals: 6,
+  supplyUi: "1000000",
+  supplyBaseUnits: "1000000000000",
+  curveAllocationBps: 8000,
+  liquidityAllocationBps: 2000,
+  teamAllocationBps: 0,
+  graduationTargetSol: "24",
+  creatorFirstBuySol: "0",
+  creatorFeeEnabled: false,
+  lpPolicy: "burn",
+  creatorSpendCapSol: "1.00",
+});
+
+export function validateLaunchRecord(record) {
+  const issues = [];
+  const checks = [
+    [record.network === EXPECTED_POLICY.network, `network must equal ${EXPECTED_POLICY.network}`],
+    [record.project?.name === EXPECTED_POLICY.name, `project.name must equal ${EXPECTED_POLICY.name}`],
+    [record.project?.symbol === EXPECTED_POLICY.symbol, `project.symbol must equal ${EXPECTED_POLICY.symbol}`],
+    [record.project?.personalProject === true, "project.personalProject must equal true"],
+    [record.token?.program === EXPECTED_POLICY.tokenProgram, "token.program must equal spl-token"],
+    [record.token?.decimals === EXPECTED_POLICY.decimals, "token.decimals must equal 6"],
+    [record.token?.supplyUi === EXPECTED_POLICY.supplyUi, "token.supplyUi must equal 1000000"],
+    [record.token?.supplyBaseUnits === EXPECTED_POLICY.supplyBaseUnits, "token.supplyBaseUnits must equal 1000000000000"],
+    [record.token?.mintAuthority === null, "token.mintAuthority must equal null"],
+    [record.token?.freezeAuthority === null, "token.freezeAuthority must equal null"],
+    [record.token?.transferFeeBps === 0, "token.transferFeeBps must equal 0"],
+    [record.token?.transferHook === false, "token.transferHook must equal false"],
+    [record.token?.blacklistControl === false, "token.blacklistControl must equal false"],
+    [record.token?.permanentDelegate === false, "token.permanentDelegate must equal false"],
+    [record.token?.metadataImmutable === true, "token.metadataImmutable must equal true"],
+    [record.launch?.platform === "Raydium LaunchLab", "launch.platform must equal Raydium LaunchLab"],
+    [record.launch?.quoteAsset === "SOL", "launch.quoteAsset must equal SOL"],
+    [record.launch?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "launch.curveAllocationBps must equal 8000"],
+    [record.launch?.liquidityAllocationBps === EXPECTED_POLICY.liquidityAllocationBps, "launch.liquidityAllocationBps must equal 2000"],
+    [record.launch?.teamAllocationBps === EXPECTED_POLICY.teamAllocationBps, "launch.teamAllocationBps must equal 0"],
+    [record.launch?.presale === false, "launch.presale must equal false"],
+    [record.launch?.vesting === false, "launch.vesting must equal false"],
+    [record.launch?.graduationTargetSol === EXPECTED_POLICY.graduationTargetSol, "launch.graduationTargetSol must equal 24"],
+    [record.launch?.creatorFirstBuySol === EXPECTED_POLICY.creatorFirstBuySol, "launch.creatorFirstBuySol must equal 0"],
+    [record.launch?.creatorFeeEnabled === false, "launch.creatorFeeEnabled must equal false"],
+    [record.launch?.lpPolicy === EXPECTED_POLICY.lpPolicy, "launch.lpPolicy must equal burn"],
+    [record.launch?.creatorSpendCapSol === EXPECTED_POLICY.creatorSpendCapSol, "launch.creatorSpendCapSol must equal 1.00"],
+  ];
+  for (const [ok, message] of checks) if (!ok) issues.push(message);
+  if ((record.launch?.curveAllocationBps ?? 0) + (record.launch?.liquidityAllocationBps ?? 0) !== 10000) {
+    issues.push("curve and liquidity allocations must total 10000 bps");
+  }
+  if (record.status === "live") {
+    if (!record.proof) issues.push("live status requires proof");
+    for (const key of ["mint", "launchId", "launchTransaction", "solscanUrl", "raydiumUrl", "verifiedAt"]) {
+      if (!record.proof?.[key]) issues.push(`live status requires proof.${key}`);
+    }
+    const proofChecks = [
+      [record.proof?.supplyBaseUnits === EXPECTED_POLICY.supplyBaseUnits, "proof.supplyBaseUnits must equal 1000000000000"],
+      [record.proof?.decimals === EXPECTED_POLICY.decimals, "proof.decimals must equal 6"],
+      [record.proof?.tokenProgram === EXPECTED_POLICY.tokenProgram, "proof.tokenProgram must equal spl-token"],
+      [record.proof?.mintAuthority === null, "proof.mintAuthority must equal null"],
+      [record.proof?.freezeAuthority === null, "proof.freezeAuthority must equal null"],
+      [record.proof?.creatorBalanceBaseUnits === "0", "proof.creatorBalanceBaseUnits must equal 0"],
+      [record.proof?.metadataImmutable === true, "proof.metadataImmutable must equal true"],
+      [record.proof?.metadataName === EXPECTED_POLICY.name, "proof.metadataName must equal Hakky Protocol"],
+      [record.proof?.metadataSymbol === EXPECTED_POLICY.symbol, "proof.metadataSymbol must equal HAKKY"],
+      [typeof record.proof?.metadataUri === "string" && /^(https:\/\/|ipfs:\/\/)/.test(record.proof.metadataUri), "proof.metadataUri must be a public HTTPS or IPFS URL"],
+      [record.proof?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "proof.curveAllocationBps must equal 8000"],
+      [record.proof?.liquidityAllocationBps === EXPECTED_POLICY.liquidityAllocationBps, "proof.liquidityAllocationBps must equal 2000"],
+      [record.proof?.teamAllocationBps === EXPECTED_POLICY.teamAllocationBps, "proof.teamAllocationBps must equal 0"],
+      [record.proof?.creatorFeeEnabled === false, "proof.creatorFeeEnabled must equal false"],
+      [record.proof?.lpPolicy === EXPECTED_POLICY.lpPolicy, "proof.lpPolicy must equal burn"],
+      [record.proof?.quoteAsset === "SOL", "proof.quoteAsset must equal SOL"],
+      [record.proof?.graduationTargetSol === 24, "proof.graduationTargetSol must equal 24"],
+      [record.proof?.creatorFirstBuySol === 0, "proof.creatorFirstBuySol must equal 0"],
+      [Number.isFinite(record.proof?.creatorSpendSol) && record.proof.creatorSpendSol <= 1, "proof.creatorSpendSol must be at most 1"],
+    ];
+    for (const [ok, message] of proofChecks) if (!ok) issues.push(message);
+    if (record.token?.mint !== record.proof?.mint) issues.push("token.mint must equal proof.mint");
+  } else if (record.status !== "prelaunch") {
+    issues.push("status must equal prelaunch or live");
+  } else {
+    if (record.token?.mint !== null) issues.push("prelaunch token.mint must equal null");
+    if (record.proof !== null) issues.push("prelaunch proof must equal null");
+  }
+  return issues;
+}

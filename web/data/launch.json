@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "status": "prelaunch",
+  "network": "mainnet-beta",
+  "project": {
+    "name": "Hakky Protocol",
+    "symbol": "HAKKY",
+    "personalProject": true
+  },
+  "token": {
+    "mint": null,
+    "program": "spl-token",
+    "decimals": 6,
+    "supplyUi": "1000000",
+    "supplyBaseUnits": "1000000000000",
+    "mintAuthority": null,
+    "freezeAuthority": null,
+    "transferFeeBps": 0,
+    "transferHook": false,
+    "blacklistControl": false,
+    "permanentDelegate": false,
+    "metadataImmutable": true
+  },
+  "launch": {
+    "platform": "Raydium LaunchLab",
+    "quoteAsset": "SOL",
+    "curveAllocationBps": 8000,
+    "liquidityAllocationBps": 2000,
+    "teamAllocationBps": 0,
+    "presale": false,
+    "vesting": false,
+    "graduationTargetSol": "24",
+    "creatorFirstBuySol": "0",
+    "creatorFeeEnabled": false,
+    "lpPolicy": "burn",
+    "creatorSpendCapSol": "1.00"
+  },
+  "proof": null
+}
