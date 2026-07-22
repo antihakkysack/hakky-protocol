@@ -41,9 +41,22 @@ the `ADDR_*` values, then `docker compose up -d` in `provision/` to pick them up
 `/proof-of-reserves` and `/attestation/:address` return `503 not configured`
 until then; `/health` works immediately.
 
+## Write endpoints (need a signer)
+
+The worker services write on-chain, so set `SIGNER_PRIVATE_KEY` in `services/.env`
+to a key holding the operational roles (attestor / reserve-updater / verifier).
+On testnet that's the deployer key. Fronted by Caddy:
+
+- `POST /screen`  `{ "address": "0x…" }` → screens + publishes a cleanliness attestation
+- `POST /deposit` `{ "to": "0x…", "amountSats": "100000000" }` → mints cBTC 1:1
+
 ## What's running
 
 ```
-Caddy (:80/:443, auto-HTTPS)  ──▶  api (:8080, read-only)  ──▶  Sepolia RPC
-                                   postgres (internal, audit log)
+Caddy (:80/:443, auto-HTTPS)
+  ├─ /screen*  ─▶ attestation  (:8081)  screen → AttestationRegistry.attest
+  ├─ /deposit* ─▶ orchestrator (:8082)  deposit → ReserveVault.processDeposit (mint)
+  └─ (default) ─▶ api          (:8080)  read-only: /health /proof-of-reserves /attestation/:addr
+reserve-oracle (cron) ─▶ ReserveOracle.updateReserves     postgres (internal, audit log)
+                                                    all services ─▶ Sepolia RPC
 ```

@@ -17,6 +17,19 @@ const schema = z.object({
 
   DATABASE_URL: z.string().default("postgres://hakky:hakky@localhost:5432/hakky"),
   SCREENING_PROVIDER: z.string().default("stub"),
+
+  // reserve-oracle keeper: publishes the (stubbed) custody balance on a schedule.
+  RESERVE_ORACLE_CRON: z.string().default("*/5 * * * *"), // every 5 minutes
+  CUSTODY_BALANCE_SATS: z.string().default("0"), // stub custody figure; "0" disables publishing
+  RESERVE_REPORT_URI: z.string().default("https://api.hakky.xyz/reports/reserve-latest.json"),
+
+  // attestation-service: HTTP screen+attest endpoint.
+  ATTESTATION_PORT: z.coerce.number().default(8081),
+  ATTESTATION_TTL_SECONDS: z.coerce.number().default(0), // 0 => contract defaultTtl (90d)
+  SANCTIONED_ADDRESSES: z.string().default(""), // comma-separated demo sanctions list
+
+  // orchestrator: deposit/redeem loop.
+  ORCHESTRATOR_PORT: z.coerce.number().default(8082),
 });
 
 export const config = schema.parse(process.env);

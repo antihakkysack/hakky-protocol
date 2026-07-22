@@ -2,5 +2,20 @@
 # DNS A record points at this server. Until then, the API is reachable on :8080.
 api.hakky.xyz {
 	encode gzip
-	reverse_proxy api:8080
+
+	# Write endpoints are served by the worker services; everything else is the
+	# read API. handle blocks are mutually exclusive and evaluated in order.
+	@screen path /screen /screen/*
+	handle @screen {
+		reverse_proxy attestation:8081
+	}
+
+	@deposit path /deposit /deposit/*
+	handle @deposit {
+		reverse_proxy orchestrator:8082
+	}
+
+	handle {
+		reverse_proxy api:8080
+	}
 }

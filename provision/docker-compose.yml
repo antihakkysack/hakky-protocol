@@ -32,6 +32,44 @@ services:
       postgres:
         condition: service_healthy
 
+  # Reserve-oracle keeper: publishes the (stubbed) custody balance to ReserveOracle.
+  reserve-oracle:
+    build: ../services
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/reserve-oracle/cron.ts"]
+    env_file: ../services/.env
+    environment:
+      DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Attestation service: HTTP screen+attest (fronted by Caddy at /screen).
+  attestation:
+    build: ../services
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/attestation/worker.ts"]
+    env_file: ../services/.env
+    environment:
+      DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+    # No host port — Caddy reaches it as attestation:8081 on the compose network.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Orchestrator: deposit->mint (HTTP at /deposit) + redeem-settle event watcher.
+  orchestrator:
+    build: ../services
+    restart: unless-stopped
+    command: ["npx", "tsx", "src/orchestrator/worker.ts"]
+    env_file: ../services/.env
+    environment:
+      DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+    # No host port — Caddy reaches it as orchestrator:8082 on the compose network.
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
@@ -44,6 +82,8 @@ services:
       - caddy_config:/config
     depends_on:
       - api
+      - attestation
+      - orchestrator
 
 volumes:
   pgdata:

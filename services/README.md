@@ -13,9 +13,9 @@ the public data the website and partners read.
 | --- | --- | --- |
 | [`shared`](src/shared/) | lib | Config, logger, Postgres pool, ethers client + contract ABIs. Imported by all services. |
 | [`api`](src/api/server.ts) | HTTP | Public **read** API: `/proof-of-reserves`, `/attestation/:address`, `/health`. What the site reads. |
-| `attestation-service` | worker + HTTP | Screens an address/BTC provenance and writes signed attestations to `AttestationRegistry`. *(next)* |
-| `reserve-oracle` | cron | Reads custody balance and publishes `reserveSats` + report to `ReserveOracle`. *(next)* |
-| `orchestrator` | worker | Watches custody for BTC deposits → `processDeposit`; processes redemptions → `settleRedeem`. *(next)* |
+| [`attestation-service`](src/attestation/worker.ts) | worker + HTTP | Screens an address (stub provider) and writes a signed attestation to `AttestationRegistry`. `POST /screen`. |
+| [`reserve-oracle`](src/reserve-oracle/cron.ts) | cron | Reads the (stubbed) custody balance and publishes `reserveSats` + report to `ReserveOracle`. |
+| [`orchestrator`](src/orchestrator/worker.ts) | worker + HTTP | `POST /deposit` → `processDeposit` (mint); watches `RedeemRequested` → `settleRedeem`. |
 
 ## Architecture
 
@@ -46,8 +46,9 @@ docker compose up --build
 
 ## Deploy to Hetzner
 
-A one-shot provisioning script (Docker + Caddy auto-HTTPS) lands in [`provision/`](provision/) *(next)*.
-Target: **Ubuntu 24.04, CX22/CPX21**. Point `api.hakky.xyz` at the box and Caddy handles TLS.
+A one-shot provisioning script (Docker + Caddy auto-HTTPS) lives in [`../provision/`](../provision/).
+It brings up Postgres, the API, all three workers, and Caddy. Target: **Ubuntu 24.04, CPX22**.
+Point `api.hakky.xyz` at the box and Caddy handles TLS. See [`provision/README.md`](../provision/README.md).
 
 ## Contract addresses
 
