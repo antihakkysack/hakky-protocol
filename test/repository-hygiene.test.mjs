@@ -59,12 +59,14 @@ test("repository checker rejects retired agent labels on every active public sur
     "SECURITY.md",
     "brand/fixture.svg",
     "docs/LAUNCH.md",
+    "docs/TOKEN.md",
     "docs/superpowers/plans/2026-07-22-hakky-live-launch.md",
     "launch/fixture.md",
     "package.json",
     "proof/fixture.md",
     "scripts/check-site.mjs",
     "scripts/render-assets.mjs",
+    "src/social-copy.mjs",
     "web/fixture.html",
   ];
   const violations = await scanFixture(Object.fromEntries(
@@ -72,6 +74,34 @@ test("repository checker rejects retired agent labels on every active public sur
   ));
 
   assert.deepEqual(violations, activeFiles.map((file) => ({
+    file,
+    rule: "retired-agent-identity",
+  })));
+});
+
+test("repository checker normalizes case, compatibility forms, and invisible retired display labels", async () => {
+  const [retiredName, retiredMascot, retiredBadge] = [
+    "QW50aUhha2t5U2Fjaw==",
+    "U2FjayBTZW50aW5lbA==",
+    "QWdlbnQgMDAx",
+  ].map((value) => Buffer.from(value, "base64").toString("utf8"));
+  const alternatingCase = (value) => [...value].map((character, index) => (
+    index % 2 ? character.toUpperCase() : character.toLowerCase()
+  )).join("");
+  const fullwidth = (value) => [...value].map((character) => {
+    const code = character.codePointAt(0);
+    return code >= 0x21 && code <= 0x7e ? String.fromCodePoint(code + 0xfee0) : character;
+  }).join("");
+  const fixtures = {
+    "brand/mixed-name.svg": alternatingCase(retiredName),
+    "launch/invisible-name.md": `${retiredName.slice(0, 4)}\u200b${retiredName.slice(4)}`,
+    "proof/lower-mascot.md": retiredMascot.toLowerCase(),
+    "web/invisible-mascot.html": retiredMascot.replace(" ", "\u2060"),
+    "web/bidi-badge.html": `${retiredBadge.slice(0, 2)}\u202e${retiredBadge.slice(2)}`,
+    "web/fullwidth-badge.html": fullwidth(retiredBadge),
+  };
+
+  assert.deepEqual(await scanFixture(fixtures), Object.keys(fixtures).sort().map((file) => ({
     file,
     rule: "retired-agent-identity",
   })));
@@ -93,19 +123,25 @@ test("repository checker rejects claim bypasses across active surfaces outside t
   const violations = await scanFixture({
     "CONTRIBUTING.md": "HakkyAgent is a guaranteed scam detector.",
     "brand/claim.svg": "HakkyAgent verifies every Solana transaction.",
+    "docs/TOKEN.md": "HakkyAgent au\u202edits arbitrary tokens.",
     "scripts/render-assets.mjs": "HakkyAgent\nverifies every transaction.",
+    "src/social-copy.mjs": "Hakky\u200bAgent guarantees scam detection.",
   });
 
   assert.deepEqual(violations, [
     { file: "CONTRIBUTING.md", rule: "unsupported-agent-claim" },
     { file: "brand/claim.svg", rule: "unsupported-agent-claim" },
+    { file: "docs/TOKEN.md", rule: "unsupported-agent-claim" },
     { file: "scripts/render-assets.mjs", rule: "unsupported-agent-claim" },
+    { file: "src/social-copy.mjs", rule: "unsupported-agent-claim" },
   ]);
 });
 
 test("repository checker allows explicit claim disclaimers on active surfaces", async () => {
   assert.deepEqual(await scanFixture({
     "brand/disclaimer.svg": "HakkyAgent does not verify every transaction.",
+    "docs/TOKEN.md": "HakkyAgent does not audit arbitrary tokens.",
+    "src/social-copy.mjs": "HakkyAgent never predicts scams.",
     "web/disclaimer.html": "HakkyAgent is not a guaranteed scam detector.",
   }), []);
 });
@@ -290,6 +326,63 @@ test("detects credential assignments, private-key material, mnemonic phrases, wa
   ]) {
     assert.ok(rules.has(rule), `${rule} was not detected`);
   }
+});
+
+test("detects current GitHub token prefixes with underscore-bearing synthetic bodies", async () => {
+  const prefixes = [
+    ["github", "pat", ""].join("_"),
+    ...["p", "o", "u", "s", "r"].map((kind) => ["gh", kind, "_"].join("")),
+  ];
+  const syntheticBody = ["SYNTHETIC", "NONFUNCTIONAL", "MARKER", "A".repeat(40)].join("_");
+  const fixtures = Object.fromEntries(prefixes.map((prefix, index) => [
+    `github-token-${index}.txt`,
+    `fixture=${prefix}${syntheticBody}\n`,
+  ]));
+
+  assert.deepEqual(await scanFixture(fixtures), Object.keys(fixtures).sort().map((file) => ({
+    file,
+    rule: "secret-service-token",
+  })));
+});
+
+test("does not classify short or unrelated GitHub-like synthetic markers as service tokens", async () => {
+  const fineGrainedPrefix = ["github", "pat", ""].join("_");
+  const classicPrefix = ["gh", "p", "_"].join("");
+  assert.deepEqual(await scanFixture({
+    "short-fine-grained.txt": `fixture=${fineGrainedPrefix}SHORT_MARKER\n`,
+    "short-classic.txt": `fixture=${classicPrefix}SHORT_MARKER\n`,
+    "unrelated-prefix.txt": `fixture=${["gh", "x", "_"].join("")}${"A".repeat(48)}\n`,
+  }), []);
+});
+
+test("detects multiline YAML credential scalars and indented block values", async () => {
+  const apiCredential = ["api", "key"].join("_");
+  const clientCredential = ["client", "secret"].join("_");
+  const opaqueScalar = ["SYNTHETIC", "MULTILINE", "CREDENTIAL"].join("_");
+  const violations = await scanFixture({
+    "block-value.yml": `${clientCredential}:\n  |-\n    ${opaqueScalar}\n    SECOND_FRAGMENT\n`,
+    "plain-scalar.yml": `${apiCredential}:\n  ${opaqueScalar}\n`,
+    "standard-block.yml": `${apiCredential}: >-\n  ${opaqueScalar}\n  SECOND_FRAGMENT\n`,
+  });
+
+  assert.deepEqual(violations, [
+    { file: "block-value.yml", rule: "secret-credential-assignment" },
+    { file: "plain-scalar.yml", rule: "secret-credential-assignment" },
+    { file: "standard-block.yml", rule: "secret-credential-assignment" },
+  ]);
+});
+
+test("multiline YAML credential scanning preserves placeholders, environment references, and containers", async () => {
+  const apiCredential = ["api", "key"].join("_");
+  const clientCredential = ["client", "secret"].join("_");
+  const environmentReference = ["${", "SECRET_FROM_ENV", "}"].join("");
+  assert.deepEqual(await scanFixture({
+    "environment.yml": `${apiCredential}:\n  ${environmentReference}\n`,
+    "nested-container.yml": `${clientCredential}:\n  provider:\n    name: example\n`,
+    "placeholder-block.yml": `${apiCredential}:\n  |\n    REDACTED\n`,
+    "placeholder-standard-block.yml": `${clientCredential}: |\n  REDACTED\n`,
+    "unrelated.yml": `description:\n  ${["SYNTHETIC", "PUBLIC", "TEXT"].join("_")}\n`,
+  }), []);
 });
 
 test("credential assignments cannot hide behind names, uppercase literals, or public URLs", async () => {

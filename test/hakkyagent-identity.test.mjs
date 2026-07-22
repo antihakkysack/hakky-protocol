@@ -7,12 +7,14 @@ const ACTIVE_IDENTITY_FILES = [
   "README.md",
   "SECURITY.md",
   "docs/LAUNCH.md",
+  "docs/TOKEN.md",
   "docs/superpowers/plans/2026-07-22-hakky-live-launch.md",
   "package.json",
   "launch/README.md",
   "launch/prelaunch-post.md",
   "launch/x-profile.md",
   "proof/README.md",
+  "src/social-copy.mjs",
   "web/index.html"
 ];
 
@@ -87,6 +89,47 @@ test("claim boundary rejects universal Solana transaction language", () => {
   assertNoProhibitedClaims("HakkyAgent does not verify every transaction.");
   assertNoProhibitedClaims("HakkyAgent is not a guaranteed scam detector.");
   assertNoProhibitedClaims("HakkyAgent verifies only published HAKKY launch facts.");
+});
+
+test("claim boundary rejects every prohibited class after Unicode and invisible normalization", () => {
+  for (const claim of [
+    "HakkyAgent labels transactions as good or bad.",
+    "HakkyAgent audits arbitrary tokens.",
+    "HakkyAgent predicts scams.",
+    "HakkyAgent removes financial risk.",
+    "HakkyAgent provides universal transaction verification.",
+    "HakkyAgent offers verification for every transaction.",
+    "HakkyAgent verifies transactions universally.",
+    "HakkyAgent verifies all transactions.",
+    "HakkyAgent guarantees safety.",
+    "HakkyAgent guarantees scam detection.",
+    "HakkyAgent is a scam detector.",
+    "HakkyAgent guarantees returns.",
+    "Hakky\u200bAgent verifies ev\u2060ery transaction.",
+    "HakkyAgent au\u202edits arbitrary tokens.",
+    "\uff28\uff41\uff4b\uff4b\uff59\uff21\uff47\uff45\uff4e\uff54 predicts scams.",
+  ]) {
+    assert.throws(() => assertNoProhibitedClaims(claim), /prohibited universal or guaranteed claim/);
+  }
+});
+
+test("claim boundary preserves an explicit local negation for every prohibited class", () => {
+  for (const disclaimer of [
+    "HakkyAgent does not label transactions as good or bad.",
+    "HakkyAgent does not audit arbitrary tokens.",
+    "HakkyAgent never predicts scams.",
+    "HakkyAgent cannot remove financial risk.",
+    "HakkyAgent does not provide universal transaction verification.",
+    "HakkyAgent does not offer verification for every transaction.",
+    "HakkyAgent does not verify transactions universally.",
+    "HakkyAgent does not verify all transactions.",
+    "HakkyAgent does not guarantee safety.",
+    "HakkyAgent does not guarantee scam detection.",
+    "HakkyAgent is not a scam detector.",
+    "HakkyAgent does not guarantee returns.",
+  ]) {
+    assertNoProhibitedClaims(disclaimer);
+  }
 });
 
 test("prelaunch README identifies policy values as planned commitments", async () => {

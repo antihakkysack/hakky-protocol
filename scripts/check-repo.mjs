@@ -40,12 +40,14 @@ const APPROVED_RETIRED_ACCOUNT_ADDRESSES = Object.freeze([
 ]);
 const UNICODE_LETTER_NUMBER_OR_MARK = /[\p{L}\p{N}\p{M}]/u;
 const INVISIBLE_OR_DIRECTIONAL_CHARACTER = /[\u180e\u200b-\u200f\u202a-\u202e\u2060-\u206f\ufeff]/u;
+const IDENTITY_IGNORABLE_CHARACTERS = /[\p{Cf}\u034f\u115f\u1160\u17b4\u17b5\u3164\uffa0\ufe00-\ufe0f\u{e0100}-\u{e01ef}]/gu;
 const LEFT_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", "(", "[", "{", "<", "=", ":"]);
 const CLOSING_ACCOUNT_ADDRESS_DELIMITERS = new Set(["\"", "'", "`", ")", "]", "}", ">"]);
 const TERMINAL_SENTENCE_PUNCTUATION = new Set([".", ",", ";", ":", "!"]);
 const ACTIVE_PUBLIC_SCRIPT_FILES = new Set([
   "scripts/check-site.mjs",
   "scripts/render-assets.mjs",
+  "src/social-copy.mjs",
 ]);
 const LIVE_LAUNCH_PLAN = "docs/superpowers/plans/2026-07-22-hakky-live-launch.md";
 
@@ -91,7 +93,8 @@ const KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES = new Set([
 ]);
 
 const SERVICE_TOKEN_PATTERNS = Object.freeze([
-  /\bgh[pousr]_[A-Za-z0-9]{36,255}\b/g,
+  /\bgithub_pat_[A-Za-z0-9_]{49,254}[A-Za-z0-9]\b/g,
+  /\bgh[pousr]_[A-Za-z0-9_]{35,254}[A-Za-z0-9]\b/g,
   /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g,
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
   /\bAIza[0-9A-Za-z_-]{35}\b/g,
@@ -129,6 +132,7 @@ function isActivePublicSurface(relative) {
     || ["brand/", "launch/", "proof/", "web/"].some((prefix) => relative.startsWith(prefix))
     || ACTIVE_PUBLIC_SCRIPT_FILES.has(relative)
     || relative === "docs/LAUNCH.md"
+    || relative === "docs/TOKEN.md"
     || relative === LIVE_LAUNCH_PLAN;
 }
 
@@ -152,24 +156,49 @@ function isAddressBoundary(content, start, end) {
   return isConservativeAddressDelimiter(after, CLOSING_ACCOUNT_ADDRESS_DELIMITERS);
 }
 
-function isApprovedRetiredAccountAddress(content, aliasIndex) {
-  return APPROVED_RETIRED_ACCOUNT_ADDRESSES.some((address) => {
+function approvedRetiredAccountAddressRange(content, aliasIndex) {
+  for (const address of APPROVED_RETIRED_ACCOUNT_ADDRESSES) {
     const aliasOffset = address.indexOf(RETIRED_ACCOUNT_ALIAS);
     const start = aliasIndex - aliasOffset;
     const end = start + address.length;
-    return start >= 0
+    if (start >= 0
       && content.slice(start, end) === address
-      && isAddressBoundary(content, start, end);
-  });
+      && isAddressBoundary(content, start, end)) {
+      return { start, end };
+    }
+  }
+  return null;
+}
+
+function normalizedIdentityKey(value) {
+  return value
+    .normalize("NFKC")
+    .replace(IDENTITY_IGNORABLE_CHARACTERS, "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function hasRetiredNonAccountDisplayLabel(content) {
+  const identityKey = normalizedIdentityKey(content);
+  return RETIRED_AGENT_MARKERS.slice(2).some((marker) => (
+    identityKey.includes(normalizedIdentityKey(marker))
+  ));
 }
 
 function hasUnapprovedRetiredAccountAlias(content) {
+  const approvedRanges = [];
   let aliasIndex = content.indexOf(RETIRED_ACCOUNT_ALIAS);
   while (aliasIndex !== -1) {
-    if (!isApprovedRetiredAccountAddress(content, aliasIndex)) return true;
+    const approvedRange = approvedRetiredAccountAddressRange(content, aliasIndex);
+    if (!approvedRange) return true;
+    approvedRanges.push(approvedRange);
     aliasIndex = content.indexOf(RETIRED_ACCOUNT_ALIAS, aliasIndex + RETIRED_ACCOUNT_ALIAS.length);
   }
-  return false;
+  let withoutApprovedAddresses = content;
+  for (const { start, end } of approvedRanges.sort((left, right) => right.start - left.start)) {
+    withoutApprovedAddresses = `${withoutApprovedAddresses.slice(0, start)}${" ".repeat(end - start)}${withoutApprovedAddresses.slice(end)}`;
+  }
+  return normalizedIdentityKey(withoutApprovedAddresses).includes(normalizedIdentityKey(RETIRED_ACCOUNT_ALIAS));
 }
 
 function credentialNameParts(name) {
@@ -362,9 +391,58 @@ function hasWalletKeyArray(content) {
   return false;
 }
 
+function indentationWidth(line) {
+  return line.match(/^[ \t]*/)?.[0].replaceAll("\t", "  ").length ?? 0;
+}
+
+function isYamlContainerLine(value) {
+  return /^-\s/u.test(value)
+    || /^(?:["'][^"']+["']|[A-Za-z0-9_.-]+)\s*:(?:\s|$)/u.test(value);
+}
+
+function inspectMultilineYamlCredentialAssignments(content) {
+  const lines = content.split(/\r?\n/);
+  const headerPattern = /^([ \t]*)(?:(["'])([A-Za-z][A-Za-z0-9_.:-]*)\2|([A-Za-z][A-Za-z0-9_.:-]*))\s*:\s*([|>](?:[+-]?\d*|\d*[+-]?)?)?\s*(?:#.*)?$/u;
+  const environmentBindings = new Set();
+  const handledHeaderLines = new Set();
+  let hasViolation = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const header = lines[index].match(headerPattern);
+    const name = header?.[3] ?? header?.[4];
+    if (!name || !isCredentialName(name)) continue;
+    const headerIndent = indentationWidth(lines[index]);
+    let valueIndex = index + 1;
+    while (valueIndex < lines.length && /^\s*(?:#.*)?$/u.test(lines[valueIndex])) valueIndex += 1;
+    if (header[5]) handledHeaderLines.add(index);
+    if (valueIndex >= lines.length || indentationWidth(lines[valueIndex]) <= headerIndent) continue;
+
+    const firstValue = lines[valueIndex].trim();
+    if (!header[5] && isYamlContainerLine(firstValue)) continue;
+    const isIndentedBlockScalar = !header[5] && /^[|>](?:[+-]?\d*|\d*[+-]?)$/u.test(firstValue);
+    const scalarStart = header[5] ? valueIndex : isIndentedBlockScalar ? valueIndex + 1 : valueIndex;
+    const scalarLines = [];
+    for (let scalarIndex = scalarStart; scalarIndex < lines.length; scalarIndex += 1) {
+      const line = lines[scalarIndex];
+      if (line.trim() && indentationWidth(line) <= headerIndent) break;
+      if (!/^\s*(?:#.*)?$/u.test(line)) scalarLines.push(line.trim());
+    }
+    const rawValue = scalarLines.join("\n").trim();
+    const value = literalValue(rawValue);
+    if (
+      rawValue
+      && !isAllowedSecretAssignment(rawValue, value, environmentBindings)
+    ) hasViolation = true;
+  }
+  return { handledHeaderLines, hasViolation };
+}
+
 function secretRulesForContent(content, relative) {
   const rules = new Set();
   const environmentBindings = new Set();
+  const yamlInspection = [".yaml", ".yml"].includes(path.extname(relative).toLowerCase())
+    ? inspectMultilineYamlCredentialAssignments(content)
+    : { handledHeaderLines: new Set(), hasViolation: false };
   if (PRIVATE_KEY_MATERIAL_NEEDLES.some((needle) => content.includes(needle))) {
     rules.add("secret-private-key-material");
   }
@@ -374,8 +452,12 @@ function secretRulesForContent(content, relative) {
     pattern.lastIndex = 0;
     if (pattern.test(content)) rules.add("secret-service-token");
   }
+  if (yamlInspection.hasViolation) {
+    rules.add("secret-credential-assignment");
+  }
 
-  for (const line of content.split(/\r?\n/)) {
+  for (const [lineIndex, line] of content.split(/\r?\n/).entries()) {
+    if (yamlInspection.handledHeaderLines.has(lineIndex)) continue;
     if (relative === "scripts/check-repo.mjs" && SCANNER_DEFINITION_LINES.has(line.trim())) continue;
     if (KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES.has(`${relative}\0${line.trim()}`)) continue;
     for (const { name, rawValue, updatesBinding } of assignmentsForLine(line)) {
@@ -435,7 +517,7 @@ export async function scanRepository(root = process.cwd(), { trackedFiles } = {}
     }
     if (isActivePublicSurface(relative)) {
       if (
-        RETIRED_AGENT_MARKERS.some((marker) => content.includes(marker))
+        hasRetiredNonAccountDisplayLabel(content)
         || hasUnapprovedRetiredAccountAlias(content)
       ) {
         violations.push({ file: relative, rule: "retired-agent-identity" });
