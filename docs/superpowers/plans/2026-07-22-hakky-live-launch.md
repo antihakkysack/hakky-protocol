@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Publish the verified prelaunch experience, refresh the owner’s X profile, execute the bounded Raydium LaunchLab mainnet launch with user signing, capture exact proof, and publish only verified launch links.
+**Goal:** Publish the approved prelaunch experience, refresh the owner’s X profile, execute the bounded Raydium LaunchLab mainnet launch with user signing, capture exact proof, and publish only verified launch links.
 
 **Architecture:** Treat repository deployment, X changes, wallet signing, proof promotion, and public announcement as separate external-action gates. Use the official Raydium UI for all signing and the repository’s read-only verifier for Solana mint evidence. Keep `web/data/launch.json` in prelaunch state until mint and LaunchLab readback pass every invariant.
 
@@ -11,6 +11,8 @@
 ## Global Constraints
 
 - This plan starts only after `2026-07-22-hakky-pivot-build.md` passes fully and the tracked worktree is clean.
+- Public verification identity: HakkyAgent. Positioning: “HakkyAgent verifies the facts. You decide the risk.”
+- HakkyAgent's scope is limited to published HAKKY launch facts backed by deterministic checks and canonical evidence; it does not judge arbitrary transactions, certify safety, promise scam detection, give financial advice, or promise returns.
 - Mainnet token: Hakky Protocol / HAKKY, classic SPL Token, exactly 1,000,000 tokens, six decimals.
 - Distribution: 80% public bonding curve, 20% post-graduation liquidity, 0% team, no vesting, no presale, no creator first-buy.
 - Authorities: mint authority null before public trading; freeze authority null; no transfer tax, hook, blacklist, permanent delegate, or unexpected extension.
@@ -51,7 +53,7 @@ and bind exactly to every published web proof field.
 
 **Interfaces:**
 - Consumes: passing build plan and prelaunch launch record.
-- Produces: publicly verified prelaunch site with no mint address or trading action.
+- Produces: publicly available approved prelaunch experience with no mint address or trading action.
 
 - [ ] **Step 1: Re-run the complete local gate**
 
@@ -99,7 +101,7 @@ Inspect the current public About panel and prepare this exact replacement:
 ```text
 Description: HAKKY — 1,000,000 supply, 100% public Solana fair launch. Keep crypto clean.
 Website: https://hakky.xyz
-Topics: solana, meme-coin, fair-launch, hakky, antihakkysack
+Topics: solana, meme-coin, fair-launch, hakky, hakkyagent
 ```
 
 Expected: no unrelated company, product, BTC, reserve, or Ethereum attribution remains in the proposed values.
@@ -116,7 +118,7 @@ Read `https://hakky.xyz` in a browser and verify desktop and mobile:
 - the explicit no-official-mint warning renders;
 - there is no mint address, copy-address control, Raydium action, or buy action;
 - 1,000,000 supply, 0% team, no presale, and 1 SOL cap render correctly;
-- Sack Sentinel assets load;
+- HakkyAgent assets load;
 - X and GitHub links are correct;
 - page source and visible copy contain no legacy product or third-party business attribution;
 - HTTPS and custom domain are healthy.
@@ -135,7 +137,7 @@ Expected: screenshots and live URL constitute prelaunch deployment evidence.
 - External: `https://x.com/antihakkysack`
 
 **Interfaces:**
-- Consumes: approved profile copy/assets and verified prelaunch site.
+- Consumes: approved profile copy/assets and the approved prelaunch experience.
 - Produces: updated public X profile and one prelaunch introduction post with no mint address.
 
 - [ ] **Step 1: Ask the user to sign into X in the available browser**
@@ -148,8 +150,8 @@ Read the current profile and show this envelope:
 
 ```text
 Account: @antihakkysack
-Display name: AntiHakkySack 🧼
-Bio: AI sentinel for Solana's dirty trenches. No presale. No team bag. 1,000,000 $HAKKY. Fair launch on Raydium. Keep crypto clean.
+Display name: HakkyAgent 🧼
+Bio: HakkyAgent verifies the facts. You decide the risk. HAKKY launch facts only; no safety guarantee.
 Website: https://hakky.xyz
 Avatar: launch/assets/x-avatar.png
 Banner: launch/assets/x-banner.png
@@ -168,11 +170,11 @@ Expected: display name, bio, website, avatar, and banner all match the approved 
 Use the exact text from `launch/prelaunch-post.md`:
 
 ```text
-AntiHakkySack is online. 🧼
+HakkyAgent is online. The fixed supply, public allocation, and revoked-authority configuration are planned commitments until canonical proof is published.
 
-Agent 001 entered Solana's trenches with zero team tokens, no presale, and no hidden mint.
+Planned: 1,000,000 $HAKKY, 100% public fair launch on Raydium, zero team tokens, and no presale.
 
-1,000,000 $HAKKY. 100% public fair launch on Raydium.
+HakkyAgent verifies the facts. You decide the risk.
 
 No official mint address exists yet. Ignore impostors.
 
@@ -294,7 +296,7 @@ Record:
 
 - mint address;
 - launch ID/address;
-- all transaction signatures;
+- all launch-related transaction signatures;
 - creator address;
 - total creator-funded SOL spent;
 - exact supply and decimals;

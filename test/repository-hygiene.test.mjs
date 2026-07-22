@@ -50,6 +50,90 @@ test("detects expanded active legacy vocabulary while excluding historical desig
   assert.deepEqual(violations, [{ file: "README.md", rule: "legacy-product-active" }]);
 });
 
+test("repository checker rejects retired agent labels on every active public surface", async () => {
+  const retiredLabel = Buffer.from("QU5USUhBS0tZU0FDSyAvLyBBR0VOVCAwMDE=", "base64").toString("utf8");
+  const activeFiles = [
+    "CONTRIBUTING.md",
+    "LICENSE",
+    "README.md",
+    "SECURITY.md",
+    "brand/fixture.svg",
+    "docs/LAUNCH.md",
+    "docs/superpowers/plans/2026-07-22-hakky-live-launch.md",
+    "launch/fixture.md",
+    "package.json",
+    "proof/fixture.md",
+    "scripts/check-site.mjs",
+    "scripts/render-assets.mjs",
+    "web/fixture.html",
+  ];
+  const violations = await scanFixture(Object.fromEntries(
+    activeFiles.map((file) => [file, retiredLabel]),
+  ));
+
+  assert.deepEqual(violations, activeFiles.map((file) => ({
+    file,
+    rule: "retired-agent-identity",
+  })));
+});
+
+test("repository checker rejects unsupported HakkyAgent claims on active surfaces", async () => {
+  const violations = await scanFixture({
+    "README.md": "HakkyAgent verifies every good transaction and guarantees safety.",
+    "proof/claim.md": "HakkyAgent guarantees scam detection and returns.",
+  });
+
+  assert.deepEqual(violations, [
+    { file: "README.md", rule: "unsupported-agent-claim" },
+    { file: "proof/claim.md", rule: "unsupported-agent-claim" },
+  ]);
+});
+
+test("repository checker rejects lower-case retired aliases outside exact account addresses", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const violations = await scanFixture({
+    "README.md": `Topics: ${retiredAlias}`,
+    "launch/extended-addresses.md": [
+      `https://x.com/${retiredAlias}/status/1`,
+      `https://github.com/${retiredAlias}/hakky-protocol/issues`,
+    ].join("\n"),
+  });
+
+  assert.deepEqual(violations, [
+    { file: "README.md", rule: "retired-agent-identity" },
+    { file: "launch/extended-addresses.md", rule: "retired-agent-identity" },
+  ]);
+});
+
+test("repository checker allows only the exact approved retired account addresses", async () => {
+  const retiredAlias = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
+  const approvedAddresses = [
+    `@${retiredAlias}`,
+    `https://x.com/${retiredAlias}`,
+    `https://github.com/${retiredAlias}/hakky-protocol`,
+    `https://github.com/${retiredAlias}/hakky-protocol.git`,
+  ].join("\n");
+
+  assert.deepEqual(await scanFixture({ "launch/account-addresses.md": approvedAddresses }), []);
+});
+
+test("identity rules exclude internal history and fixtures while secret scanning remains global", async () => {
+  const retiredLabel = Buffer.from("U2FjayBTZW50aW5lbA==", "base64").toString("utf8");
+  const unsupportedClaim = "HakkyAgent verifies every good transaction and guarantees safety.";
+  const sensitiveAssignment = `const apiKey = "${["SYNTHETIC", "OPAQUE", "LITERAL"].join("_")}";`;
+  const violations = await scanFixture({
+    "docs/superpowers/plans/history.md": `${retiredLabel}\n${unsupportedClaim}`,
+    "scripts/check-repo.mjs": `${retiredLabel}\n${unsupportedClaim}\n${sensitiveAssignment}`,
+    "src/internal.mjs": `${retiredLabel}\n${unsupportedClaim}`,
+    "test/negative-fixture.test.mjs": `${retiredLabel}\n${unsupportedClaim}\n${sensitiveAssignment}`,
+  });
+
+  assert.deepEqual(violations, [
+    { file: "scripts/check-repo.mjs", rule: "secret-credential-assignment" },
+    { file: "test/negative-fixture.test.mjs", rule: "secret-credential-assignment" },
+  ]);
+});
+
 test("detects credential assignments, private-key material, mnemonic phrases, wallet arrays, and service tokens", async () => {
   const credentialName = ["API", "KEY"].join("_");
   const headerFixture = ["-----BEGIN ", "PRIVATE KEY-----"].join("");

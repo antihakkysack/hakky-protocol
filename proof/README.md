@@ -1,5 +1,12 @@
 # HAKKY launch proof
 
+**HakkyAgent verifies the facts. You decide the risk.**
+
+HakkyAgent verifies only the published HAKKY launch facts backed by this
+repository's deterministic checks and canonical evidence. Its scope does not
+include judging arbitrary transactions, certifying any token or transaction as
+safe, detecting every scam, giving financial advice, or promising returns.
+
 No mainnet proof exists before launch. A proof is publishable only after the
 read-only verifier reports `ok: true` and the Raydium launch configuration has
 been read back from the official launch page and transaction receipt.

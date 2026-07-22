@@ -5,12 +5,22 @@ import test from "node:test";
 const ACTIVE_IDENTITY_FILES = [
   "README.md",
   "SECURITY.md",
+  "docs/LAUNCH.md",
+  "docs/superpowers/plans/2026-07-22-hakky-live-launch.md",
   "package.json",
   "launch/README.md",
   "launch/prelaunch-post.md",
   "launch/x-profile.md",
+  "proof/README.md",
   "web/index.html"
 ];
+
+const RETIRED_AGENT_MARKERS = [
+  "QW50aUhha2t5U2Fjaw==",
+  "QU5USUhBS0tZU0FDSw==",
+  "U2FjayBTZW50aW5lbA==",
+  "QWdlbnQgMDAx"
+].map((value) => Buffer.from(value, "base64").toString("utf8"));
 
 const PROHIBITED_CLAIM_PATTERN = /(?:(?<!not )\bverif(?:y|ies|ied)\b.{0,50}\b(?:all|every|good|bad|safe)\b(?:\s+[\p{L}\p{N}-]+){0,4}\s+transactions?\b(?!\?)|guaranteed?\s+scam\s+detector\b|guaranteed?\s+safe\b)/iu;
 
@@ -29,8 +39,33 @@ test("active public copy uses HakkyAgent and the approved risk boundary", async 
   const combined = entries.map(([file, source]) => `\n--- ${file} ---\n${source}`).join("");
 
   assert.match(combined, /HakkyAgent verifies the facts\. You decide the risk\./);
-  assert.doesNotMatch(combined, /AntiHakkySack|ANTIHAKKYSACK|Sack Sentinel|Agent 001/);
+  for (const retiredMarker of RETIRED_AGENT_MARKERS) {
+    assert.ok(!combined.includes(retiredMarker), `active public copy contains retired agent marker: ${retiredMarker}`);
+  }
   assertNoProhibitedClaims(combined);
+});
+
+test("operator documents use HakkyAgent and the approved launch wording", async () => {
+  const launchPolicy = await readFile("docs/LAUNCH.md", "utf8");
+  const proofGuide = await readFile("proof/README.md", "utf8");
+  const livePlan = await readFile("docs/superpowers/plans/2026-07-22-hakky-live-launch.md", "utf8");
+
+  for (const [file, source] of [
+    ["docs/LAUNCH.md", launchPolicy],
+    ["proof/README.md", proofGuide],
+    ["docs/superpowers/plans/2026-07-22-hakky-live-launch.md", livePlan]
+  ]) {
+    assert.match(source, /HakkyAgent/, `${file} must use the active agent identity`);
+    for (const retiredMarker of RETIRED_AGENT_MARKERS) {
+      assert.ok(!source.includes(retiredMarker), `${file} contains a retired agent marker`);
+    }
+  }
+
+  assert.match(livePlan, /Topics: solana, meme-coin, fair-launch, hakky, hakkyagent/);
+  assert.match(livePlan, /approved prelaunch experience/);
+  assert.doesNotMatch(livePlan, /verified prelaunch/);
+  assert.match(livePlan, /all launch-related transaction signatures/);
+  assert.doesNotMatch(livePlan, /all transaction signatures/);
 });
 
 test("claim boundary rejects universal Solana transaction language", () => {

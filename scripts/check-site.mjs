@@ -8,6 +8,7 @@ import {
 import { validateLaunchRecord } from "../web/lib/launch-policy.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const ACCOUNT_ALIAS = Buffer.from("YW50aWhha2t5c2Fjaw==", "base64").toString("utf8");
 const REQUIRED_HTML = Object.freeze([
   "Rugs hate this little guy.",
   "The first thing it cleaned was its own launch.",
@@ -48,8 +49,8 @@ const REQUIRED_EXACT_HTML = Object.freeze([
   "HakkyAgent verifies only the published HAKKY launch facts backed by this repository's deterministic checks and canonical evidence.",
   "data-creator-spend-cap-qualifier>planned creator spend cap",
 ]);
-const X_LINK_PATTERN = /<a href="https:\/\/x\.com\/antihakkysack" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent on X \(opens in a new tab\)">X ↗<\/a>/;
-const GITHUB_LINK_PATTERN = /<a href="https:\/\/github\.com\/antihakkysack\/hakky-protocol" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent source on GitHub \(opens in a new tab\)">GitHub ↗<\/a>/;
+const X_LINK_HTML = `<a href="https://x.com/${ACCOUNT_ALIAS}" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent on X (opens in a new tab)">X ↗</a>`;
+const GITHUB_LINK_HTML = `<a href="https://github.com/${ACCOUNT_ALIAS}/hakky-protocol" target="_blank" rel="noopener noreferrer" aria-label="HakkyAgent source on GitHub (opens in a new tab)">GitHub ↗</a>`;
 
 const atRoot = (root, relativePath) => path.join(root, ...relativePath.split("/"));
 
@@ -72,10 +73,10 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
   if (/data-(?:solscan|raydium|launch-transaction)[^>]*\shref=/i.test(html)) {
     safetyIssues.push("live links must not have static href values");
   }
-  if (!GITHUB_LINK_PATTERN.test(html)) {
+  if (!html.includes(GITHUB_LINK_HTML)) {
     safetyIssues.push("navigation must include the exact safe GitHub repository link");
   }
-  if (!X_LINK_PATTERN.test(html)) {
+  if (!html.includes(X_LINK_HTML)) {
     safetyIssues.push("navigation must include the exact safe X account link");
   }
   if (launch.status === "prelaunch" && (launch.token?.mint !== null || launch.proof !== null)) {

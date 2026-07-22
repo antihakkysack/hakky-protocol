@@ -24,6 +24,28 @@ const LEGACY_NEEDLES = [
   "c29saWRpdHk=",
   "aGFyZGhhdA==",
 ].map((value) => decode(value).toLowerCase().replace(/[^a-z0-9]/g, ""));
+const RETIRED_AGENT_MARKERS = [
+  "QW50aUhha2t5U2Fjaw==",
+  "QU5USUhBS0tZU0FDSw==",
+  "U2FjayBTZW50aW5lbA==",
+  "QWdlbnQgMDAx",
+].map((value) => decode(value));
+const RETIRED_ACCOUNT_ALIAS = decode("YW50aWhha2t5c2Fjaw==");
+const APPROVED_RETIRED_ACCOUNT_ADDRESSES = Object.freeze([
+  `https://github.com/${RETIRED_ACCOUNT_ALIAS}/hakky-protocol.git`,
+  `https://github.com/${RETIRED_ACCOUNT_ALIAS}/hakky-protocol`,
+  `https://x.com/${RETIRED_ACCOUNT_ALIAS}`,
+  `@${RETIRED_ACCOUNT_ALIAS}`,
+]);
+const UNSUPPORTED_AGENT_CLAIMS = [
+  /HakkyAgent.{0,80}verif(?:y|ies|ied).{0,40}(?:all|every|good|bad|safe) transactions?/i,
+  /HakkyAgent.{0,80}guarantee(?:s|d)?.{0,40}(?:safe|safety|scam detection|returns?)/i,
+];
+const ACTIVE_PUBLIC_SCRIPT_FILES = new Set([
+  "scripts/check-site.mjs",
+  "scripts/render-assets.mjs",
+]);
+const LIVE_LAUNCH_PLAN = "docs/superpowers/plans/2026-07-22-hakky-live-launch.md";
 
 const PLACEHOLDER_VALUES = new Set([
   "",
@@ -95,6 +117,48 @@ function normalized(value) {
 
 function isHistoricalDesignRecord(relative) {
   return relative.startsWith("docs/superpowers/");
+}
+
+function isActivePublicSurface(relative) {
+  const isRootPublicDocument = !relative.includes("/")
+    && (relative.endsWith(".md") || relative === "LICENSE");
+  return isRootPublicDocument
+    || relative === "package.json"
+    || ["brand/", "launch/", "proof/", "web/"].some((prefix) => relative.startsWith(prefix))
+    || ACTIVE_PUBLIC_SCRIPT_FILES.has(relative)
+    || relative === "docs/LAUNCH.md"
+    || relative === LIVE_LAUNCH_PLAN;
+}
+
+function isAddressBoundary(content, start, end) {
+  const before = content[start - 1];
+  const after = content[end];
+  if (before !== undefined && /[A-Za-z0-9_:/@.-]/.test(before)) return false;
+  if (after === ".") {
+    const afterPeriod = content[end + 1];
+    return afterPeriod === undefined || /[\s)'"`\]}>,;]/.test(afterPeriod);
+  }
+  return after === undefined || !/[A-Za-z0-9_/?#%&=+:/@.-]/.test(after);
+}
+
+function isApprovedRetiredAccountAddress(content, aliasIndex) {
+  return APPROVED_RETIRED_ACCOUNT_ADDRESSES.some((address) => {
+    const aliasOffset = address.indexOf(RETIRED_ACCOUNT_ALIAS);
+    const start = aliasIndex - aliasOffset;
+    const end = start + address.length;
+    return start >= 0
+      && content.slice(start, end) === address
+      && isAddressBoundary(content, start, end);
+  });
+}
+
+function hasUnapprovedRetiredAccountAlias(content) {
+  let aliasIndex = content.indexOf(RETIRED_ACCOUNT_ALIAS);
+  while (aliasIndex !== -1) {
+    if (!isApprovedRetiredAccountAddress(content, aliasIndex)) return true;
+    aliasIndex = content.indexOf(RETIRED_ACCOUNT_ALIAS, aliasIndex + RETIRED_ACCOUNT_ALIAS.length);
+  }
+  return false;
 }
 
 function credentialNameParts(name) {
@@ -357,6 +421,17 @@ export async function scanRepository(root = process.cwd(), { trackedFiles } = {}
     }
     if (!isHistoricalDesignRecord(relative) && LEGACY_NEEDLES.some((needle) => compact.includes(needle))) {
       violations.push({ file: relative, rule: "legacy-product-active" });
+    }
+    if (isActivePublicSurface(relative)) {
+      if (
+        RETIRED_AGENT_MARKERS.some((marker) => content.includes(marker))
+        || hasUnapprovedRetiredAccountAlias(content)
+      ) {
+        violations.push({ file: relative, rule: "retired-agent-identity" });
+      }
+      if (UNSUPPORTED_AGENT_CLAIMS.some((pattern) => pattern.test(content))) {
+        violations.push({ file: relative, rule: "unsupported-agent-claim" });
+      }
     }
     for (const rule of secretRulesForContent(content, relative)) violations.push({ file: relative, rule });
   }
