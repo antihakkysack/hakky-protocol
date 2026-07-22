@@ -18,12 +18,14 @@
     "check:site": "node scripts/check-site.mjs",
     "preview": "serve web",
     "rehearsal:devnet": "node scripts/rehearse-devnet.mjs",
+    "schemas": "node scripts/render-launch-schema-validator.mjs",
     "test": "node --test",
     "verify:token": "node scripts/verify-token.mjs"
   },
   "dependencies": {
     "@solana/spl-token": "0.4.15",
     "@solana/web3.js": "1.98.4",
+    "ajv": "8.20.0",
     "entities": "8.0.0"
   },
   "devDependencies": {

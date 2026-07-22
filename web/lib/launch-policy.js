@@ -1,8 +1,17 @@
-import { isPublicHostname } from "./public-host.js";
+import { validateLaunchShape } from "./launch-schema.generated.js";
 
+export const EXPECTED_AUTHORITY_LIFECYCLE = Object.freeze({
+  curveMintAuthority: "launchlab-program-pda",
+  graduatedMintAuthority: null,
+  freezeAuthority: null,
+});
+
+// The legacy keys remain exported until the v1 proof collectors are migrated by
+// their dedicated tasks. Public launch validation below accepts only v2 records.
 export const EXPECTED_POLICY = Object.freeze({
   network: "mainnet-beta",
   tokenProgram: "spl-token",
+  tokenProgramAddress: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   name: "Hakky Protocol",
   symbol: "HAKKY",
   decimals: 6,
@@ -21,300 +30,176 @@ export const EXPECTED_POLICY = Object.freeze({
   metadataX: "https://x.com/antihakkysack",
 });
 
-export const LAUNCH_RECORD_SCHEMA_VERSION = 1;
-
-export const LAUNCH_RECORD_FIELDS = Object.freeze([
-  "schemaVersion",
-  "status",
-  "network",
-  "project",
-  "token",
-  "launch",
-  "proof",
-]);
+export const LAUNCH_RECORD_SCHEMA_VERSION = 2;
+export const LAUNCH_RECORD_FIELDS = Object.freeze(["schemaVersion", "status", "network", "project", "token", "launch", "proof"]);
 export const PROJECT_FIELDS = Object.freeze(["name", "symbol", "personalProject"]);
 export const TOKEN_FIELDS = Object.freeze([
-  "mint",
-  "program",
-  "decimals",
-  "supplyUi",
-  "supplyBaseUnits",
-  "mintAuthority",
-  "freezeAuthority",
-  "transferFeeBps",
-  "transferHook",
-  "blacklistControl",
-  "permanentDelegate",
-  "metadataImmutable",
-  "metadataImage",
-  "metadataWebsite",
-  "metadataX",
+  "mint", "program", "decimals", "supplyUi", "supplyBaseUnits", "mintAuthority", "freezeAuthority",
+  "transferFeeBps", "transferHook", "blacklistControl", "permanentDelegate", "metadataImmutable",
+  "metadataImage", "metadataWebsite", "metadataX",
 ]);
 export const LAUNCH_FIELDS = Object.freeze([
-  "platform",
-  "quoteAsset",
-  "curveAllocationBps",
-  "liquidityAllocationBps",
-  "teamAllocationBps",
-  "presale",
-  "vesting",
-  "graduationTargetSol",
-  "creatorFirstBuySol",
-  "creatorFeeEnabled",
-  "lpPolicy",
-  "creatorSpendCapSol",
+  "platform", "quoteAsset", "curveAllocationBps", "liquidityAllocationBps", "teamAllocationBps", "presale",
+  "vesting", "graduationTargetSol", "creatorFirstBuySol", "creatorFeeEnabled", "lpPolicy", "creatorSpendCapSol",
 ]);
-
 export const LIVE_PROOF_FIELDS = Object.freeze([
-  "mint",
-  "creator",
-  "launchId",
-  "launchTransaction",
-  "solscanUrl",
-  "solscanTransactionUrl",
-  "raydiumUrl",
-  "mintVerifiedAt",
-  "launchVerifiedAt",
-  "verifiedAt",
-  "supplyBaseUnits",
-  "decimals",
-  "tokenProgram",
-  "mintAuthority",
-  "freezeAuthority",
-  "creatorBalanceBaseUnits",
-  "metadataImmutable",
-  "metadataName",
-  "metadataSymbol",
-  "metadataUri",
-  "metadataImage",
-  "metadataWebsite",
-  "metadataX",
-  "curveAllocationBps",
-  "liquidityAllocationBps",
-  "teamAllocationBps",
-  "creatorFeeEnabled",
-  "lpPolicy",
-  "quoteAsset",
-  "graduationTargetSol",
-  "creatorFirstBuySol",
-  "creatorSpendSol",
+  "mint", "creator", "launchId", "launchTransaction", "solscanUrl", "solscanTransactionUrl", "raydiumUrl",
+  "mintVerifiedAt", "launchVerifiedAt", "verifiedAt", "supplyBaseUnits", "decimals", "tokenProgram",
+  "mintAuthority", "freezeAuthority", "creatorBalanceBaseUnits", "metadataImmutable", "metadataName",
+  "metadataSymbol", "metadataUri", "metadataImage", "metadataWebsite", "metadataX", "curveAllocationBps",
+  "liquidityAllocationBps", "teamAllocationBps", "creatorFeeEnabled", "lpPolicy", "quoteAsset",
+  "graduationTargetSol", "creatorFirstBuySol", "creatorSpendSol",
 ]);
 
-const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-
-function isObject(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
+function normalizedPath(error) {
+  if (error.keyword === "required") return `${error.instancePath}/${error.params.missingProperty}` || "/";
+  if (error.keyword === "additionalProperties") return `${error.instancePath}/${error.params.additionalProperty}` || "/";
+  return error.instancePath || "/";
 }
 
-function validateExactFields(value, fields, label, issues) {
-  if (!isObject(value)) {
-    issues.push(`${label} must be an object`);
-    return false;
-  }
-  const expected = new Set(fields);
-  for (const field of fields) {
-    if (!Object.hasOwn(value, field)) issues.push(`${label} requires ${field}`);
-  }
-  for (const field of Object.keys(value)) {
-    if (!expected.has(field)) issues.push(`${label} has unexpected field ${field}`);
+function normalizeShapeErrors(errors = []) {
+  return errors
+    .map((error) => ({ path: normalizedPath(error), keyword: error.keyword, message: error.message ?? "validation failed" }))
+    .sort((left, right) => left.path.localeCompare(right.path)
+      || left.keyword.localeCompare(right.keyword)
+      || left.message.localeCompare(right.message))
+    .map(({ path, keyword, message }) => `${path} [${keyword}] ${message}`);
+}
+
+function isSortedBy(values, selector) {
+  for (let index = 1; index < values.length; index += 1) {
+    if (selector(values[index - 1]).localeCompare(selector(values[index])) > 0) return false;
   }
   return true;
 }
 
-function decodeBase58(value) {
-  if (typeof value !== "string" || value.length === 0) return null;
-  const bytes = [0];
-  for (const character of value) {
-    let carry = BASE58_ALPHABET.indexOf(character);
-    if (carry < 0) return null;
-    for (let index = 0; index < bytes.length; index += 1) {
-      carry += bytes[index] * 58;
-      bytes[index] = carry & 0xff;
-      carry >>= 8;
-    }
-    while (carry > 0) {
-      bytes.push(carry & 0xff);
-      carry >>= 8;
-    }
+function canonicalSum(values) {
+  return values.reduce((sum, value) => sum + BigInt(value), 0n).toString();
+}
+
+function validateCommonVerified(record, proof, issues) {
+  const mint = record.token.mint;
+  if (proof.stage !== record.status) issues.push("proof stage must equal record status");
+  if (proof.supply.baseUnits !== record.token.supplyBaseUnits
+    || proof.supply.uiAmount !== record.token.uiSupply
+    || proof.supply.decimals !== record.token.decimals
+    || proof.supply.tokenProgram !== record.token.tokenProgram) {
+    issues.push("proof supply must equal token supply");
   }
-  for (let index = 0; index < value.length - 1 && value[index] === "1"; index += 1) bytes.push(0);
-  return bytes.reverse();
-}
-
-function hasBase58DecodedLength(value, expectedLength) {
-  return decodeBase58(value)?.length === expectedLength;
-}
-
-function isPublicMetadataUri(value) {
-  try {
-    const url = new URL(value);
-    if (url.username || url.password) return false;
-    if (url.protocol === "https:") return isPublicHostname(url.hostname);
-    return url.protocol === "ipfs:"
-      && (/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(url.hostname) || /^b[a-z2-7]{10,}$/.test(url.hostname));
-  } catch {
-    return false;
+  if (proof.creatorBalance.owner !== proof.metadata.updateAuthority) {
+    issues.push("metadata update authority must equal creator balance owner");
+  }
+  if (proof.creatorBalance.accounts.some((account) => account.mint !== mint || account.owner !== proof.creatorBalance.owner)) {
+    issues.push("creator balance accounts must match the public mint and creator");
+  }
+  if (!isSortedBy(proof.creatorBalance.accounts, (account) => account.address)) {
+    issues.push("creator balance accounts must be sorted by address");
+  }
+  if (canonicalSum(proof.creatorBalance.accounts.map((account) => account.amountBaseUnits)) !== proof.creatorBalance.totalAmountBaseUnits) {
+    issues.push("creator balance total must equal the exhaustive account sum");
+  }
+  if (proof.creatorBalance.totalAmountBaseUnits !== "0") issues.push("creator balance must equal zero");
+  if (proof.fees.protocolBuyFeeRateMillionths !== proof.fees.protocolSellFeeRateMillionths) {
+    issues.push("protocol buy and sell fee rates must match");
+  }
+  const costSum = canonicalSum([
+    proof.cost.metadataUploadLamports,
+    proof.cost.creationDebitLamports,
+    proof.cost.recoveryDebitLamports,
+    proof.cost.graduationDebitLamports,
+  ]);
+  if (costSum !== proof.cost.cumulativeCreatorDebitLamports) issues.push("creator cost must equal the exact four-term sum");
+  if (BigInt(proof.cost.cumulativeCreatorDebitLamports) > BigInt(proof.cost.capLamports)) {
+    issues.push("creator cost must remain within cap");
+  }
+  if (proof.quote.fundraisingLamports !== "24000000000" || proof.quote.graduationThresholdLamports !== "24000000000") {
+    issues.push("quote fundraising and graduation threshold must equal 24000000000 lamports");
+  }
+  if (Date.parse(proof.observation.checkedAt) < Date.parse(proof.observation.finalizedAt)) {
+    issues.push("observation checkedAt must be at or after finalizedAt");
+  }
+  if (proof.observation.finalizedSlot < proof.transactions.creation.finalizedSlot
+    || Date.parse(proof.observation.finalizedAt) < Date.parse(proof.transactions.creation.finalizedAt)) {
+    issues.push("proof chronology requires observation at or after creation");
+  }
+  if (proof.links.solscanMint !== `https://solscan.io/token/${mint}`) {
+    issues.push("Solscan mint link must match token.mint");
+  }
+  if (proof.links.raydiumLaunchlab !== `https://raydium.io/launchpad/token/${mint}`) {
+    issues.push("Raydium LaunchLab link must match token.mint");
+  }
+  if (proof.links.solscanCreationTransaction !== `https://solscan.io/tx/${proof.transactions.creation.signature}`) {
+    issues.push("Solscan creation link must match the creation signature");
   }
 }
 
-function isExactIsoTimestamp(value) {
-  return typeof value === "string"
-    && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)
-    && !Number.isNaN(Date.parse(value))
-    && new Date(value).toISOString() === value;
-}
-
-function isCanonicalHttpsUrl(value, { hostname, pathname, search = "" }) {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:"
-      && url.hostname === hostname
-      && !url.username
-      && !url.password
-      && !url.port
-      && !url.hash
-      && url.pathname === pathname
-      && url.search === search;
-  } catch {
-    return false;
+function validateGraduated(proof, issues) {
+  if (proof.transactions.graduation.finalizedSlot < proof.transactions.creation.finalizedSlot
+    || Date.parse(proof.transactions.graduation.finalizedAt) < Date.parse(proof.transactions.creation.finalizedAt)
+    || proof.observation.finalizedSlot < proof.transactions.graduation.finalizedSlot
+    || Date.parse(proof.observation.finalizedAt) < Date.parse(proof.transactions.graduation.finalizedAt)) {
+    issues.push("graduated proof chronology requires creation before graduation before observation");
+  }
+  if (proof.links.solscanGraduationTransaction !== `https://solscan.io/tx/${proof.transactions.graduation.signature}`) {
+    issues.push("Solscan graduation link must match the graduation signature");
+  }
+  if (proof.links.raydiumPool !== `https://raydium.io/liquidity-pools/${proof.pool.address}`) {
+    issues.push("Raydium pool link must match the verified pool");
+  }
+  if (proof.graduation.finalizedSlot !== proof.transactions.graduation.finalizedSlot
+    || proof.graduation.finalizedAt !== proof.transactions.graduation.finalizedAt) {
+    issues.push("graduation balance must share the finalized migration observation");
+  }
+  if (BigInt(proof.graduation.observedQuoteBalanceLamports) < BigInt(proof.graduation.configuredThresholdLamports)) {
+    issues.push("observed graduation balance must meet the configured threshold");
+  }
+  const evidence = proof.lpDisposition.evidenceAccounts;
+  if (!isSortedBy(evidence, (account) => `${account.role}/${account.address}`)) {
+    issues.push("LP evidence accounts must be sorted by role and address");
+  }
+  if (evidence.some((account) => account.finalizedSlot < proof.transactions.graduation.finalizedSlot
+    || Date.parse(account.finalizedAt) < Date.parse(proof.transactions.graduation.finalizedAt))) {
+    issues.push("LP evidence must be finalized at or after graduation");
+  }
+  if (proof.lpDisposition.kind === "lp-burn"
+    && proof.lpDisposition.burnedBaseUnits !== proof.lpDisposition.totalSupplyBaseUnits) {
+    issues.push("AMM-v4 burned LP must equal total LP supply");
   }
 }
 
-export function isOfficialSolscanMintUrl(value, mint) {
-  return isCanonicalHttpsUrl(value, {
-    hostname: "solscan.io",
-    pathname: `/token/${mint}`,
-  });
-}
-
-export function isOfficialSolscanTransactionUrl(value, signature) {
-  return isCanonicalHttpsUrl(value, {
-    hostname: "solscan.io",
-    pathname: `/tx/${signature}`,
-  });
-}
-
-export function isOfficialRaydiumLaunchUrl(value, mint) {
-  return isCanonicalHttpsUrl(value, {
-    hostname: "raydium.io",
-    pathname: "/launchpad/token/",
-    search: `?mint=${mint}`,
-  });
+function unavailableResidue(record) {
+  if (record.token?.mint !== null) return true;
+  if (!record.proof || Object.keys(record.proof).length !== 2) return true;
+  return Object.keys(record.proof).some((key) => !["stage", "availability"].includes(key));
 }
 
 export function validateLaunchRecord(record) {
+  if (!validateLaunchShape(record)) return normalizeShapeErrors(validateLaunchShape.errors);
   const issues = [];
-  if (!validateExactFields(record, LAUNCH_RECORD_FIELDS, "launch record", issues)) return issues;
-  validateExactFields(record.project, PROJECT_FIELDS, "project", issues);
-  validateExactFields(record.token, TOKEN_FIELDS, "token", issues);
-  validateExactFields(record.launch, LAUNCH_FIELDS, "launch", issues);
-  const checks = [
-    [record.schemaVersion === LAUNCH_RECORD_SCHEMA_VERSION, "schemaVersion must equal 1"],
-    [record.network === EXPECTED_POLICY.network, `network must equal ${EXPECTED_POLICY.network}`],
-    [record.project?.name === EXPECTED_POLICY.name, `project.name must equal ${EXPECTED_POLICY.name}`],
-    [record.project?.symbol === EXPECTED_POLICY.symbol, `project.symbol must equal ${EXPECTED_POLICY.symbol}`],
-    [record.project?.personalProject === true, "project.personalProject must equal true"],
-    [record.token?.program === EXPECTED_POLICY.tokenProgram, "token.program must equal spl-token"],
-    [record.token?.decimals === EXPECTED_POLICY.decimals, "token.decimals must equal 6"],
-    [record.token?.supplyUi === EXPECTED_POLICY.supplyUi, "token.supplyUi must equal 1000000"],
-    [record.token?.supplyBaseUnits === EXPECTED_POLICY.supplyBaseUnits, "token.supplyBaseUnits must equal 1000000000000"],
-    [record.token?.mintAuthority === null, "token.mintAuthority must equal null"],
-    [record.token?.freezeAuthority === null, "token.freezeAuthority must equal null"],
-    [record.token?.transferFeeBps === 0, "token.transferFeeBps must equal 0"],
-    [record.token?.transferHook === false, "token.transferHook must equal false"],
-    [record.token?.blacklistControl === false, "token.blacklistControl must equal false"],
-    [record.token?.permanentDelegate === false, "token.permanentDelegate must equal false"],
-    [record.token?.metadataImmutable === true, "token.metadataImmutable must equal true"],
-    [record.token?.metadataImage === EXPECTED_POLICY.metadataImage, "token.metadataImage must equal https://hakky.xyz/assets/token.png"],
-    [record.token?.metadataWebsite === EXPECTED_POLICY.metadataWebsite, "token.metadataWebsite must equal https://hakky.xyz"],
-    [record.token?.metadataX === EXPECTED_POLICY.metadataX, "token.metadataX must equal https://x.com/antihakkysack"],
-    [record.launch?.platform === "Raydium LaunchLab", "launch.platform must equal Raydium LaunchLab"],
-    [record.launch?.quoteAsset === "SOL", "launch.quoteAsset must equal SOL"],
-    [record.launch?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "launch.curveAllocationBps must equal 8000"],
-    [record.launch?.liquidityAllocationBps === EXPECTED_POLICY.liquidityAllocationBps, "launch.liquidityAllocationBps must equal 2000"],
-    [record.launch?.teamAllocationBps === EXPECTED_POLICY.teamAllocationBps, "launch.teamAllocationBps must equal 0"],
-    [record.launch?.presale === false, "launch.presale must equal false"],
-    [record.launch?.vesting === false, "launch.vesting must equal false"],
-    [record.launch?.graduationTargetSol === EXPECTED_POLICY.graduationTargetSol, "launch.graduationTargetSol must equal 24"],
-    [record.launch?.creatorFirstBuySol === EXPECTED_POLICY.creatorFirstBuySol, "launch.creatorFirstBuySol must equal 0"],
-    [record.launch?.creatorFeeEnabled === false, "launch.creatorFeeEnabled must equal false"],
-    [record.launch?.lpPolicy === EXPECTED_POLICY.lpPolicy, "launch.lpPolicy must equal burn"],
-    [record.launch?.creatorSpendCapSol === EXPECTED_POLICY.creatorSpendCapSol, "launch.creatorSpendCapSol must equal 1.00"],
-  ];
-  for (const [ok, message] of checks) if (!ok) issues.push(message);
-  if ((record.launch?.curveAllocationBps ?? 0) + (record.launch?.liquidityAllocationBps ?? 0) !== 10000) {
-    issues.push("curve and liquidity allocations must total 10000 bps");
+  if (record.status === "prelaunch") return issues;
+  if (record.proof.availability === "unavailable") {
+    if (unavailableResidue(record)) issues.push("unavailable record must not retain mint, destination, transaction, authority, balance, pool, or LP fields");
+    return issues;
   }
-  if (record.status === "live") {
-    if (!record.proof) issues.push("live status requires proof");
-    if (record.proof) validateExactFields(record.proof, LIVE_PROOF_FIELDS, "proof", issues);
-    for (const key of [
-      "mint",
-      "creator",
-      "launchId",
-      "launchTransaction",
-      "solscanUrl",
-      "solscanTransactionUrl",
-      "raydiumUrl",
-      "mintVerifiedAt",
-      "launchVerifiedAt",
-      "verifiedAt",
-    ]) {
-      if (!record.proof?.[key]) issues.push(`live status requires proof.${key}`);
+  validateCommonVerified(record, record.proof, issues);
+  if (record.status === "curve-live") {
+    if (record.proof.authorities.authorityKind !== EXPECTED_AUTHORITY_LIFECYCLE.curveMintAuthority) {
+      issues.push("curve authority must be the LaunchLab program PDA");
     }
-    const proofChecks = [
-      [record.proof?.supplyBaseUnits === EXPECTED_POLICY.supplyBaseUnits, "proof.supplyBaseUnits must equal 1000000000000"],
-      [record.proof?.decimals === EXPECTED_POLICY.decimals, "proof.decimals must equal 6"],
-      [record.proof?.tokenProgram === EXPECTED_POLICY.tokenProgram, "proof.tokenProgram must equal spl-token"],
-      [record.proof?.mintAuthority === null, "proof.mintAuthority must equal null"],
-      [record.proof?.freezeAuthority === null, "proof.freezeAuthority must equal null"],
-      [record.proof?.creatorBalanceBaseUnits === "0", "proof.creatorBalanceBaseUnits must equal 0"],
-      [record.proof?.metadataImmutable === true, "proof.metadataImmutable must equal true"],
-      [record.proof?.metadataName === EXPECTED_POLICY.name, "proof.metadataName must equal Hakky Protocol"],
-      [record.proof?.metadataSymbol === EXPECTED_POLICY.symbol, "proof.metadataSymbol must equal HAKKY"],
-      [isPublicMetadataUri(record.proof?.metadataUri), "proof.metadataUri must be a public HTTPS or IPFS URL"],
-      [record.proof?.metadataImage === EXPECTED_POLICY.metadataImage, "proof.metadataImage must equal https://hakky.xyz/assets/token.png"],
-      [record.proof?.metadataWebsite === EXPECTED_POLICY.metadataWebsite, "proof.metadataWebsite must equal https://hakky.xyz"],
-      [record.proof?.metadataX === EXPECTED_POLICY.metadataX, "proof.metadataX must equal https://x.com/antihakkysack"],
-      [hasBase58DecodedLength(record.proof?.mint, 32), "proof.mint must be a Solana base58 public key"],
-      [hasBase58DecodedLength(record.proof?.creator, 32), "proof.creator must be a Solana base58 public key"],
-      [hasBase58DecodedLength(record.proof?.launchId, 32), "proof.launchId must be a Solana base58 public key"],
-      [hasBase58DecodedLength(record.proof?.launchTransaction, 64), "proof.launchTransaction must be a Solana base58 signature"],
-      [isOfficialSolscanMintUrl(record.proof?.solscanUrl, record.proof?.mint), "proof.solscanUrl must be the canonical HTTPS Solscan token route for proof.mint"],
-      [isOfficialSolscanTransactionUrl(record.proof?.solscanTransactionUrl, record.proof?.launchTransaction), "proof.solscanTransactionUrl must be the canonical HTTPS Solscan transaction route for proof.launchTransaction"],
-      [isOfficialRaydiumLaunchUrl(record.proof?.raydiumUrl, record.proof?.mint), "proof.raydiumUrl must be the canonical HTTPS Raydium LaunchLab token route for proof.mint"],
-      [isExactIsoTimestamp(record.proof?.mintVerifiedAt), "proof.mintVerifiedAt must be an exact ISO-8601 timestamp"],
-      [isExactIsoTimestamp(record.proof?.launchVerifiedAt), "proof.launchVerifiedAt must be an exact ISO-8601 timestamp"],
-      [isExactIsoTimestamp(record.proof?.verifiedAt), "proof.verifiedAt must be an exact ISO-8601 timestamp"],
-      [record.proof?.curveAllocationBps === EXPECTED_POLICY.curveAllocationBps, "proof.curveAllocationBps must equal 8000"],
-      [record.proof?.liquidityAllocationBps === EXPECTED_POLICY.liquidityAllocationBps, "proof.liquidityAllocationBps must equal 2000"],
-      [record.proof?.teamAllocationBps === EXPECTED_POLICY.teamAllocationBps, "proof.teamAllocationBps must equal 0"],
-      [record.proof?.creatorFeeEnabled === false, "proof.creatorFeeEnabled must equal false"],
-      [record.proof?.lpPolicy === EXPECTED_POLICY.lpPolicy, "proof.lpPolicy must equal burn"],
-      [record.proof?.quoteAsset === "SOL", "proof.quoteAsset must equal SOL"],
-      [record.proof?.graduationTargetSol === 24, "proof.graduationTargetSol must equal 24"],
-      [record.proof?.creatorFirstBuySol === 0, "proof.creatorFirstBuySol must equal 0"],
-      [Number.isFinite(record.proof?.creatorSpendSol) && record.proof.creatorSpendSol >= 0 && record.proof.creatorSpendSol <= 1, "proof.creatorSpendSol must be a finite number from 0 to 1"],
-    ];
-    for (const [ok, message] of proofChecks) if (!ok) issues.push(message);
-    if (record.token?.mint !== record.proof?.mint) issues.push("token.mint must equal proof.mint");
-    const mintVerifiedAt = Date.parse(record.proof?.mintVerifiedAt);
-    const launchVerifiedAt = Date.parse(record.proof?.launchVerifiedAt);
-    const verifiedAt = Date.parse(record.proof?.verifiedAt);
-    if (
-      !Number.isFinite(mintVerifiedAt)
-      || !Number.isFinite(launchVerifiedAt)
-      || !Number.isFinite(verifiedAt)
-      || mintVerifiedAt > launchVerifiedAt
-      || launchVerifiedAt > verifiedAt
-    ) {
-      issues.push("proof timestamps must satisfy mintVerifiedAt <= launchVerifiedAt <= verifiedAt");
-    }
-  } else if (record.status !== "prelaunch") {
-    issues.push("status must equal prelaunch or live");
   } else {
-    if (record.token?.mint !== null) issues.push("prelaunch token.mint must equal null");
-    if (record.proof !== null) issues.push("prelaunch proof must equal null");
+    validateGraduated(record.proof, issues);
   }
   return issues;
+}
+
+export function isOfficialSolscanMintUrl(value, mint) {
+  return value === `https://solscan.io/token/${mint}`;
+}
+
+export function isOfficialSolscanTransactionUrl(value, signature) {
+  return value === `https://solscan.io/tx/${signature}`;
+}
+
+export function isOfficialRaydiumLaunchUrl(value, mint) {
+  return value === `https://raydium.io/launchpad/token/${mint}`;
 }

@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/proof/mainnet-mint-v2.schema.json",
+  "title": "HAKKY mainnet mint proof v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "network", "identities", "supply", "authorities", "creatorBalance", "metadata", "observation", "checks", "ok"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "network": { "const": "mainnet-beta" },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mint", "creator", "metadataAccount", "launchId", "launchlabAuthority"],
+      "properties": {
+        "mint": { "$ref": "#/$defs/publicKey" },
+        "creator": { "$ref": "#/$defs/publicKey" },
+        "metadataAccount": { "$ref": "#/$defs/publicKey" },
+        "launchId": { "$ref": "#/$defs/publicKey" },
+        "launchlabAuthority": { "$ref": "#/$defs/publicKey" }
+      }
+    },
+    "supply": { "$ref": "#/$defs/supply" },
+    "authorities": { "$ref": "#/$defs/curveAuthorities" },
+    "creatorBalance": { "$ref": "#/$defs/creatorBalance" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["genesisHash", "creationSignature", "creationSlot", "creationTime", "mintAccountSha256", "metadataAccountSha256", "finalizedSlot", "finalizedAt", "checkedAt", "rpcHost"],
+      "properties": {
+        "genesisHash": { "const": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" },
+        "creationSignature": { "$ref": "#/$defs/signature" },
+        "creationSlot": { "$ref": "#/$defs/slot" },
+        "creationTime": { "$ref": "#/$defs/timestamp" },
+        "mintAccountSha256": { "$ref": "#/$defs/sha256" },
+        "metadataAccountSha256": { "$ref": "#/$defs/sha256" },
+        "finalizedSlot": { "$ref": "#/$defs/slot" },
+        "finalizedAt": { "$ref": "#/$defs/timestamp" },
+        "checkedAt": { "$ref": "#/$defs/timestamp" },
+        "rpcHost": { "$ref": "#/$defs/rpcHost" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mainnetGenesis", "classicTokenProgram", "exactSupply", "launchlabAuthority", "nullFreezeAuthority", "zeroCreatorBalance", "immutableMetadata", "metadataDigestMatch", "finalized"],
+      "properties": {
+        "mainnetGenesis": { "const": true },
+        "classicTokenProgram": { "const": true },
+        "exactSupply": { "const": true },
+        "launchlabAuthority": { "const": true },
+        "nullFreezeAuthority": { "const": true },
+        "zeroCreatorBalance": { "const": true },
+        "immutableMetadata": { "const": true },
+        "metadataDigestMatch": { "const": true },
+        "finalized": { "const": true }
+      }
+    },
+    "ok": { "const": true }
+  },
+  "$defs": {
+    "publicKey": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+    "signature": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,88}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "unsignedDecimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-([0-2][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$" },
+    "slot": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "rpcHost": { "type": "string", "pattern": "^(?=.{1,253}$)(?!.*(?:^|\\.)(?:localhost|local|test|invalid|example)(?:\\.|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" },
+    "supply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseUnits", "uiAmount", "decimals", "tokenProgram"],
+      "properties": {
+        "baseUnits": { "const": "1000000000000" },
+        "uiAmount": { "const": "1000000" },
+        "decimals": { "const": 6 },
+        "tokenProgram": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
+      }
+    },
+    "curveAuthorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mintAuthority", "authorityKind", "freezeAuthority"],
+      "properties": {
+        "mintAuthority": { "const": "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh" },
+        "authorityKind": { "const": "launchlab-program-pda" },
+        "freezeAuthority": { "type": "null" }
+      }
+    },
+    "creatorBalanceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "mint", "owner", "amountBaseUnits", "state", "accountSha256"],
+      "properties": {
+        "address": { "$ref": "#/$defs/publicKey" },
+        "mint": { "$ref": "#/$defs/publicKey" },
+        "owner": { "$ref": "#/$defs/publicKey" },
+        "amountBaseUnits": { "$ref": "#/$defs/unsignedDecimal" },
+        "state": { "enum": ["initialized", "frozen"] },
+        "accountSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "creatorBalance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["owner", "accounts", "totalAmountBaseUnits", "finalizedSlot", "finalizedAt"],
+      "properties": {
+        "owner": { "$ref": "#/$defs/publicKey" },
+        "accounts": { "type": "array", "items": { "$ref": "#/$defs/creatorBalanceAccount" }, "uniqueItems": true },
+        "totalAmountBaseUnits": { "$ref": "#/$defs/unsignedDecimal" },
+        "finalizedSlot": { "$ref": "#/$defs/slot" },
+        "finalizedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "symbol", "uri", "metadataAccount", "metadataAccountSha256", "jsonSha256", "imageUri", "imageSha256", "externalUrl", "twitter", "updateAuthority", "isMutable"],
+      "properties": {
+        "name": { "const": "Hakky Protocol" },
+        "symbol": { "const": "HAKKY" },
+        "uri": { "$ref": "#/$defs/contentUri" },
+        "metadataAccount": { "$ref": "#/$defs/publicKey" },
+        "metadataAccountSha256": { "$ref": "#/$defs/sha256" },
+        "jsonSha256": { "$ref": "#/$defs/sha256" },
+        "imageUri": { "$ref": "#/$defs/contentUri" },
+        "imageSha256": { "$ref": "#/$defs/sha256" },
+        "externalUrl": { "const": "https://hakky.xyz" },
+        "twitter": { "const": "https://x.com/antihakkysack" },
+        "updateAuthority": { "$ref": "#/$defs/publicKey" },
+        "isMutable": { "const": false }
+      }
+    },
+    "contentUri": { "type": "string", "pattern": "^ipfs://b[a-z2-7]{10,}$" }
+  }
+}

@@ -1,42 +1,30 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "status": "prelaunch",
   "network": "mainnet-beta",
   "project": {
     "name": "Hakky Protocol",
     "symbol": "HAKKY",
-    "personalProject": true
+    "agent": "HakkyAgent",
+    "website": "https://hakky.xyz",
+    "x": "https://x.com/antihakkysack"
   },
   "token": {
     "mint": null,
-    "program": "spl-token",
-    "decimals": 6,
-    "supplyUi": "1000000",
     "supplyBaseUnits": "1000000000000",
-    "mintAuthority": null,
-    "freezeAuthority": null,
-    "transferFeeBps": 0,
-    "transferHook": false,
-    "blacklistControl": false,
-    "permanentDelegate": false,
-    "metadataImmutable": true,
-    "metadataImage": "https://hakky.xyz/assets/token.png",
-    "metadataWebsite": "https://hakky.xyz",
-    "metadataX": "https://x.com/antihakkysack"
+    "uiSupply": "1000000",
+    "decimals": 6,
+    "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
   },
   "launch": {
-    "platform": "Raydium LaunchLab",
-    "quoteAsset": "SOL",
-    "curveAllocationBps": 8000,
-    "liquidityAllocationBps": 2000,
-    "teamAllocationBps": 0,
-    "presale": false,
-    "vesting": false,
-    "graduationTargetSol": "24",
-    "creatorFirstBuySol": "0",
-    "creatorFeeEnabled": false,
-    "lpPolicy": "burn",
-    "creatorSpendCapSol": "1.00"
+    "venue": "Raydium LaunchLab",
+    "quoteSymbol": "SOL",
+    "publicCurveBps": 8000,
+    "liquidityBps": 2000,
+    "teamBps": 0,
+    "creatorFirstBuyLamports": "0",
+    "vestingBaseUnits": "0",
+    "creatorDebitCapLamports": "1000000000"
   },
   "proof": null
 }
