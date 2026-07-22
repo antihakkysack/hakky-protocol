@@ -168,6 +168,108 @@ Changed code/test files:
 
 ---
 
+# Consolidated reviewer closure: inline YAML and WHATWG references
+
+Date: 2026-07-23 (Asia/Bangkok)
+
+## Scope and result
+
+- Follow-up base: `ce428851e8bd3f7462e98cd9228e1aa87b219da5`.
+- Code commit: `5d7fa816d9c9aa6c7103eda027035af061b7878f`
+  (`security: close YAML and entity bypasses`).
+- Scope stayed frozen to the two consolidated reviewer findings: same-line
+  YAML sequence mapping credentials and standards-complete detection-only HTML
+  character-reference normalization.
+- Approved product facts, literal X/GitHub account destinations, public copy,
+  and prelaunch state were not changed.
+- No push, deployment, post, funding, transaction, wallet, devnet, mainnet,
+  Hetzner, or browser-control action was performed.
+
+## Findings closed
+
+### Inline YAML sequence mapping credentials
+
+- The ordinary same-line assignment scanner now receives YAML context and
+  accepts one or more YAML sequence markers as the boundary before a mapping
+  key. This covers root, indented, quoted-key, and nested-list forms such as
+  `- api_key: <opaque value>` and `- - api_key: <opaque value>`.
+- The exception is enabled only for `.yaml` and `.yml` files; the general
+  assignment grammar was not broadened for other source formats.
+- Existing credential-name classification and value policy are reused without
+  a parallel allowlist. Placeholders, environment references, maps, sequences,
+  and unrelated noncredential properties remain allowed.
+
+### Standards-complete rendered character references
+
+- Replaced the partial local alias table with exact `entities@8.0.0`, pinned in
+  `package.json` and `package-lock.json`. The dependency supplies the complete
+  WHATWG named-character-reference table and maintained HTML decoding logic.
+- Detection normalization calls `decodeHTML` in its default legacy text mode,
+  matching browser text parsing for named references and numeric references
+  with or without semicolons. Decoding remains single-pass and detection-only.
+- Regressions cover `NegativeMediumSpace`, `ExponentialE`, arbitrarily long
+  legal leading-zero decimal and hexadecimal references, and the requested
+  missing-semicolon `&#101ry` form.
+- The repository-level regressions exercise both prohibited HakkyAgent claims
+  and retired identity markers. Literal approved X and GitHub destinations are
+  still masked before decoding, while encoded/extended aliases remain rejected.
+- Primary semantics: WHATWG HTML Living Standard character-reference parsing
+  states and normative named-character-reference table:
+  https://html.spec.whatwg.org/multipage/parsing.html#character-reference-state
+  and https://html.spec.whatwg.org/multipage/named-characters.html.
+- Decoder source: https://github.com/fb55/entities.
+
+## TDD evidence
+
+- YAML RED: the two focused tests reported 1 pass and 1 failure. All four
+  unsafe root/indented/nested/quoted list mappings returned no violations,
+  proving the same-line sequence prefix was the missing boundary.
+- YAML GREEN: the same focused tests passed 2/2 after the YAML-only boundary
+  change.
+- Character-reference RED: the two focused identity/repository tests failed
+  0/2. Only the earlier partial-table controls were detected; the complete
+  named, long numeric/hex, and missing-semicolon probes bypassed detection.
+- Character-reference GREEN: the same tests passed 2/2 after integrating the
+  standards-complete decoder.
+- Combined focused regressions passed 4/4. The complete affected identity and
+  repository-hygiene suites passed 42/42.
+
+## Final verification
+
+All shell commands were run through RTK.
+
+1. `rtk npm ci` - passed; 166 packages installed and 167 packages audited.
+2. `rtk npm run assets` - passed.
+3. `rtk npm run check` - passed; 135/135 tests, with repository and site
+   checks both clean.
+4. A second `rtk npm run assets` - passed with no generated asset drift.
+
+Additional checks:
+
+- `node --check` passed for `scripts/check-repo.mjs`,
+  `src/rendered-text.mjs`, and both changed test modules.
+- `git diff --check` and the staged code diff check passed.
+- The dependency lock change is limited to the exact direct
+  `entities@8.0.0` entry; the pre-existing extraneous lock entry was preserved
+  to avoid unrelated lockfile churn.
+- `npm ci` continues to report the existing 8 dependency vulnerabilities
+  (5 moderate, 3 high), so the direct decoder addition did not increase the
+  observed audit count.
+
+## Residual gates and observations
+
+- The project remains intentionally prelaunch. Canonical mainnet mint and
+  LaunchLab proof artifacts are still absent and were not created.
+- The bounded devnet rehearsal remains externally gated by public faucet
+  availability; it was not retried.
+- Desktop/mobile browser certification remains externally gated by the
+  user-enabled ChatGPT Chrome Extension; it was not attempted.
+- `npm ci` continues to emit the upstream `uuid@8.3.2` deprecation warning.
+- Solana tests continue to emit the existing pure-JavaScript bigint fallback
+  warning; all affected tests pass.
+
+---
+
 # Reviewer closure follow-up
 
 Date: 2026-07-23 (Asia/Bangkok)
