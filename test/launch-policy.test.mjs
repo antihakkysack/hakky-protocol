@@ -5,6 +5,43 @@ import { validateLaunchRecord } from "../web/lib/launch-policy.js";
 
 const record = JSON.parse(await readFile(new URL("../web/data/launch.json", import.meta.url), "utf8"));
 
+function createValidLiveRecord() {
+  const changed = structuredClone(record);
+  changed.status = "live";
+  changed.token.mint = "11111111111111111111111111111111";
+  changed.proof = {
+    mint: changed.token.mint,
+    launchId: "11111111111111111111111111111111",
+    launchTransaction: "1111111111111111111111111111111111111111111111111111111111111111",
+    solscanUrl: `https://solscan.io/token/${changed.token.mint}`,
+    raydiumUrl: `https://raydium.io/launchpad/token/?mint=${changed.token.mint}`,
+    verifiedAt: "2026-07-22T00:00:00.000Z",
+    supplyBaseUnits: "1000000000000",
+    decimals: 6,
+    tokenProgram: "spl-token",
+    mintAuthority: null,
+    freezeAuthority: null,
+    creatorBalanceBaseUnits: "0",
+    metadataImmutable: true,
+    metadataName: "Hakky Protocol",
+    metadataSymbol: "HAKKY",
+    metadataUri: "https://hakky.xyz/metadata.json",
+    metadataImage: "https://hakky.xyz/assets/token.png",
+    metadataWebsite: "https://hakky.xyz",
+    metadataX: "https://x.com/antihakkysack",
+    curveAllocationBps: 8000,
+    liquidityAllocationBps: 2000,
+    teamAllocationBps: 0,
+    creatorFeeEnabled: false,
+    lpPolicy: "burn",
+    quoteAsset: "SOL",
+    graduationTargetSol: 24,
+    creatorFirstBuySol: 0,
+    creatorSpendSol: 0.25,
+  };
+  return changed;
+}
+
 test("approved prelaunch record is valid", () => {
   assert.deepEqual(validateLaunchRecord(record), []);
 });
@@ -50,40 +87,21 @@ test("live state requires verified proof fields", () => {
 });
 
 test("accepts a live record only with complete observed proof", () => {
-  const changed = structuredClone(record);
-  changed.status = "live";
-  changed.token.mint = "11111111111111111111111111111111";
-  changed.proof = {
-    mint: changed.token.mint,
-    launchId: "11111111111111111111111111111111",
-    launchTransaction: "1111111111111111111111111111111111111111111111111111111111111111",
-    solscanUrl: `https://solscan.io/token/${changed.token.mint}`,
-    raydiumUrl: "https://raydium.io/launchpad/token/?mint=11111111111111111111111111111111",
-    verifiedAt: "2026-07-22T00:00:00.000Z",
-    supplyBaseUnits: "1000000000000",
-    decimals: 6,
-    tokenProgram: "spl-token",
-    mintAuthority: null,
-    freezeAuthority: null,
-    creatorBalanceBaseUnits: "0",
-    metadataImmutable: true,
-    metadataName: "Hakky Protocol",
-    metadataSymbol: "HAKKY",
-    metadataUri: "https://hakky.xyz/metadata.json",
-    metadataImage: "https://hakky.xyz/assets/token.png",
-    metadataWebsite: "https://hakky.xyz",
-    metadataX: "https://x.com/antihakkysack",
-    curveAllocationBps: 8000,
-    liquidityAllocationBps: 2000,
-    teamAllocationBps: 0,
-    creatorFeeEnabled: false,
-    lpPolicy: "burn",
-    quoteAsset: "SOL",
-    graduationTargetSol: 24,
-    creatorFirstBuySol: 0,
-    creatorSpendSol: 0.25,
-  };
+  const changed = createValidLiveRecord();
   assert.deepEqual(validateLaunchRecord(changed), []);
+});
+
+test("rejects alphabet-valid identifiers with incorrect decoded lengths and malformed metadata URI", () => {
+  const changed = createValidLiveRecord();
+  changed.proof.mint = "22222222222222222222222222222222";
+  changed.proof.launchId = "22222222222222222222222222222222";
+  changed.proof.launchTransaction = "2222222222222222222222222222222222222222222222222222222222";
+  changed.proof.metadataUri = "https://";
+  const issues = validateLaunchRecord(changed);
+  assert.ok(issues.includes("proof.mint must be a Solana base58 public key"));
+  assert.ok(issues.includes("proof.launchId must be a Solana base58 public key"));
+  assert.ok(issues.includes("proof.launchTransaction must be a Solana base58 signature"));
+  assert.ok(issues.includes("proof.metadataUri must be a public HTTPS or IPFS URL"));
 });
 
 test("rejects malformed or unrelated live proof", () => {

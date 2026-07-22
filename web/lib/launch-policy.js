@@ -19,11 +19,58 @@ export const EXPECTED_POLICY = Object.freeze({
   metadataX: "https://x.com/antihakkysack",
 });
 
-function isBase58(value, minimumLength, maximumLength) {
-  return typeof value === "string"
-    && value.length >= minimumLength
-    && value.length <= maximumLength
-    && /^[1-9A-HJ-NP-Za-km-z]+$/.test(value);
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+
+function decodeBase58(value) {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const bytes = [0];
+  for (const character of value) {
+    let carry = BASE58_ALPHABET.indexOf(character);
+    if (carry < 0) return null;
+    for (let index = 0; index < bytes.length; index += 1) {
+      carry += bytes[index] * 58;
+      bytes[index] = carry & 0xff;
+      carry >>= 8;
+    }
+    while (carry > 0) {
+      bytes.push(carry & 0xff);
+      carry >>= 8;
+    }
+  }
+  for (let index = 0; index < value.length - 1 && value[index] === "1"; index += 1) bytes.push(0);
+  return bytes.reverse();
+}
+
+function hasBase58DecodedLength(value, expectedLength) {
+  return decodeBase58(value)?.length === expectedLength;
+}
+
+function isPublicHostname(hostname) {
+  const host = hostname.toLowerCase();
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host === "::1") return false;
+  const octets = host.split(".");
+  if (octets.length === 4 && octets.every((octet) => /^\d+$/.test(octet))) {
+    const [first, second] = octets.map(Number);
+    return first !== 0
+      && first !== 10
+      && first !== 127
+      && !(first === 169 && second === 254)
+      && !(first === 172 && second >= 16 && second <= 31)
+      && !(first === 192 && second === 168);
+  }
+  return !/^f[cd]/.test(host) && !/^fe[89ab]/.test(host);
+}
+
+function isPublicMetadataUri(value) {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password) return false;
+    if (url.protocol === "https:") return isPublicHostname(url.hostname);
+    return url.protocol === "ipfs:"
+      && (/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(url.hostname) || /^b[a-z2-7]{10,}$/.test(url.hostname));
+  } catch {
+    return false;
+  }
 }
 
 function isExactIsoTimestamp(value) {
@@ -99,13 +146,13 @@ export function validateLaunchRecord(record) {
       [record.proof?.metadataImmutable === true, "proof.metadataImmutable must equal true"],
       [record.proof?.metadataName === EXPECTED_POLICY.name, "proof.metadataName must equal Hakky Protocol"],
       [record.proof?.metadataSymbol === EXPECTED_POLICY.symbol, "proof.metadataSymbol must equal HAKKY"],
-      [typeof record.proof?.metadataUri === "string" && /^(https:\/\/|ipfs:\/\/)/.test(record.proof.metadataUri), "proof.metadataUri must be a public HTTPS or IPFS URL"],
+      [isPublicMetadataUri(record.proof?.metadataUri), "proof.metadataUri must be a public HTTPS or IPFS URL"],
       [record.proof?.metadataImage === EXPECTED_POLICY.metadataImage, "proof.metadataImage must equal https://hakky.xyz/assets/token.png"],
       [record.proof?.metadataWebsite === EXPECTED_POLICY.metadataWebsite, "proof.metadataWebsite must equal https://hakky.xyz"],
       [record.proof?.metadataX === EXPECTED_POLICY.metadataX, "proof.metadataX must equal https://x.com/antihakkysack"],
-      [isBase58(record.proof?.mint, 32, 44), "proof.mint must be a Solana base58 public key"],
-      [isBase58(record.proof?.launchId, 32, 44), "proof.launchId must be a Solana base58 public key"],
-      [isBase58(record.proof?.launchTransaction, 64, 88), "proof.launchTransaction must be a Solana base58 signature"],
+      [hasBase58DecodedLength(record.proof?.mint, 32), "proof.mint must be a Solana base58 public key"],
+      [hasBase58DecodedLength(record.proof?.launchId, 32), "proof.launchId must be a Solana base58 public key"],
+      [hasBase58DecodedLength(record.proof?.launchTransaction, 64), "proof.launchTransaction must be a Solana base58 signature"],
       [isOfficialMintUrl(record.proof?.solscanUrl, "solscan.io", record.proof?.mint), "proof.solscanUrl must be an HTTPS solscan.io URL for proof.mint"],
       [isOfficialMintUrl(record.proof?.raydiumUrl, "raydium.io", record.proof?.mint), "proof.raydiumUrl must be an HTTPS raydium.io URL for proof.mint"],
       [isExactIsoTimestamp(record.proof?.verifiedAt), "proof.verifiedAt must be an exact ISO-8601 timestamp"],
