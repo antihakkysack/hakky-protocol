@@ -103,11 +103,21 @@ The published state uses executable schema
 exact root keys `schemaVersion`, `status`, `network`, `project`, `token`,
 `launch`, and `proof`; every root and nested object sets
 `additionalProperties: false`. `schemaVersion` is `2`. `prelaunch` requires
-`token.mint` and `proof` to be null. `curve-live` requires
-`proof.stage: "curve-live"` plus exact `sourceArtifacts`, `observation`,
-`authorities`, `creatorBalance`, `transactions`, and `links` objects.
-`graduated` requires `proof.stage: "graduated"` plus those same objects and
-exact `graduation`, `pool`, and discriminated `lpDisposition` objects.
+`token.mint` and `proof` to be null. For `curve-live` and `graduated`, lifecycle
+stage and proof availability are orthogonal discriminators. A verified curve
+requires `proof.stage: "curve-live"`, `proof.availability: "verified"`, and exact
+`sourceArtifacts`, `observation`, `supply`, `authorities`, `creatorBalance`,
+`allocations`, `quote`, `creatorFirstBuy`, `vesting`, `fees`, `cost`,
+`metadata`, `transactions`, and `links` objects. A verified graduation requires
+`proof.stage: "graduated"`, `proof.availability: "verified"`, those same
+objects, and exact `graduation`, `pool`, and discriminated `lpDisposition`
+objects.
+
+An unavailable non-prelaunch record preserves the known lifecycle `status` but
+sets `token.mint` to null and permits only exact `proof.stage` and
+`proof.availability: "unavailable"`. It contains no source artifact, mint,
+destination, transaction, authority, balance, pool, LP, or other verified fact.
+This is a deployable safety presentation, not a weaker lifecycle claim.
 Status-inapplicable fields are rejected rather than made optional. The
 promotion builders write only schema-valid v2 records and accept no arbitrary
 extra property.
@@ -182,8 +192,8 @@ The required root objects are fixed:
 | Artifact | Exact required root keys |
 | --- | --- |
 | mint v2 | `schemaVersion`, `network`, `identities`, `supply`, `authorities`, `creatorBalance`, `metadata`, `observation`, `checks`, `ok` |
-| LaunchLab v2 | `schemaVersion`, `network`, `identities`, `transaction`, `programs`, `platformConfig`, `allocations`, `quote`, `creatorFirstBuy`, `fees`, `migration`, `metadata`, `cost`, `links`, `observation`, `checks`, `ok` |
-| graduation v1 | `schemaVersion`, `network`, `identities`, `transaction`, `programs`, `supply`, `authorities`, `graduationBalance`, `pool`, `lpDisposition`, `fees`, `creatorBalance`, `cost`, `links`, `observation`, `checks`, `ok` |
+| LaunchLab v2 | `schemaVersion`, `network`, `identities`, `transaction`, `programs`, `platformConfig`, `allocations`, `quote`, `creatorFirstBuy`, `vesting`, `fees`, `migration`, `metadata`, `cost`, `links`, `observation`, `checks`, `ok` |
+| graduation v1 | `schemaVersion`, `network`, `identities`, `transaction`, `programs`, `supply`, `authorities`, `metadata`, `graduationBalance`, `pool`, `lpDisposition`, `fees`, `creatorBalance`, `cost`, `links`, `observation`, `checks`, `ok` |
 
 The versioned executable schemas are normative for every nested key, type,
 unit, enum, and null rule. They must be committed and reviewed before verifier
@@ -240,6 +250,12 @@ The artifact must prove zero creator and platform LP rights and full
 irreversible lock/burn treatment. Public wording must name the mechanism that
 actually occurred. "Burn & Earn permanent lock" must not be shortened to an
 SPL burn if the LP supply was not literally burned.
+
+At the pinned official SDK/IDL revisions reviewed for this design, the separate
+CPMM lock program's position/NFT/fee-right account layouts are not published in
+the pinned source set. That makes verified CPMM graduation unavailable and is a
+pre-signature hard stop for this exact launch policy unless a newly pinned
+official source and tests close the evidence gap. API data or UI copy cannot.
 
 The graduation verifier re-fetches the bound PlatformConfig and all launch
 accounts at `finalized` commitment. Any economic drift, newly authorized claim
@@ -340,6 +356,18 @@ the repository says `curve-live` or `graduated` but its canonical artifacts do
 not pass, the site shows `VERIFICATION UNAVAILABLE`, hides trading actions,
 retains the high-risk disclosure, and does not silently fall back to an
 apparently valid weaker state.
+
+A deterministic unavailable-record builder may replace only the public launch
+record. For a newly reached stage it consumes a temporary, public-only
+`observed-stage-v1` receipt produced from finalized mainnet transaction and
+LaunchLab account reads with the source-pinned decoder. This minimum receipt may
+advance only prelaunch to curve-live or curve-live to graduated; it cannot come
+from operator text, UI copy, or an API. The builder validates the transition,
+then omits the receipt and every identity from output. It preserves the observed
+lifecycle stage, clears all verified facts and destinations using the exact
+unavailable schema branch, and never rewrites or accepts contradictory canonical
+artifacts. This makes the fail-closed page deployable immediately after an
+on-chain stage succeeds even when the stronger proof binding fails.
 
 ## 5. Metadata Integrity
 
@@ -448,10 +476,15 @@ The corrected release sequence is:
 2. obtain action-time approval to push the exact reviewed head to
    `codex/hakky-solana-pivot` on
    `https://github.com/antihakkysack/hakky-protocol.git`;
-3. create a PR against the then-current remote `main`; stop and re-audit if
-   remote `main` changed;
+3. present the exact head/base SHAs and bounded PR title/body, then obtain a
+   separate action-time approval before creating or updating the PR against the
+   then-current remote `main`; stop, re-audit, and obtain fresh push/PR approvals
+   if remote `main` changed;
 4. wait for PR `quality` and review the exact diff;
-5. obtain separate approval to merge the exact passing head;
+5. present the exact head/base SHAs, merge method, automatic production Pages
+   effect, `https://hakky.xyz` destination, expected record state, and rollback,
+   then obtain an action-time approval that expressly authorizes both the exact
+   merge and its automatic Pages deployment;
 6. wait for both `quality` and Pages on `main` and verify `https://hakky.xyz`;
 7. obtain separate owner/admin approval for GitHub About metadata and account-
    level custom-domain verification;

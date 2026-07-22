@@ -1,0 +1,777 @@
+# HAKKY Launch Readiness Operations Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Build the fail-closed operational tooling and release runbook needed to rehearse the token policy, prepare immutable metadata, inspect the exact unsigned Raydium transaction, preserve recovery evidence, and release through a reviewed PR before any mainnet signature.
+
+**Architecture:** Keep all policy evaluation in small pure modules under `src/`, with CLI adapters under `scripts/` and ignored operational receipts under `artifacts/`. External uploads, wallet connections, signatures, pushes, merges, deployments, and social mutations remain human-approved actions; the tooling only prepares, verifies, and records public evidence. Any absent raw transaction, mutable economic control, mutable metadata, unexplained transfer, or non-full-lock LP outcome fails closed.
+
+**Tech Stack:** Node.js 22 ESM, `node:test`, `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, GitHub Actions, GitHub Pages, Solana JSON RPC, Raydium LaunchLab.
+
+## Global Constraints
+
+- Work only in `C:\hakky-protocol\.worktrees\hakky-solana-pivot`; preserve the dirty local `main` checkout and the user Hardhat patch.
+- Use classic SPL Token, not Token-2022.
+- Token identity is exactly `Hakky Protocol` / `HAKKY`, supply `1,000,000`, decimals `6`, and base-unit supply `1000000000000`.
+- Allocation is `800000000000` base units on the public curve, `200000000000` for post-graduation liquidity, zero vesting, zero creator allocation, and no creator first-buy.
+- Quote mint is wrapped SOL `So11111111111111111111111111111111111111112`; configured graduation threshold is `24000000000` lamports.
+- Creator fee rights must be zero before and after graduation; creator and platform LP shares must be zero; LP treatment must be fully irreversible.
+- A creation-time PlatformConfig snapshot is insufficient. If any administrator can later alter creator fees, LP allocation, or claim rights, stop before the first signature.
+- Metadata must use the exact content-addressed image and JSON bytes and must be created atomically with `isMutable: false`; post-creation finalization is prohibited.
+- The exact raw unsigned transaction is mandatory. A screenshot, UI summary, or separately reconstructed transaction is not equivalent evidence.
+- Maximum cumulative creator debit for approved mainnet launch operations is `1000000000` lamports.
+- Never request, copy, print, persist, or commit a seed phrase, private key, exported keypair, password, OTP, recovery code, authenticated RPC URL, or wallet session.
+- Every upload, upload payment, legal acceptance, wallet connection, mainnet signature, exact maximum SOL debit, push, PR create/update, merge, GitHub metadata save, Pages/domain mutation, X save/post/pin, recovery signature/spend, and graduation signature/spend requires separate action-time approval. One approval may cover the initial creation signature and its exact maximum debit only when the presented envelope expressly names both. Because merging to `main` automatically starts production Pages, the merge approval may cover that deployment only when the envelope separately and expressly names the exact SHA, merge action, automatic Pages production effect, destination, and rollback; no approval carries forward to another operation.
+- The currently pinned official SDK/IDL does not expose the CPMM lock-program account layouts required to prove the approved permanent-lock/no-fee-right outcome. Source-coverage absence is a pre-signature hard stop unless a newly pinned official source plus tests closes it; a UI toggle, API response, or promise of later verification is insufficient.
+- This plan supersedes `docs/superpowers/plans/2026-07-22-hakky-live-launch.md`. A feature-branch push does not deploy Pages: reviewed branch -> PR quality -> approved merge -> `main` quality and Pages.
+
+---
+
+### Task 1: Add the externally funded devnet rehearsal mode
+
+**Files:**
+- Modify: `scripts/rehearse-devnet.mjs`
+- Modify: `test/devnet-rehearsal.test.mjs`
+- Modify: `docs/LAUNCH.md`
+
+**Interfaces:**
+- Consumes: existing `confirmSignature()`, classic-SPL rehearsal operations, and ignored `artifacts/devnet-rehearsal/proof.json`. It deliberately does not consume the mainnet curve-stage mint-v2 evaluator.
+- Produces: `parseRehearsalOptions(argv) -> { fundingMode: "faucet" | "external" }`; `waitForExternalFunding({ connection, address, minimumLamports, maxAttempts, delayMs }) -> Promise<bigint>`; `evaluateDevnetRehearsalEvidence(evidence) -> proof`; `runDevnetRehearsal({ fundingMode, onExternalAddress, ...dependencies }) -> Promise<proof>`.
+
+- [ ] **Step 1: Write RED option and external-funding tests**
+
+Add tests to `test/devnet-rehearsal.test.mjs` that prove the exact CLI contract and forbid faucet use in external mode:
+
+```js
+import { parseRehearsalOptions, waitForExternalFunding } from "../scripts/rehearse-devnet.mjs";
+
+test("parses only the two supported funding modes", () => {
+  assert.deepEqual(parseRehearsalOptions([]), { fundingMode: "faucet" });
+  assert.deepEqual(parseRehearsalOptions(["--external-funding"]), { fundingMode: "external" });
+  assert.throws(() => parseRehearsalOptions(["--unknown"]), /Usage:/);
+});
+
+test("external funding prints only the public address and never requests an airdrop", async () => {
+  const payer = Keypair.generate();
+  const vaultOwner = Keypair.generate();
+  const generated = [payer, vaultOwner];
+  let airdropCalls = 0;
+  const announcements = [];
+  await runDevnetRehearsal({
+    fundingMode: "external",
+    connection: rehearsalConnection({
+      getBalanceValues: [0, 2_000_000_000],
+      requestAirdrop: async () => { airdropCalls += 1; },
+    }),
+    generateKeypair: () => generated.shift(),
+    onExternalAddress: (message) => announcements.push(message),
+    operations: successfulOperations(),
+    fetchEvidence: successfulEvidence,
+    evaluateEvidence: () => ({ ok: true, checks: [] }),
+    fundingDelayMs: 0,
+  });
+  assert.equal(airdropCalls, 0);
+  assert.deepEqual(announcements, [{
+    address: payer.publicKey.toBase58(),
+    minimumLamports: "2000000000",
+  }]);
+  assert.doesNotMatch(JSON.stringify(announcements), new RegExp(Buffer.from(payer.secretKey).toString("hex"), "i"));
+});
+```
+
+- [ ] **Step 2: Run the focused test and verify RED**
+
+Run:
+
+```powershell
+rtk node --test test/devnet-rehearsal.test.mjs
+```
+
+Expected: FAIL because `parseRehearsalOptions`, `waitForExternalFunding`, and the injected external-funding controls do not exist.
+
+- [ ] **Step 3: Implement bounded external funding without changing the faucet path**
+
+In `scripts/rehearse-devnet.mjs`, add the exact parser and balance poller:
+
+```js
+export function parseRehearsalOptions(argv) {
+  if (argv.length === 0) return { fundingMode: "faucet" };
+  if (argv.length === 1 && argv[0] === "--external-funding") {
+    return { fundingMode: "external" };
+  }
+  throw new Error("Usage: npm run rehearsal:devnet -- [--external-funding]");
+}
+
+export async function waitForExternalFunding({
+  connection,
+  address,
+  minimumLamports,
+  maxAttempts = 120,
+  delayMs = 5_000,
+}) {
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const balance = BigInt(await connection.getBalance(address, "finalized"));
+    if (balance >= minimumLamports) return balance;
+    if (attempt < maxAttempts) await sleep(delayMs);
+  }
+  throw new Error(`Devnet external funding was not observed after ${maxAttempts} attempts`);
+}
+```
+
+Extend `runDevnetRehearsal()` with `fundingMode`, `onExternalAddress`, `fundingMaxAttempts`, and `fundingDelayMs`. Keep genesis verification and stale-proof removal before `generateKeypair()`. In `external` mode, call `onExternalAddress({ address, minimumLamports: "2000000000" })`, wait for balance, and never invoke `requestAirdrop`. Add an independent `evaluateDevnetRehearsalEvidence()` that checks classic Token Program, exact supply/decimals, null mint/freeze authorities after the rehearsal transfer, and zero payer balance; it must not require the LaunchLab PDA or metadata used by mainnet mint-v2. Change `main()` to parse `process.argv.slice(2)` and print the address message before final proof output.
+
+- [ ] **Step 4: Add RED timeout, wrong-cluster, and stale-proof cases**
+
+Add cases that assert: non-devnet identity prevents key generation and address disclosure; 120 unsuccessful balance polls fail; transient balance RPC errors remain bounded; stale proof is absent after timeout; stdout/stderr/proof contain neither generated secret key.
+
+- [ ] **Step 5: Run GREEN tests and refactor common funding flow**
+
+Run:
+
+```powershell
+rtk node --test test/devnet-rehearsal.test.mjs
+rtk node --check scripts/rehearse-devnet.mjs
+```
+
+Expected: PASS. Refactor only duplicated faucet/external branching; do not merge the two modes into an operation that can silently fall back from external funding to a faucet.
+
+- [ ] **Step 6: Document the exact rehearsal boundary**
+
+Update `docs/LAUNCH.md` with:
+
+```markdown
+Run `npm run rehearsal:devnet -- --external-funding` when the public faucet is unavailable. The command prints one ephemeral public devnet address, waits for at least 2 devnet SOL for no more than ten minutes, and never writes its secret key. It proves the classic-SPL policy verifier only; it does not simulate Raydium LaunchLab.
+```
+
+- [ ] **Step 7: Commit the devnet slice**
+
+```powershell
+rtk git add scripts/rehearse-devnet.mjs test/devnet-rehearsal.test.mjs docs/LAUNCH.md
+rtk git commit -m "launch: add externally funded devnet rehearsal"
+```
+
+---
+
+### Task 2: Prepare and verify the immutable metadata bundle
+
+**Files:**
+- Create: `src/metadata-integrity.mjs`
+- Create: `scripts/prepare-metadata.mjs`
+- Create: `scripts/finalize-metadata-manifest.mjs`
+- Create: `scripts/verify-metadata-upload.mjs`
+- Create: `test/metadata-integrity.test.mjs`
+- Modify: `package.json`
+- Modify: `docs/LAUNCH.md`
+- Modify: `proof/README.md`
+
+**Interfaces:**
+- Consumes: deterministic `web/assets/token.png`, `isPublicHostname()` from `web/lib/public-host.js`, and user-approved content-addressed image/metadata destinations.
+- Produces: `sha256Hex(bytes) -> string`; `validateContentAddressedUri(uri) -> URL`; `buildMetadata(input) -> object`; `serializeMetadata(metadata) -> Buffer`; `prepareMetadataBundle(options) -> MetadataDraftV1`; `assertMetadataDraftV1(value) -> value`; `finalizeMetadataManifest({ draft, metadataUri }) -> MetadataManifestV1`; `assertMetadataManifestV1(value) -> value`; `verifyPublishedContent(options) -> contentReadback`; `verifyPublishedMetadata({ manifest, fetchImpl, connection, creatorAddress, creatorPayment, now }) -> MetadataReadbackV1`; `assertMetadataReadbackV1({ manifest, readback }) -> readback`; ignored `artifacts/metadata/token.png`, `token.json`, `draft-manifest.json`, `manifest.json`, and `readback.json`.
+
+The cross-plan metadata contract is exact; every object rejects unknown keys:
+
+| Object | Exact keys and rules |
+|---|---|
+| `MetadataDraftV1` | `schemaVersion`, `image`, `metadata`; version constant `metadata-draft-v1`; image is the final manifest image object; metadata has exact keys `sourcePath`, `byteLength`, `sha256`, `name`, `symbol`, `imageUri` and deliberately has no metadata URI |
+| `MetadataManifestV1` | `schemaVersion`, `image`, `metadata`; version constant `metadata-manifest-v1` |
+| manifest `image` | `sourcePath`, `uri`, `byteLength`, `sha256`; repository-relative path, approved content-addressed URI, nonnegative integer, lowercase digest |
+| manifest `metadata` | `sourcePath`, `uri`, `byteLength`, `sha256`, `name`, `symbol`, `imageUri`; exact deterministic JSON path/URI/size/hash and approved HAKKY values |
+| `MetadataReadbackV1` | `schemaVersion`, `image`, `metadata`, `creatorPayment`, `verifiedAt`, `ok`; version constant `metadata-readback-v1`; UTC millisecond timestamp; `ok: true` only on exact byte equality |
+| each readback content object | `uri`, `resolvedUrl`, `byteLength`, `sha256`; identity-preserving public URL and exact manifest size/hash |
+| readback `creatorPayment` | `signature`, `debitLamports`; signature is canonical Solana signature or `null`; debit is canonical unsigned decimal; zero requires null signature, nonzero requires a finalized creator-wallet payment transaction |
+
+`src/metadata-integrity.mjs` exports `assertMetadataDraftV1(value)`, `finalizeMetadataManifest({ draft, metadataUri })`, `assertMetadataManifestV1(value)`, and `assertMetadataReadbackV1({ manifest, readback })`. Proof Tasks 3–4 and Operations Task 3 consume only these validators; no task may invent a metadata alias or accept a URI/hash without the paired manifest and readback.
+
+- [ ] **Step 1: Write RED deterministic-byte and URI tests**
+
+Create `test/metadata-integrity.test.mjs`:
+
+```js
+import assert from "node:assert/strict";
+import test from "node:test";
+import {
+  buildMetadata,
+  serializeMetadata,
+  sha256Hex,
+  validateContentAddressedUri,
+  verifyPublishedContent,
+} from "../src/metadata-integrity.mjs";
+
+const IMAGE_URI = "ipfs://bafkreibm6jg3ux5qu4jiy4zo7l3f4k5e2p6b4il5xw4lpu5wq6wzj6m4ay";
+const METADATA_URI = "ipfs://bafkreidg6l3bzg5gzt6fpkqyf4nqjz2j6rxklwdq2ncbmkh3c4d2jmwqlu";
+
+test("serializes exact HAKKY metadata bytes deterministically", () => {
+  const metadata = buildMetadata({ imageUri: IMAGE_URI });
+  assert.deepEqual(metadata, {
+    name: "Hakky Protocol",
+    symbol: "HAKKY",
+    description: "HAKKY is a high-risk public-only Solana meme coin launch. HakkyAgent verifies published launch facts; it does not promise safety or returns.",
+    image: IMAGE_URI,
+    external_url: "https://hakky.xyz",
+    twitter: "https://x.com/antihakkysack",
+  });
+  assert.equal(serializeMetadata(metadata).toString("utf8").endsWith("\n"), true);
+  assert.equal(sha256Hex(Buffer.from("HAKKY")), "de24f724449b3f8cf23b44e898163e2f8244b1ff8671183ee704384e44072d76");
+});
+
+test("accepts only content-addressed public metadata destinations", () => {
+  assert.equal(validateContentAddressedUri(IMAGE_URI).protocol, "ipfs:");
+  assert.throws(() => validateContentAddressedUri("https://hakky.xyz/assets/token.png"), /content-addressed/);
+  const credentialedUri = new URL("https://example.com/token.json");
+  credentialedUri.username = ["sample", "user"].join("-");
+  assert.throws(() => validateContentAddressedUri(credentialedUri.href), /credentials/);
+});
+
+test("remote verification requires exact metadata bytes and final URI", async () => {
+  const expected = Buffer.from("{\"name\":\"Hakky Protocol\"}\n");
+  const receipt = await verifyPublishedContent({
+    expectedBytes: expected,
+    expectedUri: METADATA_URI,
+    fetchImpl: async () => ({
+      ok: true,
+      url: "https://ipfs.io/ipfs/bafkreidg6l3bzg5gzt6fpkqyf4nqjz2j6rxklwdq2ncbmkh3c4d2jmwqlu",
+      arrayBuffer: async () => expected,
+    }),
+  });
+  assert.equal(receipt.sha256, sha256Hex(expected));
+  assert.equal(receipt.byteLength, expected.byteLength);
+});
+```
+
+- [ ] **Step 2: Run metadata tests and verify RED**
+
+```powershell
+rtk node --test test/metadata-integrity.test.mjs
+```
+
+Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `src/metadata-integrity.mjs`.
+
+- [ ] **Step 3: Implement deterministic metadata construction and hashing**
+
+Create `src/metadata-integrity.mjs` using `createHash("sha256")`, exact object insertion order, a single trailing newline, and strict validation of an `ipfs://` URI followed by a CID or an `https://arweave.net/` URI followed by an Arweave transaction ID. Map IPFS reads to the same CID below `https://ipfs.io/ipfs/` and Arweave reads to the exact transaction-ID path on `arweave.net`. Reject credentials, query, fragment, redirects to a different content identity, non-public hosts, non-2xx responses, size mismatches, and digest mismatches.
+
+The exported builder must hard-code the approved name, symbol, description, `https://hakky.xyz`, and `https://x.com/antihakkysack`; callers may supply only `imageUri`.
+
+- [ ] **Step 4: Add RED CLI-path and no-upload tests**
+
+Test that `scripts/prepare-metadata.mjs` accepts only `--image`, `--image-uri`, and `--out`; resolves `--out` below `artifacts/metadata`; copies exact bytes; writes deterministic JSON plus `draft-manifest.json`; and has no HTTP upload or credential option. Test that `scripts/finalize-metadata-manifest.mjs` accepts only `--draft-manifest`, `--metadata-uri`, and `--out`, validates the provider-returned content address, rehashes local files, and writes the exact final manifest without uploading. Test that `scripts/verify-metadata-upload.mjs` accepts only `--manifest`, `--creator`, `--creator-payment-signature`, `--creator-payment-lamports`, and `--out`, obtains an HTTPS mainnet RPC URL only from `HAKKY_RPC_URL`, validates any nonzero payment from a finalized transaction by the exact creator, and writes the readback only after remote equality. Add failures for missing/fake final URI, changed draft bytes, payment debit without signature, signature with zero debit, missing RPC configuration for nonzero payment, wrong payer, non-finalized payment, manifest/readback drift, and unknown keys.
+
+- [ ] **Step 5: Implement the three narrow CLIs and package scripts**
+
+Add to `package.json`:
+
+```json
+"metadata:prepare": "node scripts/prepare-metadata.mjs",
+"metadata:finalize": "node scripts/finalize-metadata-manifest.mjs",
+"metadata:verify": "node scripts/verify-metadata-upload.mjs"
+```
+
+The preparation and finalization CLIs write only below `artifacts/metadata/`. The verification CLI is read-only against the remote destination/chain and writes only `artifacts/metadata/readback.json`. None uploads. If the creator wallet did not pay a Solana upload transaction, pass no payment signature and record `"0"`; otherwise exact finalized payer/debit verification is mandatory and later subtracts from the 1 SOL creation allowance.
+
+- [ ] **Step 6: Run GREEN tests and a deterministic local rehearsal**
+
+```powershell
+rtk npm run assets
+rtk node --test test/metadata-integrity.test.mjs
+rtk npm run metadata:prepare -- --image web/assets/token.png --image-uri ipfs://bafkreibm6jg3ux5qu4jiy4zo7l3f4k5e2p6b4il5xw4lpu5wq6wzj6m4ay --out artifacts/metadata
+rtk npm run metadata:finalize -- --draft-manifest artifacts/metadata/draft-manifest.json --metadata-uri ipfs://bafkreidg6l3bzg5gzt6fpkqyf4nqjz2j6rxklwdq2ncbmkh3c4d2jmwqlu --out artifacts/metadata/manifest.json
+rtk node --check scripts/prepare-metadata.mjs
+rtk node --check scripts/finalize-metadata-manifest.mjs
+rtk node --check scripts/verify-metadata-upload.mjs
+```
+
+Expected: tests pass; preparation/finalization create only the four ignored bundle/draft files. The example CIDs are test-only and must never enter a mainnet approval envelope.
+
+- [ ] **Step 7: Document the upload approval boundary and hard stop**
+
+Update `docs/LAUNCH.md` and `proof/README.md`: image and metadata uploads are separately approved browser/provider actions; prepare locally, upload image, prepare JSON/draft, upload that exact JSON, finalize the production manifest with the provider-returned metadata address, and verify both remote byte sequences. The creation transaction must use the exact verified metadata URI and atomically create `isMutable: false`; otherwise stop before signing.
+
+- [ ] **Step 8: Commit the metadata slice**
+
+```powershell
+rtk git add src/metadata-integrity.mjs scripts/prepare-metadata.mjs scripts/finalize-metadata-manifest.mjs scripts/verify-metadata-upload.mjs test/metadata-integrity.test.mjs package.json package-lock.json docs/LAUNCH.md proof/README.md
+rtk git commit -m "launch: add immutable metadata preparation gates"
+```
+
+---
+
+### Task 3: Decode and evaluate the exact unsigned LaunchLab transaction
+
+**Files:**
+- Create: `src/launchlab-preview.mjs`
+- Create: `src/launchlab-rpc.mjs`
+- Create: `src/raydium-origin.mjs`
+- Create: `src/wallet-readiness.mjs`
+- Create: `scripts/verify-launchlab-preview.mjs`
+- Create: `scripts/verify-raydium-origin.mjs`
+- Create: `scripts/verify-wallet-readiness.mjs`
+- Create: `test/launchlab-preview.test.mjs`
+- Create: `test/launchlab-rpc.test.mjs`
+- Create: `test/raydium-origin.test.mjs`
+- Create: `test/wallet-readiness.test.mjs`
+- Create: `test-support/launchlab-preview-fixtures.mjs`
+- Modify: `package.json`
+- Modify: `docs/LAUNCH.md`
+- Modify: `proof/README.md`
+
+**Interfaces:**
+- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()`, finalized RPC account bytes, wallet simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
+- Produces: `verifyOfficialRaydiumOrigin({ uiUrl, fetchImpl, checkedAt }) -> officialOriginReceipt`; `fetchWalletReadiness({ connection, creatorAddress, requiredLamports, checkedAt }) -> walletReadinessReceipt`; `decodeUnsignedLaunchTransaction({ serialized, addressLookupTables }) -> normalizedPreview`; `fetchPreviewState({ connection, normalizedPreview }) -> finalizedState`; `evaluateLaunchPreview({ preview, state, simulation, metadataManifest, metadataReadback, officialOriginReceipt, walletReadinessReceipt, creator }) -> evaluation`; `buildApprovalEnvelope(evaluation) -> envelope`; ignored `artifacts/mainnet-session/official-origin.json`, `wallet-readiness.json`, `preview.json`, and `approval-envelope.json`.
+
+The origin receipt has exact keys `schemaVersion`, `checkedAt`, `uiUrl`, `uiOrigin`, `docsUrl`, `docsSha256`, `documentedProgramId`, `pinnedProgramId`, `checks`, `ok`. The verifier fetches `https://docs.raydium.io/introduction/what-is-raydium` and `https://docs.raydium.io/reference/program-addresses` with redirect-origin checks, requires the first to identify `raydium.io` as the official app and the second to identify the exact current LaunchLab program, requires the browser URL origin to be exactly `https://raydium.io`, and requires the documented ID to equal the pinned decoder ID. DNS success, search results, screenshots, cached receipts, `api-v3`, and lookalike/subdomain URLs are insufficient. The receipt expires after 30 minutes and must be regenerated immediately before preview approval; any fetch/parse/drift failure stops signing.
+
+The wallet receipt has exact keys `schemaVersion`, `network`, `creator`, `genesisHash`, `finalizedBalanceLamports`, `requiredLamports`, `finalizedSlot`, `checkedAt`, `rpcHost`, `checks`, `ok`. `checks` has exact booleans `mainnetGenesis`, `creatorMatches`, `finalizedBalance`, `sufficientBalance`; all are true when `ok: true`. The CLI receives only the public creator plus validated metadata readback, derives `requiredLamports = 1000000000 - metadataUploadLamports`, reads an HTTPS RPC URL from `HAKKY_RPC_URL`, calls `getGenesisHash()` and `getBalanceAndContext(..., { commitment: "finalized" })`, and expires after five minutes. Before running it, the operator must read the selected wallet's visible public address and require byte-for-byte equality with the creator; screenshot/account labels alone are insufficient.
+
+- [ ] **Step 1: Write RED policy-matrix tests**
+
+Create fixture builders whose passing case contains exactly:
+
+```js
+export const APPROVED_RAW_VALUES = Object.freeze({
+  launchlabProgramId: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+  tokenProgramId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  quoteMint: "So11111111111111111111111111111111111111112",
+  supply: "1000000000000",
+  totalSell: "800000000000",
+  totalFundraising: "24000000000",
+  lockedAmount: "0",
+  decimals: 6,
+  creatorFeeRateMillionths: "0",
+  protocolBuyFeeRateMillionths: "10000",
+  protocolSellFeeRateMillionths: "10000",
+  feeRateDenominator: "1000000",
+  firstBuyInstructionCount: 0,
+  creatorTokenCredit: "0",
+  metadataUploadLamports: "25000000",
+  maximumCreationDebitLamports: "975000000",
+  cumulativeCreatorDebitCapLamports: "1000000000",
+});
+```
+
+For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be copied exactly into evaluation and approval disclosure. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, and any creation debit above `1000000000 - metadataUploadLamports`.
+
+- [ ] **Step 2: Run preview tests and verify RED**
+
+```powershell
+rtk node --test test/raydium-origin.test.mjs test/wallet-readiness.test.mjs test/launchlab-preview.test.mjs test/launchlab-rpc.test.mjs
+```
+
+Expected: FAIL because the preview and RPC modules do not exist.
+
+- [ ] **Step 3: Implement strict raw transaction decoding**
+
+Use `VersionedTransaction.deserialize(Buffer.from(serialized, "base64"))`. Resolve every address-table lookup from finalized RPC data before inspecting compiled instructions. Require exactly one LaunchLab instruction and pass its exact bytes and ordered account keys to the proof plan's source-pinned decoder; require its normalized result to contain `instruction: "initialize-v2"`. Do not duplicate the discriminator, Borsh layout, seed, or account-order constants in the preview module. Reject trailing or missing bytes through that canonical decoder.
+
+Reject `InitializeWithToken2022`, any unknown LaunchLab instruction in the creation transaction, and any unclassified transfer. Preserve raw instruction bytes, ordered account keys, signer/writable flags, recent blockhash, and SHA-256 of the serialized transaction in the normalized preview.
+
+- [ ] **Step 4: Implement finalized account reads and simulation capture**
+
+In `src/launchlab-rpc.mjs`, implement these exact finalized-only calls:
+
+```js
+export async function fetchPreviewState({ connection, normalizedPreview }) {
+  const addresses = normalizedPreview.requiredAccountAddresses;
+  const result = await connection.getMultipleAccountsInfoAndContext(addresses, {
+    commitment: "finalized",
+    minContextSlot: normalizedPreview.addressLookupTableSlot,
+  });
+  if (result.context.slot < normalizedPreview.addressLookupTableSlot) throw new Error("stale finalized account context");
+  return normalizeAndHashFinalizedAccounts({ addresses, result });
+}
+
+export async function simulatePreview({ connection, transaction, accountAddresses }) {
+  return connection.simulateTransaction(transaction, {
+    sigVerify: false,
+    replaceRecentBlockhash: true,
+    commitment: "finalized",
+    accounts: { encoding: "base64", addresses: accountAddresses },
+  });
+}
+```
+
+Define `normalizeAndHashFinalizedAccounts` in the same module, reject null/extra/out-of-order results, require mainnet genesis identity, exact account owners, and expected LaunchLab/Token/Metadata/System programs, and record the response slot for every normalized account. Reject any mock/connection whose captured call omits the exact options above. Store raw account hashes, sanitized simulation logs, compute units, returned post-account hashes, and fee calculation. Sanitize thrown errors so authenticated RPC URLs and raw wallet data never reach stdout.
+
+- [ ] **Step 5: Implement the immutable-economic-binding hard stop**
+
+`evaluateLaunchPreview()` may return `ok: true` only when decoded per-launch state or program-enforced immutable fields bind creator fee zero and the migration-specific full-lock disposition. A current PlatformConfig value, UI toggle, screenshot, or operator assertion is not immutable evidence. If the verifier cannot prove the absence of a post-signature admin update path, add the exact failed check `immutable-economic-binding` and stop.
+
+For CPMM, require a discriminated Burn & Earn result with creator/platform shares `0` and irreversible share `10000` basis points. For AMM v4, require LP burn evidence with zero creator/platform LP units, zero recoverable LP supply, null withdrawal authority, and an empty fee-right list. Never accept irrelevant zero fields from the other migration branch.
+
+- [ ] **Step 6: Implement the CLI and deterministic approval envelope**
+
+Add to `package.json`:
+
+```json
+"verify:raydium-origin": "node scripts/verify-raydium-origin.mjs",
+"verify:wallet-readiness": "node scripts/verify-wallet-readiness.mjs",
+"verify:launch-preview": "node scripts/verify-launchlab-preview.mjs"
+```
+
+The exact runtime commands are:
+
+```powershell
+$env:HAKKY_CREATOR = Read-Host "Approved creator public key"
+$env:HAKKY_RAYDIUM_URL = Read-Host "Current official Raydium LaunchLab browser URL"
+rtk npm run verify:raydium-origin -- --ui-url $env:HAKKY_RAYDIUM_URL --out artifacts/mainnet-session/official-origin.json
+rtk npm run verify:wallet-readiness -- --creator $env:HAKKY_CREATOR --metadata-readback artifacts/metadata/readback.json --out artifacts/mainnet-session/wallet-readiness.json
+rtk npm run verify:launch-preview -- --transaction artifacts/mainnet-session/unsigned-transaction.base64 --creator $env:HAKKY_CREATOR --metadata-manifest artifacts/metadata/manifest.json --metadata-readback artifacts/metadata/readback.json --official-origin artifacts/mainnet-session/official-origin.json --wallet-readiness artifacts/mainnet-session/wallet-readiness.json --out artifacts/mainnet-session/preview.json
+```
+
+The CLIs accept no seed, keypair, approval override, fee override, program override, or manual policy value. The preview recomputes the required balance from the validated metadata readback and rejects a different receipt amount. The preview CLI writes `preview.json` and `approval-envelope.json` only when every check passes. The envelope contains the transaction hash, exact wallet/creator identity, finalized balance and slot, every signer/program/transfer, metadata upload debit, maximum creation debit, exact cumulative maximum, observed protocol trading-fee rate, zero creator fee/right result, irreversible LP settings, official-origin receipt hash/expiry, wallet receipt hash/expiry, and a statement that it authorizes only the exact serialized transaction. Immediately before wallet signing, present this envelope again and obtain action-time approval whose scope expressly names both the exact transaction hash/signature action and exact maximum creation debit; if either changes, the approval is void and a fresh preview is required.
+
+- [ ] **Step 7: Run GREEN tests and refactor decoder boundaries**
+
+```powershell
+rtk node --test test/raydium-origin.test.mjs test/wallet-readiness.test.mjs test/launchlab-preview.test.mjs test/launchlab-rpc.test.mjs
+rtk node --check src/raydium-origin.mjs
+rtk node --check src/wallet-readiness.mjs
+rtk node --check src/launchlab-preview.mjs
+rtk node --check src/launchlab-rpc.mjs
+rtk node --check scripts/verify-raydium-origin.mjs
+rtk node --check scripts/verify-wallet-readiness.mjs
+rtk node --check scripts/verify-launchlab-preview.mjs
+```
+
+Expected: PASS. Keep byte decoding, RPC reads, policy evaluation, and CLI I/O in separate functions so a reviewer can reject any boundary independently.
+
+- [ ] **Step 8: Document transaction acquisition as a non-bypassable gate**
+
+Update `docs/LAUNCH.md` and `proof/README.md`: if the official Raydium UI or wallet cannot expose the exact raw unsigned transaction before signing, stop. Never substitute a re-created SDK transaction or a screenshot.
+
+- [ ] **Step 9: Commit the preview slice**
+
+```powershell
+rtk git add src/raydium-origin.mjs src/wallet-readiness.mjs src/launchlab-preview.mjs src/launchlab-rpc.mjs scripts/verify-raydium-origin.mjs scripts/verify-wallet-readiness.mjs scripts/verify-launchlab-preview.mjs test/raydium-origin.test.mjs test/wallet-readiness.test.mjs test/launchlab-preview.test.mjs test/launchlab-rpc.test.mjs test-support/launchlab-preview-fixtures.mjs package.json package-lock.json docs/LAUNCH.md proof/README.md
+rtk git commit -m "launch: enforce unsigned LaunchLab preview gates"
+```
+
+---
+
+### Task 4: Preserve public session and recovery evidence without expanding approval
+
+**Files:**
+- Create: `src/session-receipt.mjs`
+- Create: `scripts/session-receipt.mjs`
+- Create: `test/session-receipt.test.mjs`
+- Modify: `package.json`
+- Modify: `SECURITY.md`
+- Modify: `docs/LAUNCH.md`
+- Modify: `proof/README.md`
+
+**Interfaces:**
+- Consumes: validated preview hash, metadata manifest/readback hashes, approved creator address, visible wallet/RPC statuses, public transaction signatures, finalized readback, and exact base64 serialized unsigned recovery-transaction bytes.
+- Produces: `createSessionReceipt({ preview, metadataManifest, metadataReadback, checkedAt }) -> receipt`; `recordPublicTransactionEvent(receipt,event) -> receipt`; `decodeRecoveryTransaction({ serialized, addressLookupTables, simulation, feeQuote }) -> normalizedRecovery`; `buildRecoveryEnvelope({ receipt, readback, serializedTransaction, addressLookupTables, simulation, feeQuote, checkedAt }) -> envelope`; `writeSessionReceiptAtomic(path,receipt)`; ignored `artifacts/mainnet-session/session-receipt.json` and `recovery-envelope.json`.
+
+- [ ] **Step 1: Write RED exact-schema and monotonic-transition tests**
+
+Create `test/session-receipt.test.mjs` with these exact root keys and no others:
+
+```js
+{
+  schemaVersion: "mainnet-session-v1",
+  network: "mainnet-beta",
+  creator,
+  mint,
+  launchId,
+  previewTransactionSha256,
+  metadataManifestSha256,
+  metadataReadbackSha256,
+  costBaseline,
+  debitCapLamports: "1000000000",
+  events: [],
+}
+```
+
+Each event has exactly these keys:
+
+```js
+{
+  sequence,
+  operationId,
+  operationKind,
+  state,
+  purpose,
+  signature,
+  slot,
+  observedAt,
+  transactionSha256,
+  debitLamports,
+  visibleStatus,
+}
+```
+
+`creator`, `mint`, and `launchId` are the exact canonical public keys decoded from the preview. `costBaseline` has exactly `metadataPaymentSignature`, `metadataPaymentLamports`, `verifiedAt`: values are copied from the validated hashed `MetadataReadbackV1`; zero payment requires null signature, nonzero requires its verified signature, and no caller override exists. `sequence` is a positive safe integer; `operationId` is 1–64 characters matching `^[a-z0-9]+(?:-[a-z0-9]+)*$`; `operationKind` is exactly `creation`, `recovery`, or `graduation`; `purpose` is 1–120 characters matching `^[A-Za-z0-9 .,:;()/_-]+$`; `signature` is a canonical Solana signature or `null`; `transactionSha256` is lowercase 64-character hex or `null`; `slot` is a nonnegative safe integer or `null`; `observedAt` is an exact UTC RFC 3339 timestamp with milliseconds; and `debitLamports` is a canonical unsigned decimal string. `visibleStatus` is exactly `not-submitted`, `submitted`, `pending`, `failed`, `finalized-success`, or `finalized-failed` and maps from `state` exactly as follows: `prepared -> not-submitted`, `submitted -> submitted`, `visible-pending -> pending`, `visible-failed -> failed`, `finalized-success -> finalized-success`, and `finalized-failed -> finalized-failed`.
+
+Prove that only these event states are accepted:
+
+```js
+const ALLOWED_EVENT_STATES = [
+  "prepared",
+  "submitted",
+  "visible-failed",
+  "visible-pending",
+  "finalized-success",
+  "finalized-failed",
+];
+```
+
+Enforce this exact same-operation transition table:
+
+| Current state | Allowed next state |
+|---|---|
+| no event | `prepared` |
+| `prepared` | `submitted`, `visible-failed` |
+| `submitted` | `visible-pending`, `finalized-success`, `finalized-failed` |
+| `visible-pending` | `visible-pending`, `finalized-success`, `finalized-failed` |
+| `visible-failed` | terminal |
+| `finalized-success` | terminal |
+| `finalized-failed` | terminal |
+
+`prepared` requires null signature, slot, and transaction hash. `submitted` and `visible-pending` require the same canonical signature and null slot/transaction hash. Finalized states require that same signature, non-null slot, and transaction hash. `visible-failed` is allowed only from `prepared`, represents a pre-submission wallet rejection, and requires null signature, slot, and transaction hash. A post-submission UI/RPC failure appends `visible-pending`, preserving the signature until either finalized outcome is observed; it can never become terminal merely because the wallet display failed. Every operation begins with one `prepared` event; subsequent events reuse that operation ID and must preserve its operation kind and purpose. An operation ID cannot begin a second chain. Global sequence increases by exactly one, `observedAt` is monotonic, and cumulative creator debit is always `costBaseline.metadataPaymentLamports` plus only the latest debit snapshot for each distinct operation; it must remain at or below `1000000000` lamports.
+
+Define and test this exact recovery-envelope root, with no extra keys:
+
+```js
+{
+  schemaVersion: "recovery-envelope-v1",
+  network: "mainnet-beta",
+  creator,
+  mint,
+  launchId,
+  sourceSessionSha256,
+  previewTransactionSha256,
+  currentState,
+  proposedOperation,
+  cost,
+  expiresAt,
+  requiresFreshActionTimeApproval: true,
+}
+```
+
+`currentState` has exactly `stage`, `finalizedSlot`, `finalizedAt`, `checkedAt`, `mintAccountSha256`, `launchAccountSha256`, `platformConfigAccountSha256`; stage is `curve-live` or `graduated`, every account/hash value comes from the same finalized read, and `checkedAt` is the actual observation time with `finalizedAt <= checkedAt`. `proposedOperation` has exactly `operationId`, `operationKind`, `purpose`, `transactionSha256`, `signers`, `programs`, `transfers`; operation kind is the constant `recovery`, and every other field is derived by the canonical decoder from exact serialized transaction bytes—never accepted from a caller-authored JSON fact. Signer/program arrays are unique canonical keys sorted lexically, and each decoded transfer has exactly `source`, `destination`, `assetKind`, `mint`, `amountBaseUnits` where `assetKind` is `sol` with null mint or `spl-token` with canonical mint. `cost` has exactly `cumulativeBeforeLamports`, `maximumAdditionalLamports`, `cumulativeMaximumLamports`, `capLamports`, `withinCap`; baseline plus receipt events determines the before value, the fee quote/simulation plus decoded SOL/rent debits determines the maximum additional value, the sum is exact, cap is `1000000000`, and `withinCap` is true. `expiresAt` is an exact UTC millisecond timestamp no more than five minutes after `currentState.checkedAt`.
+
+The initial implementation's exact recovery decoder registry is intentionally empty: `SUPPORTED_RECOVERY_DECODERS = Object.freeze({})`. No generic recovery transaction is safe to classify in advance. `decodeRecoveryTransaction()` therefore returns the named `recovery-operation-unsupported` hard stop for every transaction, and `buildRecoveryEnvelope()` cannot emit an approvable envelope. A later concrete recovery requires a separate reviewed TDD change that adds one exact operation key with fixed program IDs, instruction discriminators/layouts, ordered accounts, purpose constant, allowed transfer/debit rules, and source-derived fixtures; only then may the dispatcher produce the schema above. This limitation prevents a future failure from silently broadening authority.
+
+Step 1 tests validate the envelope schema in isolation, assert the registry is deeply frozen and empty, and assert every serialized transaction causes both decoder and builder to stop with the exact unsupported error without writing an envelope. No passing builder fixture exists in this slice.
+
+Reject unknown fields, reverse transitions, a second creation operation, a transient post-submission failure becoming terminal, an automatic retry, private-key-shaped arrays, credential-bearing URLs, free-form wallet dumps, identity/session/hash drift, missing or mismatched metadata baseline, caller-authored transaction facts, serialized-transaction/hash/signer/program/transfer/cost mismatches, duplicate signers/programs, invalid SOL/SPL transfer unions, stale observation/expired envelopes, unclassified instructions/debits, any recovery while the exact decoder registry is empty, and recovery or graduation cost that would push cumulative creator debit over the cap. A recovery operation may begin only after a later operation-specific decoder produces a fresh recovery envelope and the user separately approves its exact signature/spend; it is never synthesized or submitted by the receipt module.
+
+- [ ] **Step 2: Run receipt tests and verify RED**
+
+```powershell
+rtk node --test test/session-receipt.test.mjs
+```
+
+Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `src/session-receipt.mjs`.
+
+- [ ] **Step 3: Implement public-only receipt normalization**
+
+Implement the exact root/event schemas, readback-derived immutable metadata cost baseline, state-to-visible-status mapping, transition table, operation-chain identity rules, global sequence/timestamp monotonicity, baseline-plus-latest-operation debit accounting, and monotonic event appends. Store only public keys, signatures, slots, RFC 3339 timestamps, fixed visible statuses, transaction/metadata hashes, action purpose, and decimal-string lamport caps. Import the shared same-directory exclusive temporary-file, fsync, owned-temp cleanup, and atomic rename helper from `src/record-output.mjs`; never reference the removed legacy builder and never use `publishJsonProof()` because the session receipt evolves before finalization.
+
+- [ ] **Step 4: Implement bounded recovery-envelope construction**
+
+Implement `SUPPORTED_RECOVERY_DECODERS` as the exact frozen empty object and test that `decodeRecoveryTransaction()` deterministically returns `recovery-operation-unsupported` before parsing or trusting caller-authored facts. Also implement the generic unsigned-transaction framing/hash/address-table resolver as an internal helper for a future operation-specific decoder, but do not classify a program, instruction, purpose, transfer, fee, rent debit, or approvable maximum from it in this slice.
+
+Implement strict `assertRecoveryEnvelopeV1()` for the future exact schema, but make `buildRecoveryEnvelope()` stop with `recovery-operation-unsupported` while the registry is empty. It must never fall back to a generic decoder, caller-supplied facts, “retry”, or “create replacement”. Document the required future change: add a concrete operation decoder/fixtures first, then bind the current receipt/readback, finalized one-slot state, derived transaction facts, baseline-inclusive cost, `checkedAt`, five-minute expiry, and fresh-approval flag before enabling one envelope branch.
+
+- [ ] **Step 5: Implement the CLI without an approval switch**
+
+Add to `package.json`:
+
+```json
+"session:receipt": "node scripts/session-receipt.mjs"
+```
+
+The CLI supports `init`, `record-status`, and `build-recovery` subcommands with public JSON input files under `artifacts/mainnet-session/`. `init` requires the validated preview/manifest/readback trio and derives `costBaseline`; `build-recovery` requires `--transaction <base64-file>` plus the receipt/readback but deterministically exits `recovery-operation-unsupported` until an exact reviewed decoder is added. It deliberately has no generic or caller-authored signer/program/transfer/cost option and no `approve`, `sign`, `send`, or `retry` subcommand.
+
+- [ ] **Step 6: Run GREEN tests, syntax checks, and repository secret scan**
+
+```powershell
+rtk node --test test/session-receipt.test.mjs test/repository-hygiene.test.mjs
+rtk node --check src/session-receipt.mjs
+rtk node --check scripts/session-receipt.mjs
+rtk npm run check:repo
+```
+
+Expected: PASS with no tracked artifact or secret finding.
+
+- [ ] **Step 7: Document every action-time approval boundary**
+
+Update `SECURITY.md`, `docs/LAUNCH.md`, and `proof/README.md` to state that legal acceptance, wallet connection, metadata upload, metadata-payment debit, initial creation signature, exact maximum creation debit, every recovery signature/spend, every graduation signature/spend, push, PR create/update, merge plus its automatic Pages deployment, GitHub metadata/domain save, and X save/post/pin are distinct action-time approvals. A single initial envelope approval covers both the creation signature and exact maximum debit only when it expressly names both; a pre-merge envelope covers both merge and automatic Pages only when it separately names each effect for the exact SHA. No approval carries forward; the receipt records evidence only and never counts as approval.
+
+- [ ] **Step 8: Commit the recovery-evidence slice**
+
+```powershell
+rtk git add src/session-receipt.mjs scripts/session-receipt.mjs test/session-receipt.test.mjs package.json package-lock.json SECURITY.md docs/LAUNCH.md proof/README.md
+rtk git commit -m "launch: add bounded recovery evidence"
+```
+
+---
+
+### Task 5: Enforce the reviewed PR-to-main Pages release order
+
+**Files:**
+- Create: `test/workflow-release.test.mjs`
+- Modify: `test/repository-hygiene.test.mjs`
+- Modify: `scripts/check-repo.mjs`
+- Modify: `docs/superpowers/plans/2026-07-22-hakky-live-launch.md`
+- Modify: `README.md`
+- Modify: `CONTRIBUTING.md`
+- Modify: `SECURITY.md`
+- Modify: `docs/LAUNCH.md`
+- Modify: `proof/README.md`
+- Modify: `launch/README.md`
+- Read/verify only unless tests expose a mismatch: `.github/workflows/quality.yml`
+- Read/verify only unless tests expose a mismatch: `.github/workflows/pages.yml`
+
+**Interfaces:**
+- Consumes: current workflows, reviewed branch `codex/hakky-solana-pivot`, repository `https://github.com/antihakkysack/hakky-protocol.git`, and the exact passing head SHA.
+- Produces: executable workflow-order tests, one current runbook, and `releaseLifecycleState({ stage, availability, reviewedSha, xCopySha })` as a documented operator procedure. The procedure has no automatic push/merge/deploy/X implementation; every external mutation remains a separately approved manual/tool action.
+
+- [ ] **Step 1: Write RED workflow-order tests**
+
+Create `test/workflow-release.test.mjs`:
+
+```js
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+test("quality runs for pull requests and main", async () => {
+  const workflow = await readFile(".github/workflows/quality.yml", "utf8");
+  assert.match(workflow, /pull_request:/);
+  assert.match(workflow, /push:\s+[\s\S]*branches: \[main\]/);
+});
+
+test("Pages deploys from main only and waits for reusable quality", async () => {
+  const workflow = await readFile(".github/workflows/pages.yml", "utf8");
+  assert.match(workflow, /push:\s+[\s\S]*branches: \[main\]/);
+  assert.doesNotMatch(workflow, /pull_request:|workflow_dispatch:/);
+  assert.match(workflow, /quality:\s+[\s\S]*uses: \.\/\.github\/workflows\/quality\.yml/);
+  assert.match(workflow, /deploy:\s+[\s\S]*needs: quality/);
+});
+
+test("the superseded rollout cannot be treated as the active launch runbook", async () => {
+  const scanner = await readFile("scripts/check-repo.mjs", "utf8");
+  assert.match(scanner, /2026-07-23-hakky-launch-readiness-operations\.md/);
+  assert.doesNotMatch(scanner, /LIVE_LAUNCH_PLAN = "docs\/superpowers\/plans\/2026-07-22-hakky-live-launch\.md"/);
+});
+```
+
+- [ ] **Step 2: Run the workflow test and verify RED**
+
+```powershell
+rtk node --test test/workflow-release.test.mjs
+```
+
+Expected: workflow assertions pass, but the active-runbook assertion fails because `scripts/check-repo.mjs` still points to the 2026-07-22 plan.
+
+- [ ] **Step 3: Supersede the old plan and update the active-runbook pointer**
+
+Add directly below the old plan title:
+
+```markdown
+> **Superseded:** Do not execute this plan. It is replaced by `docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md`, which corrects the LaunchLab authority lifecycle and the feature-branch -> PR quality -> approved merge -> main Pages sequence.
+```
+
+Change `scripts/check-repo.mjs::LIVE_LAUNCH_PLAN` to:
+
+```js
+const LIVE_LAUNCH_PLAN = "docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md";
+```
+
+- [ ] **Step 4: Replace stale operational claims in active documentation**
+
+Update the listed active documents to use `prelaunch`, `curve-live`, and `graduated`; describe the LaunchLab PDA mint authority during the curve; time-qualify creator balance; distinguish 24 SOL configured minimum from observed graduation balance; distinguish Burn & Earn permanent lock from an SPL burn; and repeat the hard stops for mutable PlatformConfig, absent raw unsigned transaction, non-atomic immutable metadata, and non-full-lock LP disposition. Preserve the pinned Solana dependency versions, the prohibition on `npm audit fix --force`, and the 2026-08-23 review date for the two documented upstream exceptions.
+
+- [ ] **Step 5: Run GREEN workflow and hygiene tests**
+
+```powershell
+rtk node --test test/workflow-release.test.mjs test/repository-hygiene.test.mjs
+rtk npm run check:repo
+```
+
+Expected: PASS. Do not edit workflow permissions or add `workflow_dispatch`.
+
+- [ ] **Step 6: Run the complete local release gate**
+
+Run each command separately:
+
+```powershell
+rtk npm ci
+rtk npm run assets
+rtk npm run check
+rtk npm run assets
+rtk git diff --check
+rtk git status --short
+```
+
+Expected: fresh install succeeds; both deterministic renders produce no second-run diff; full checks pass; diff check is clean; only intended plan/task changes are present.
+
+- [ ] **Step 7: Commit the release-order slice**
+
+```powershell
+rtk git add test/workflow-release.test.mjs test/repository-hygiene.test.mjs scripts/check-repo.mjs docs/superpowers/plans/2026-07-22-hakky-live-launch.md README.md CONTRIBUTING.md SECURITY.md docs/LAUNCH.md proof/README.md launch/README.md
+rtk git commit -m "release: enforce reviewed main Pages sequence"
+```
+
+- [ ] **Step 8: Obtain approval to push the exact reviewed branch**
+
+Present the branch, destination, outgoing commits, exact head SHA, full diff summary, and passing local commands. Obtain immediate approval before:
+
+```powershell
+rtk git push -u origin codex/hakky-solana-pivot
+```
+
+Expected: only the feature branch is updated. Pages does not deploy.
+
+- [ ] **Step 9: Obtain PR approval, open the PR, and wait for exact-head quality**
+
+After the approved push, present the exact head SHA, then-current base SHA, title/body, changed-file summary, and destination. Obtain separate action-time approval to create or update only that PR before the external mutation. If remote `main` changed, stop and create a fresh reviewed integration commit or verification worktree; do not rebase, rewrite, force-push, or update the PR without separate approval. Rerun the complete gate and request fresh push and PR approvals. The PR description must list exact files, risks, test commands, manual verification, rollback, and `AUTO` Pages impact.
+
+Expected: `quality` passes for the exact reviewed head SHA; inspect the exact base-to-head diff before requesting merge.
+
+- [ ] **Step 10: Obtain separate merge plus automatic-Pages approval and verify main Pages**
+
+Present an action-time envelope naming the exact passing head/base SHAs, merge method, production destination `https://hakky.xyz`, automatic Pages effect, expected record status/availability, and rollback commit procedure. Obtain approval that expressly and separately authorizes both the exact merge and its automatic production Pages deployment. After merge, wait for both `quality` and `pages` on `main`. Verify `https://hakky.xyz` at `1440 x 1000` and `390 x 844`, no console errors, warning above the fold, correct links, and no mint/buy action while prelaunch.
+
+Expected: production is changed only by the approved merge to `main`; branch push alone never deploys.
+
+- [ ] **Step 11: Repeat the reviewed release gate for every observed lifecycle transition**
+
+  Add this exact procedure to `docs/LAUNCH.md`, `proof/README.md`, and `launch/README.md` for `curve-live/verified`, `curve-live/unavailable`, `graduated/verified`, and `graduated/unavailable`:
+
+  1. Begin only from a finalized `observed-stage-v1` receipt. If full binding passes, build the verified record; otherwise build the unavailable record immediately. Never regress to prelaunch or curve-live after a later stage is observed.
+  2. Commit only the stage-appropriate canonical artifacts, `web/data/launch.json`, and generated stage copy. Temporary stage/session/browser evidence stays ignored. Run the full local release gate plus both-viewport certification for that exact record.
+  3. Present exact branch, base, commit list, head SHA, diff summary, canonical artifact hashes, record status/availability, and passing commands. Obtain action-time approval to push only that exact SHA.
+  4. Present the exact head/base SHAs and bounded PR title/body, then obtain separate action-time approval before creating or updating the PR. Require exact-head quality and base-to-head security/proof review. If remote main moved, create and review a fresh integration commit; never rewrite a published branch or update the PR without fresh approval.
+  5. Present a pre-merge envelope naming the exact head/base SHAs, merge method, automatic production Pages effect, `https://hakky.xyz` destination, expected stage/availability, and rollback. Obtain approval that expressly authorizes both the merge and that automatic deployment. Wait for `main` quality and Pages, then read back both viewports and assert exact heading, qualifier, stage, availability, protocol buy/sell fee disclosure, independent creation/graduation links when applicable, no console/network errors, and no stale destination. Save the ignored stage report.
+  6. Present the exact stage-correct X copy and its hash. Obtain separate approvals for save/post and for pin replacement. Read back the live post text, URL, account, and pin state. Earlier posts stay published; an unavailable warning replaces the pin until a later separately approved verified post.
+  7. If Pages or proof readback fails after the on-chain stage exists, the only rollback is a newly reviewed same-stage unavailable record and warning. Never restore a weaker lifecycle claim or delete evidence posts automatically.
+
+  Add workflow-order tests that require all four transition labels, the non-regression rule, separate push/PR/merge-plus-auto-Pages/X approvals, Pages and X readback, and same-stage unavailable rollback language in the active runbook.
+
+- [ ] **Step 12: Keep account-level and launch actions separately gated**
+
+After deployed readback, request separate approval for GitHub About metadata/custom-domain verification, then separate X profile/post actions. Only after those readbacks may the controller enter Raydium legal acceptance, wallet connection, raw transaction capture, simulation, and exact-signature approval. No earlier approval carries forward.
+
+---
+
+## Final Integration and Recovery Gate
+
+- [ ] Run `rtk node --test` and require all tests to pass.
+- [ ] Run `rtk npm run check` and require repository, site, copy, schema, secret, and workflow gates to pass.
+- [ ] Run `rtk npm run assets` twice and require the second run to leave no diff.
+- [ ] Run `rtk git diff --check` and inspect `rtk git status --short` for intended files only.
+- [ ] Review every new CLI for the absence of signing, sending, uploading, retrying, or credential capture.
+- [ ] Confirm the external devnet proof remains ignored and contains no secret.
+- [ ] Confirm metadata upload/readback hashes agree and production URIs are content-addressed.
+- [ ] Confirm the raw unsigned transaction hash in the approval envelope exactly matches the wallet transaction presented for signing.
+- [ ] Stop if PlatformConfig or another administrator can change creator fees, LP allocation, or claim rights after signature.
+- [ ] Stop if simulation cannot prove atomic immutable metadata, exact allocation, no first-buy, no extensions, full irreversible LP treatment, equal disclosed protocol buy/sell fees, and `metadata upload debit + maximum creation debit <= 1000000000` lamports.
+- [ ] After a failed or partial transaction, record public evidence, read finalized existing state, propose one bounded recovery operation, and obtain fresh approval; never create a replacement mint automatically.
+- [ ] After each observed stage, complete the same-stage verified-or-unavailable Pages and X readback loop before calling public publication complete.
+
+## Execution Handoff
+
+Plan complete and saved to `docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md`. Execute with `superpowers:subagent-driven-development` task-by-task, with specification and code-quality review after each task. Use `superpowers:executing-plans` only if running inline with explicit checkpoints.
