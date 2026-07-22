@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import sharp from "sharp";
+import { vectorText } from "./vector-type.mjs";
 
 const PNG_OPTIONS = {
   compressionLevel: 9,
@@ -11,6 +12,22 @@ await Promise.all([
   mkdir("launch/assets", { recursive: true }),
   mkdir("web/assets", { recursive: true })
 ]);
+
+const ogLabel = vectorText("ANTIHAKKYSACK // AGENT 001", {
+  x: 108, y: 98, height: 16, letterSpacing: 1.4, color: "#FFFFFF"
+}).svg;
+const ogHeadlineOne = vectorText("RUGS HATE THIS", {
+  x: 82, y: 176, height: 46, letterSpacing: 2, color: "#160C2C", strokeWidth: 1
+}).svg;
+const ogHeadlineTwo = vectorText("LITTLE GUY.", {
+  x: 82, y: 254, height: 46, letterSpacing: 2, color: "#160C2C", strokeWidth: 1
+}).svg;
+const ogAllocation = vectorText("1,000,000 HAKKY · 0% TEAM · NO PRESALE", {
+  x: 111, y: 375, height: 17, letterSpacing: 1, color: "#FFFFFF"
+}).svg;
+const ogTagline = vectorText("KEEP CRYPTO CLEAN.", {
+  x: 88, y: 468, height: 16, letterSpacing: 2.5, color: "#160C2C"
+}).svg;
 
 const mascot = await readFile("brand/sack-sentinel.svg");
 const banner = await readFile("brand/x-banner.svg");
@@ -47,12 +64,12 @@ const ogBackground = Buffer.from(`
   <path d="M786 48h366v534H954z" fill="#FF7AEB"/>
   <path d="M1010 48h142v534H886z" fill="#7138FF"/>
   <rect x="86" y="86" width="433" height="45" rx="7" fill="#160C2C"/>
-  <text x="108" y="117" font-family="Arial, sans-serif" font-size="19" font-weight="900" letter-spacing="3" fill="#FFFFFF">ANTIHAKKYSACK // AGENT 001</text>
-  <text x="82" y="241" font-family="Arial Black, Arial, sans-serif" font-size="67" font-weight="900" letter-spacing="-2" fill="#160C2C">RUGS HATE THIS</text>
-  <text x="82" y="315" font-family="Arial Black, Arial, sans-serif" font-size="67" font-weight="900" letter-spacing="-2" fill="#160C2C">LITTLE GUY.</text>
+  ${ogLabel}
+  ${ogHeadlineOne}
+  ${ogHeadlineTwo}
   <rect x="86" y="354" width="700" height="66" rx="9" fill="#160C2C"/>
-  <text x="111" y="397" font-family="Arial, sans-serif" font-size="26" font-weight="900" fill="#FFFFFF">1,000,000 HAKKY · 0% TEAM · NO PRESALE</text>
-  <text x="88" y="486" font-family="Arial, sans-serif" font-size="22" font-weight="900" letter-spacing="5" fill="#160C2C">KEEP CRYPTO CLEAN.</text>
+  ${ogAllocation}
+  ${ogTagline}
 </svg>`);
 
 const ogMascotLayer = await sharp(mascot)

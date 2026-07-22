@@ -12,8 +12,8 @@
     <path d="M321 218c-65 22-111 85-116 160l-18 229c-7 86 61 142 145 129 42 25 94 25 136 0 84 13 152-43 145-129l-18-229c-5-75-51-138-116-160-43 22-115 22-158 0z" fill="#FF965D" stroke-width="28"/>
   </g>
 
-  <path d="M261 325c-19 54-20 145-25 242-4 67 24 106 70 118" fill="none" stroke="#FFB68F" stroke-width="25" stroke-linecap="round" opacity=".95"/>
-  <path d="M503 282c31 18 50 47 59 86" fill="none" stroke="#FFB68F" stroke-width="19" stroke-linecap="round" opacity=".8"/>
+  <path d="M261 325c-19 54-20 145-25 242-4 67 24 106 70 118" fill="none" stroke="#FFFFFF" stroke-width="25" stroke-linecap="round" opacity=".35"/>
+  <path d="M503 282c31 18 50 47 59 86" fill="none" stroke="#FFFFFF" stroke-width="19" stroke-linecap="round" opacity=".3"/>
   <path d="M250 551c30 10 42 4 61-14" fill="none" stroke="#160C2C" stroke-width="14" stroke-linecap="round" stroke-dasharray="3 24"/>
   <path d="M498 282c20 2 37 10 52 24" fill="none" stroke="#160C2C" stroke-width="12" stroke-linecap="round" stroke-dasharray="2 22"/>
 
@@ -29,8 +29,8 @@
   <g transform="rotate(-4 404 618)">
     <rect x="300" y="556" width="208" height="126" rx="17" fill="#F8FF4A" stroke="#160C2C" stroke-width="20"/>
     <rect x="316" y="572" width="176" height="27" rx="5" fill="#160C2C"/>
-    <text x="404" y="593" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="900" letter-spacing="5" fill="#FFFFFF">AGENT</text>
-    <text x="404" y="656" text-anchor="middle" font-family="Arial Black, Arial, sans-serif" font-size="59" font-weight="900" fill="#160C2C">001</text>
+    <g role="img" aria-label="AGENT" data-copy="AGENT" transform="translate(367 577) scale(2.286)" fill="none" stroke="#FFFFFF" stroke-width="0.9" stroke-linecap="square" stroke-linejoin="miter"><path d="M0 7V2l2.5-2L5 2v5M0 4h5" transform="translate(0 0)"/><path d="M5 1 4 0H1L0 1v5l1 1h4V4H3" transform="translate(6.875 0)"/><path d="M5 0H0v7h5M0 3.5h4" transform="translate(13.75 0)"/><path d="M0 7V0l5 7V0" transform="translate(20.625 0)"/><path d="M0 0h5M2.5 0v7" transform="translate(27.5 0)"/></g>
+    <g role="img" aria-label="001" data-copy="001" transform="translate(343 608) scale(6.857)" fill="none" stroke="#160C2C" stroke-width="0.9" stroke-linecap="square" stroke-linejoin="miter"><path d="M1 0h3l1 1v5l-1 1H1L0 6V1zM1 6 4 1" transform="translate(0 0)"/><path d="M1 0h3l1 1v5l-1 1H1L0 6V1zM1 6 4 1" transform="translate(6.438 0)"/><path d="M1 1 2.5 0v7M0 7h5" transform="translate(12.875 0)"/></g>
   </g>
 
   <path d="M538 548c19 6 34 19 43 38" fill="none" stroke="#160C2C" stroke-width="13" stroke-linecap="round"/>
