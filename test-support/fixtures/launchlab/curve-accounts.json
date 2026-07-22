@@ -1,0 +1,145 @@
+{
+  "sourceRepository": "https://github.com/raydium-io/raydium-sdk-V2",
+  "sourceCommit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c",
+  "sourcePath": "src/raydium/launchpad/layout.ts",
+  "sourceLineRange": "34-126",
+  "discriminatorBytes": [
+    247,
+    237,
+    227,
+    245,
+    215,
+    195,
+    222,
+    70
+  ],
+  "splTokenSource": {
+    "sourcePackage": "@solana/spl-token",
+    "sourceVersion": "0.4.15",
+    "sourcePath": "src/state/account.ts",
+    "sourceLineRange": "69-84"
+  },
+  "fixedProgramIdentities": {
+    "launchlab": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+    "launchlabAuthority": "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",
+    "cpmm": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+    "lock": "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE",
+    "lockAuthority": "3f7GcQFG397GAaEnv51zR6tsTVihYRydnydDD1cXekxH",
+    "ammV4": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+    "openbook": "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",
+    "classicTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "token2022Program": "TokenzQdYV8hS1skp6VQGpaPZJVD2nqMzzM77aBJ9Sp",
+    "associatedTokenProgram": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    "metadata": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+    "system": "11111111111111111111111111111111",
+    "rent": "SysvarRent111111111111111111111111111111111"
+  },
+  "accounts": {
+    "launch": {
+      "address": "DNmernBmsQpXJo5L8XvwBS4wVBpeA4m3kC3QuMDF1suw",
+      "owner": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+      "dataBase64": "9+3j9dfD3kYBAAAAAAAAAPwABgkBABCl1OgAAAAAQLdDugAAAAAQpdToAAAAAPCClgUAAAAAQLdDugAAAADwgpYFAAAAAPCClgUAAACAlpgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwWYxKy6sX5VU1+D4OJzKZQ3ScT4fXWb2HNkW5dgflxF4Mwz/0X4HUNVcZsWnOBkyfqPUz3qIQ+DV+vASHfPOLn0K71/uzltR6pShSJaksZqrIkquUips1YXKc8/B9noBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAG7oAxEmSixUc394YxIsDuGBsPwn4ure3/D1rClwNprcsNSlFCC6pRnWe+NUtGGyMMuQtdrNFoaO0uHYnsU1tqPijFr5R2f2GzP5AgEljT57+A88I2VxA7dH7zh4Pv7rI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "baseVault": {
+      "address": "DdQndNfnJBNVyAWBG8CPH7YmuyrqnnAu1Rtdxg553B8d",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "dataBase64": "ufQrvX+7OW1HqlKFIlqSxmqsiSq5SKmzVhcpzz8H2egHg6gVJiEPlKDo6E0ghwA7OkJg0pznnaz+IaTqdx+mKADQ7ZAuAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "quoteVault": {
+      "address": "E9TY1c2u7U4HibMDCF5CCg3kzUJtGvzLYQboLwgR2qSW",
+      "owner": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "dataBase64": "BpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAEHg6gVJiEPlKDo6E0ghwA7OkJg0pznnaz+IaTqdx+mKADwgpYFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    },
+    "platformConfig": {
+      "address": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+      "owner": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+      "dataBase64": "oE6AAPhT5qABAAAAAAAAAKnVDZAeca6LSNmYTGHYueru2VszCow0rZN9AOpEuRuKGqhw1zqIZJwBnnidGnKwW2IbvI0J/ps/BdhyeTJKhk0AAAAAAAAAAAAAAAAAAAAAQEIPAAAAAAAQJwAAAAAAAEhha2t5IFByb3RvY29sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABodHRwczovL2hha2t5Lnh5egAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAaXBmczovL2hha2t5LXBsYXRmb3JtLWltYWdlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4pTqzarbJEvfCHQfC2Mp+WTIobJM7kuCGla26/6zOGAAAAAAAAAADCkm2oVFnsOOgZ8RKvA/gg6nt37F9Re/m9oL5O7wDLfz8ZxBbtiFHk0shAgNWoRAJN2Oh/gQBtAtVjHhjb/LLIAAAAAAAAAADvrK93lzFVKlgDaj5Bd2gmVOXY3dHJvEPnZNGcM26mUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAABAAAAAAAAAAA/BZjErLqxflVTX4Pg4nMplDdJxPh9dZvYc2Rbl2B+XAEAABCl1OgAAAAAQLdDugAAAADwgpYFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+    }
+  },
+  "expected": {
+    "launch": {
+      "epoch": "1",
+      "bump": 252,
+      "status": "fund",
+      "mintDecimalsA": 6,
+      "mintDecimalsB": 9,
+      "migrationType": "cpmm",
+      "supply": "1000000000000",
+      "totalSellA": "800000000000",
+      "virtualA": "1000000000000",
+      "virtualB": "24000000000",
+      "realA": "800000000000",
+      "realB": "24000000000",
+      "totalFundRaisingB": "24000000000",
+      "protocolFee": "10000000",
+      "platformFee": "0",
+      "migrateFee": "0",
+      "vestingSchedule": {
+        "totalLockedAmount": "0",
+        "cliffPeriod": "0",
+        "unlockPeriod": "0",
+        "startTime": "0",
+        "totalAllocatedShare": "0"
+      },
+      "configId": "5F1dpK7Ki3dfU1JzAMhvRkPCeqgJPxphYjNeNsVNqUdR",
+      "platformId": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+      "mintA": "DWtNTnmmcPbGFonXoZdkSyc3UtypNCsVUhGq9J7xF9UB",
+      "mintB": "So11111111111111111111111111111111111111112",
+      "vaultA": "DdQndNfnJBNVyAWBG8CPH7YmuyrqnnAu1Rtdxg553B8d",
+      "vaultB": "E9TY1c2u7U4HibMDCF5CCg3kzUJtGvzLYQboLwgR2qSW",
+      "creator": "AJSyK4Kexz9rS4bEp9YJrmhRLDFneysiR4TqWiKCbkea",
+      "mintProgramFlag": "classic-spl-token",
+      "cpmmCreatorFeeOn": "only-token-b",
+      "platformVestingShare": "0"
+    },
+    "baseVault": {
+      "address": "DdQndNfnJBNVyAWBG8CPH7YmuyrqnnAu1Rtdxg553B8d",
+      "mint": "DWtNTnmmcPbGFonXoZdkSyc3UtypNCsVUhGq9J7xF9UB",
+      "owner": "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",
+      "amount": "200000000000",
+      "accountSha256": "64f1387e7a8db4d515206578a1d033e44f15744155486bc1f784358825a81728"
+    },
+    "quoteVault": {
+      "address": "E9TY1c2u7U4HibMDCF5CCg3kzUJtGvzLYQboLwgR2qSW",
+      "mint": "So11111111111111111111111111111111111111112",
+      "owner": "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",
+      "amount": "24000000000",
+      "accountSha256": "90357d78b9f84a7934ed6e351b610ae9b949894b3002a60d26b4d155b62ba543"
+    },
+    "platformConfig": {
+      "address": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+      "epoch": "1",
+      "platformClaimFeeWallet": "CRxKurjQsHe7wgPateqQKEJ8YK26spY99sq4b7JV4AJM",
+      "platformLockNftWallet": "2o4a4ZkWdizQVLhDCpG69t6P96Lr3GGGY12ShC8qQFWC",
+      "platformScale": "0",
+      "creatorScale": "0",
+      "burnScale": "1000000",
+      "feeRate": "10000",
+      "name": "Hakky Protocol",
+      "web": "https://hakky.xyz",
+      "image": "ipfs://hakky-platform-image",
+      "cpConfigId": "47CHcoWBjrYjwV4W1TTLyKjufm3Ge6FddBQKRE2PSucZ",
+      "creatorFeeRate": "0",
+      "transferFeeExtensionAuth": "E6XbXj5TEYWjfqAU21xRcJBzoG6pK4RirUBaa11h4MdG",
+      "platformVestingWallet": "5FKUQYt4C4UKUAaRT8qLyWh6m2NX4A4uVrnBgxD5VXF5",
+      "platformVestingScale": "0",
+      "platformCpCreator": "H8bAVS7DHELP54nEKmQ2seo85aQrtbXchGDdJkvYAJPy",
+      "platformCurve": [
+        {
+          "epoch": "1",
+          "index": 0,
+          "configId": "5F1dpK7Ki3dfU1JzAMhvRkPCeqgJPxphYjNeNsVNqUdR",
+          "migrationType": "cpmm",
+          "migrateCpmmFeeOn": "only-token-b",
+          "supply": "1000000000000",
+          "totalSellA": "800000000000",
+          "totalFundRaisingB": "24000000000",
+          "totalLockedAmount": "0",
+          "cliffPeriod": "0",
+          "unlockPeriod": "0"
+        }
+      ],
+      "accountSha256": "9ac3246a3194c06973922e7e8d8a50403f3ddae7dcf11f05200b5a363ce5cdfe"
+    }
+  }
+}
