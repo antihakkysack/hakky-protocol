@@ -113,6 +113,38 @@ describe("AttestationRegistry", () => {
     ).to.be.revertedWithCustomError(registry, "ScoreOutOfRange");
   });
 
+  it("keeps sanctions sticky (fail-closed) after expiry, and clears them only on revoke", async () => {
+    const { registry, admin, mallory } = await deployFixture();
+
+    // Sanction with the default 90-day TTL.
+    await registry.connect(admin).attest(mallory.address, 0, true, 0, "ipfs://ofac");
+    expect(await registry.isSanctioned(mallory.address)).to.equal(true);
+
+    // Past the cleanliness expiry window, the address is no longer "clean"/"live"...
+    await time.increase(120 * 24 * 60 * 60);
+    expect(await registry.hasLiveAttestation(mallory.address)).to.equal(false);
+    // ...but the sanctions flag must NOT lapse just because time passed (fail closed).
+    expect(await registry.isSanctioned(mallory.address)).to.equal(true);
+
+    // Only an explicit revoke (or a newer clean attestation) clears it.
+    await registry.connect(admin).revoke(mallory.address);
+    expect(await registry.isSanctioned(mallory.address)).to.equal(false);
+  });
+
+  it("supports non-expiring attestations via the type(uint64).max sentinel", async () => {
+    const { registry, admin, alice } = await deployFixture();
+    const MAX_U64 = 2n ** 64n - 1n;
+
+    await registry.connect(admin).attest(alice.address, 95, false, MAX_U64, "ipfs://permanent");
+    const att = await registry.getAttestation(alice.address);
+    expect(att.expiresAt).to.equal(0n); // stored 0 == never expires
+
+    // Still live and clean far in the future.
+    await time.increase(3650 * 24 * 60 * 60); // ~10 years
+    expect(await registry.hasLiveAttestation(alice.address)).to.equal(true);
+    expect(await registry.isClean(alice.address, 50)).to.equal(true);
+  });
+
   it("restricts attesting to ATTESTOR_ROLE", async () => {
     const { registry, alice } = await deployFixture();
     await expect(

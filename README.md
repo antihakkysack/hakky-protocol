@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-14B8A6.svg)](LICENSE)
 [![Contracts](https://img.shields.io/badge/contracts-Solidity_0.8.24-0E9B8E.svg)](contracts/)
-[![Tests](https://img.shields.io/badge/tests-15%2F15_passing-0E9B8E.svg)](contracts/test/)
+[![Tests](https://img.shields.io/badge/tests-17%2F17_passing-0E9B8E.svg)](contracts/test/)
 [![Not a mixer](https://img.shields.io/badge/not-a_mixer-F7931A.svg)](#hakky-is-not-a-mixer)
 
 </div>
@@ -91,7 +91,7 @@ require(totalSupply() + amount <= reserveOracle.reserveSats());
 cd contracts
 npm install
 npm run build         # compile
-npm test              # 15 passing
+npm test              # 17 passing
 
 # 2. Local deploy (spins up a demo of the full stack)
 npx hardhat node                       # in one terminal

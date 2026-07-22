@@ -64,7 +64,9 @@ contract AttestationRegistry is AccessControl, IAttestationRegistry {
     /// @param subject     Address being attested.
     /// @param score       Cleanliness score, 0-100.
     /// @param sanctioned  Whether the subject is sanctioned.
-    /// @param ttl         Validity window in seconds (0 uses `defaultTtl`).
+    /// @param ttl         Validity window in seconds. `0` uses `defaultTtl`;
+    ///                    `type(uint64).max` is the sentinel for a non-expiring
+    ///                    attestation (stored as `expiresAt == 0`).
     /// @param evidenceURI Pointer to the off-chain screening report.
     function attest(
         address subject,
@@ -75,7 +77,16 @@ contract AttestationRegistry is AccessControl, IAttestationRegistry {
     ) external onlyRole(ATTESTOR_ROLE) {
         if (score > 100) revert ScoreOutOfRange();
         uint64 nowTs = uint64(block.timestamp);
-        uint64 window = ttl == 0 ? defaultTtl : ttl;
+
+        // A ttl of type(uint64).max means "never expires" and is stored as 0,
+        // making the documented `expiresAt == 0` sentinel reachable. Any other
+        // value expires at now + window (window == 0 falls back to defaultTtl).
+        uint64 expiresAt;
+        if (ttl == type(uint64).max) {
+            expiresAt = 0;
+        } else {
+            expiresAt = nowTs + (ttl == 0 ? defaultTtl : ttl);
+        }
 
         _attestations[subject] = Attestation({
             score: score,
@@ -83,11 +94,11 @@ contract AttestationRegistry is AccessControl, IAttestationRegistry {
             revoked: false,
             provider: msg.sender,
             issuedAt: nowTs,
-            expiresAt: nowTs + window,
+            expiresAt: expiresAt,
             evidenceURI: evidenceURI
         });
 
-        emit AttestationIssued(subject, msg.sender, score, sanctioned, nowTs + window, evidenceURI);
+        emit AttestationIssued(subject, msg.sender, score, sanctioned, expiresAt, evidenceURI);
     }
 
     /// @notice Revoke the current attestation for `subject`. Only the issuing provider
@@ -122,8 +133,14 @@ contract AttestationRegistry is AccessControl, IAttestationRegistry {
     }
 
     /// @inheritdoc IAttestationRegistry
+    /// @dev Sanctions are "sticky" and fail closed: once an address is flagged, it
+    ///      keeps reading as sanctioned until an attestor explicitly revokes it or
+    ///      publishes a newer non-sanctioned attestation. Unlike a cleanliness score,
+    ///      a sanctions flag deliberately does NOT lapse on expiry — a sanctions
+    ///      designation should never silently clear just because time passed.
     function isSanctioned(address subject) external view returns (bool) {
-        return hasLiveAttestation(subject) && _attestations[subject].sanctioned;
+        Attestation storage a = _attestations[subject];
+        return a.provider != address(0) && !a.revoked && a.sanctioned;
     }
 
     /// @inheritdoc IAttestationRegistry
