@@ -9,6 +9,7 @@ const required = [
   "The first thing it cleaned was its own launch.",
   "No official mint address exists yet",
   "1,000,000",
+  "1.00 SOL",
   "0% team",
   "no presale",
   "no promised utility or returns",
