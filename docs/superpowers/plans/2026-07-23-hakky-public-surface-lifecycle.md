@@ -43,7 +43,7 @@
 
 **Interfaces:**
 - Consumes: `validateLaunchRecord(record): string[]` and schema-valid v2 records whose non-prelaunch `proof.availability` is exactly `"verified"` or `"unavailable"`.
-- Produces: `buildLaunchView(record): LaunchView`, where `LaunchView.state` is exactly `"prelaunch"`, `"curve-live"`, `"graduated"`, or `"unavailable"`; `LaunchView.verified` is boolean; `LaunchView.mint` and `LaunchView.proof` are `null` unless availability is verified; `LaunchView.heading` is exact public copy; and `LaunchView.destinations` always has exact keys `solscanMint`, `solscanCreationTransaction`, `solscanGraduationTransaction`, `raydiumLaunchlab`, and `raydiumPool`, each string or `null`.
+- Produces: `buildLaunchView(record): LaunchView`, where `LaunchView.state` is exactly `"prelaunch"`, `"curve-live"`, `"graduated"`, or `"unavailable"`; `LaunchView.verified` is boolean; `LaunchView.mint` and `LaunchView.proof` are `null` unless availability is verified; `LaunchView.heading` is exact public copy; and `LaunchView.destinations` always has exact keys `solscanMint`, `solscanCreationTransaction`, `solscanGraduationTransaction`, `raydiumLaunchlab`, and `raydiumPool`, each string or `null`. The adapter never aliases caller-owned mutable data: it creates a browser-compatible deep JSON snapshot of verified `proof`, recursively freezes that snapshot, freezes `destinations`, and freezes the root `LaunchView`; hidden views are frozen to the same depth. It never freezes or mutates the input record.
 
 - [ ] **Step 1: Write the failing lifecycle-discrimination tests**
 
@@ -95,7 +95,8 @@ test("verified curve-live retains its exact proof and canonical destinations", (
   assert.equal(view.heading, "CURVE LIVE - PROGRAM AUTHORITY ACTIVE");
   assert.equal(view.verified, true);
   assert.equal(view.mint, record.token.mint);
-  assert.strictEqual(view.proof, record.proof);
+  assert.deepEqual(view.proof, record.proof);
+  assert.notStrictEqual(view.proof, record.proof);
   assert.deepEqual(Object.keys(view.destinations), [
     "solscanMint",
     "solscanCreationTransaction",
@@ -128,7 +129,8 @@ test("verified graduated exposes the canonical pool destination", () => {
   assert.equal(view.heading, "GRADUATED - FINAL STATE VERIFIED");
   assert.equal(view.verified, true);
   assert.equal(view.mint, record.token.mint);
-  assert.strictEqual(view.proof, record.proof);
+  assert.deepEqual(view.proof, record.proof);
+  assert.notStrictEqual(view.proof, record.proof);
   assert.equal(view.destinations.solscanMint, record.proof.links.solscanMint);
   assert.equal(view.destinations.solscanCreationTransaction, record.proof.links.solscanCreationTransaction);
   assert.equal(view.destinations.solscanGraduationTransaction, record.proof.links.solscanGraduationTransaction);
@@ -140,6 +142,18 @@ test("schema-invalid input is rejected before presentation", () => {
   record.proof.extra = true;
   assert.throws(() => buildLaunchView(record), /Invalid launch record/);
 });
+
+test("views are immutable snapshots of validated input", () => {
+  const record = createCurveLiveRecordV2({ availability: "verified" });
+  const view = buildLaunchView(record);
+  const originalMintLink = view.destinations.solscanMint;
+  record.proof.links.solscanMint = "https://example.invalid/mutated";
+  assert.equal(view.destinations.solscanMint, originalMintLink);
+  assert.notEqual(view.proof.links.solscanMint, record.proof.links.solscanMint);
+  assert.throws(() => { view.destinations.solscanMint = "https://example.invalid/other"; }, TypeError);
+  assert.throws(() => { view.proof.links.solscanMint = "https://example.invalid/other"; }, TypeError);
+  assert.throws(() => { view.heading = "changed"; }, TypeError);
+});
 ```
 
 - [ ] **Step 2: Run the adapter test and verify RED**
@@ -150,7 +164,7 @@ Run:
 rtk npm test -- test/launch-view.test.mjs
 ```
 
-Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `web/lib/launch-view.js`; if it fails in fixture setup, align the import names with the proof plan's committed fixture exports before continuing and keep the five assertions unchanged.
+Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `web/lib/launch-view.js`; if it fails in fixture setup, align the import names with the proof plan's committed fixture exports before continuing and keep all seven lifecycle/immutability tests and their assertions unchanged.
 
 - [ ] **Step 3: Implement the minimal lifecycle adapter**
 
@@ -167,16 +181,26 @@ const EMPTY_DESTINATIONS = Object.freeze({
   raydiumPool: null,
 });
 
+function cloneAndFreeze(value) {
+  if (Array.isArray(value)) return Object.freeze(value.map(cloneAndFreeze));
+  if (value && typeof value === "object") {
+    return Object.freeze(Object.fromEntries(
+      Object.entries(value).map(([key, nested]) => [key, cloneAndFreeze(nested)]),
+    ));
+  }
+  return value;
+}
+
 function hiddenView({ state, declaredStatus, heading }) {
-  return {
+  return Object.freeze({
     state,
     declaredStatus,
     verified: false,
     heading,
     mint: null,
     proof: null,
-    destinations: { ...EMPTY_DESTINATIONS },
-  };
+    destinations: Object.freeze({ ...EMPTY_DESTINATIONS }),
+  });
 }
 
 export function buildLaunchView(record) {
@@ -199,15 +223,16 @@ export function buildLaunchView(record) {
     });
   }
 
-  const destinations = Object.fromEntries([
-    ["solscanMint", record.proof.links.solscanMint],
-    ["solscanCreationTransaction", record.proof.links.solscanCreationTransaction],
-    ["solscanGraduationTransaction", record.status === "graduated" ? record.proof.links.solscanGraduationTransaction : null],
-    ["raydiumLaunchlab", record.proof.links.raydiumLaunchlab],
-    ["raydiumPool", record.status === "graduated" ? record.proof.links.raydiumPool : null],
-  ]);
+  const proof = cloneAndFreeze(record.proof);
+  const destinations = Object.freeze(Object.fromEntries([
+    ["solscanMint", proof.links.solscanMint],
+    ["solscanCreationTransaction", proof.links.solscanCreationTransaction],
+    ["solscanGraduationTransaction", record.status === "graduated" ? proof.links.solscanGraduationTransaction : null],
+    ["raydiumLaunchlab", proof.links.raydiumLaunchlab],
+    ["raydiumPool", record.status === "graduated" ? proof.links.raydiumPool : null],
+  ]));
 
-  return {
+  return Object.freeze({
     state: record.status,
     declaredStatus: record.status,
     verified: true,
@@ -215,9 +240,9 @@ export function buildLaunchView(record) {
       ? "CURVE LIVE - PROGRAM AUTHORITY ACTIVE"
       : "GRADUATED - FINAL STATE VERIFIED",
     mint: record.token.mint,
-    proof: record.proof,
+    proof,
     destinations,
-  };
+  });
 }
 ```
 
@@ -229,7 +254,7 @@ Run:
 rtk npm test -- test/launch-view.test.mjs
 ```
 
-Expected: all six tests pass with no warning or skipped test.
+Expected: all seven tests pass with no warning or skipped test.
 
 - [ ] **Step 5: Refactor only duplicated immutable constants and rerun**
 
@@ -241,7 +266,7 @@ Run:
 rtk npm test -- test/launch-view.test.mjs
 ```
 
-Expected: all six tests pass.
+Expected: all seven tests pass.
 
 - [ ] **Step 6: Commit the presentation adapter**
 

@@ -36,7 +36,13 @@
 
 **Interfaces:**
 - Consumes: existing `confirmSignature()`, classic-SPL rehearsal operations, and ignored `artifacts/devnet-rehearsal/proof.json`. It deliberately does not consume the mainnet curve-stage mint-v2 evaluator.
-- Produces: `parseRehearsalOptions(argv) -> { fundingMode: "faucet" | "external" }`; `waitForExternalFunding({ connection, address, minimumLamports, maxAttempts, delayMs }) -> Promise<bigint>`; `evaluateDevnetRehearsalEvidence(evidence) -> proof`; `runDevnetRehearsal({ fundingMode, onExternalAddress, ...dependencies }) -> Promise<proof>`.
+- Produces: `parseRehearsalOptions(argv) -> { fundingMode: "faucet" | "external" }`; `withDeadline(operationFactory, remainingMs) -> Promise<unknown>`; `waitForExternalFunding({ connection, address, minimumLamports, maxAttempts, delayMs, maxWaitMs, monotonicNow, sleepImpl, withDeadline }) -> Promise<bigint>`; `fetchDevnetRehearsalEvidence(...) -> evidence`; `evaluateDevnetRehearsalEvidence(evidence) -> proof`; `assertDevnetRehearsalProofV2(proof) -> proof`; `runDevnetRehearsal({ fundingMode, connection, createConnection, onExternalAddress, onPublicationWarning, ...dependencies }) -> Promise<proof>`.
+
+The devnet evidence contract is independent from mainnet mint-v2 and rejects every unknown key. Evidence has exact keys `cluster`, `genesisHash`, `tokenProgram`, `mint`, `payer`, `vaultOwner`, `supplyBaseUnits`, `decimals`, `mintAuthority`, `freezeAuthority`, `payerTokenBalanceBaseUnits`, `vaultTokenBalanceBaseUnits`, `observation`; `observation` has exact `commitment`, `slot`, `checkedAt`. Require the canonical devnet genesis, classic Token Program ID, canonical public keys, supply `"1000000000000"`, six decimals, null mint/freeze authorities, payer-owned HAKKY balance `"0"`, intended vault-owner HAKKY balance `"1000000000000"`, commitment `"finalized"`, nonnegative safe slot, and a real UTC millisecond timestamp. `fetchDevnetRehearsalEvidence` uses only classic-token raw accounts, obtains a finalized barrier slot after the rehearsal operations, and reads mint plus exhaustive payer/vault token-account sets with `finalized` and `minContextSlot` at least that barrier; every response context must meet the barrier. It rejects Token-2022, wrong owners/mints, uninitialized/invalid account states, missing context, duplicate accounts, and any mixed or non-finalized observation. Do not reuse the mainnet evaluator or require LaunchLab/metadata.
+
+The public proof is rebuilt from that whitelist with exact root keys `schemaVersion`, `cluster`, `checkedAt`, `identities`, `supply`, `authorities`, `balances`, `observation`, `checks`, `ok`; version is `devnet-rehearsal-v2`. Nested shapes are exact: `identities` has `mint`, `payer`, `vaultOwner`, `tokenProgram`; `supply` has `baseUnits`, `decimals`; `authorities` has `mintAuthority`, `freezeAuthority`; `balances` has `payerBaseUnits`, `vaultBaseUnits`; `observation` has `genesisHash`, `commitment`, `slot`, `checkedAt`; every check has only `id`, `ok`. Ordered check IDs are exactly `devnet-genesis`, `classic-token-program`, `canonical-identities`, `fixed-supply`, `six-decimals`, `mint-authority-revoked`, `freeze-authority-none`, `payer-token-balance-zero`, `vault-token-balance-full`, `finalized-observation`, with every `ok` exactly `true`; root `ok` is exactly `true`, `observation.genesisHash` equals `DEVNET_GENESIS_HASH`, and root `checkedAt` equals `observation.checkedAt`. `assertDevnetRehearsalProofV2` rejects every unknown key, wrong type/value/order, duplicate/missing check, and timestamp mismatch. The proof contains public keys and observations only, never keypair/secret bytes, raw RPC errors, or dependency objects. `runDevnetRehearsal` always calls the real evaluator and this independent validator; neither is injectable.
+
+Execution order is exact: parse and validate mode plus injected dependencies and every retry/deadline parameter; resolve and non-recursively unlink only the exact stale `artifacts/devnet-rehearsal/proof.json`; lazily use an injected `connection` or call validated `createConnection()` exactly once; verify devnet genesis; then generate keys and branch funding exactly once. Never construct the default connection in a function-parameter initializer. A stale-proof unlink failure stops before connection construction/RPC, key generation, or address disclosure, although the stale leaf may remain. In external mode `onExternalAddress` is a required function with no default no-op. Wrong genesis and every operation/evidence/pre-link failure leave the canonical proof absent and attempt cleanup only of the run-owned temporary leaf. `EEXIST` at the hard-link commit preserves the concurrently appearing proof, fails closed, and never claims that file as this run's artifact. After a successful hard-link commit the proof is published; if owned-temp unlink then fails, invoke validated `onPublicationWarning("TEMP_UNLINK_FAILED")` exactly once outside the proof, preserve the committed proof, resolve successfully with the proof, and explicitly forbid automatic retry. A throwing warning callback is swallowed after fixed stderr reporting and cannot convert the committed publication into failure or trigger retry. `main()` renders only that fixed warning to stderr. Success publishes one canonical JSON document with two-space indentation, LF, one trailing newline, and the exclusive temporary-file/fsync/hard-link no-clobber pattern. Validate the trusted output root/ancestors and never recursively delete.
 
 - [ ] **Step 1: Write RED option and external-funding tests**
 
@@ -65,9 +71,9 @@ test("external funding prints only the public address and never requests an aird
     }),
     generateKeypair: () => generated.shift(),
     onExternalAddress: (message) => announcements.push(message),
+    onPublicationWarning: () => {},
     operations: successfulOperations(),
-    fetchEvidence: successfulEvidence,
-    evaluateEvidence: () => ({ ok: true, checks: [] }),
+    fetchEvidence: () => successfulEvidence(),
     fundingDelayMs: 0,
   });
   assert.equal(airdropCalls, 0);
@@ -78,6 +84,8 @@ test("external funding prints only the public address and never requests an aird
   assert.doesNotMatch(JSON.stringify(announcements), new RegExp(Buffer.from(payer.secretKey).toString("hex"), "i"));
 });
 ```
+
+Add paired faucet/external cases proving the branch occurs exactly once. External mode requires and awaits exactly one `onExternalAddress({ address, minimumLamports: "2000000000" })` call, polls only finalized balance, and never calls `requestAirdrop` on success, timeout, callback failure, or RPC error. Faucet mode never calls the external callback or external balance poll and never falls back to it. Wrong genesis performs no key generation, callback, poll, or airdrop. Invalid CLI/programmatic mode performs no stale deletion, lazy connection construction, or network call. Validate `createConnection`, `onPublicationWarning`, and every other injected function before stale removal. The CLI matrix also rejects duplicate flags, `--external-funding=value`, case drift, positional values, multiple values, and non-array input before deletion or connection construction.
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
@@ -102,27 +110,19 @@ export function parseRehearsalOptions(argv) {
   throw new Error("Usage: npm run rehearsal:devnet -- [--external-funding]");
 }
 
-export async function waitForExternalFunding({
-  connection,
-  address,
-  minimumLamports,
-  maxAttempts = 120,
-  delayMs = 5_000,
-}) {
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    const balance = BigInt(await connection.getBalance(address, "finalized"));
-    if (balance >= minimumLamports) return balance;
-    if (attempt < maxAttempts) await sleep(delayMs);
-  }
-  throw new Error(`Devnet external funding was not observed after ${maxAttempts} attempts`);
-}
 ```
 
-Extend `runDevnetRehearsal()` with `fundingMode`, `onExternalAddress`, `fundingMaxAttempts`, and `fundingDelayMs`. Keep genesis verification and stale-proof removal before `generateKeypair()`. In `external` mode, call `onExternalAddress({ address, minimumLamports: "2000000000" })`, wait for balance, and never invoke `requestAirdrop`. Add an independent `evaluateDevnetRehearsalEvidence()` that checks classic Token Program, exact supply/decimals, null mint/freeze authorities after the rehearsal transfer, and zero payer balance; it must not require the LaunchLab PDA or metadata used by mainnet mint-v2. Change `main()` to parse `process.argv.slice(2)` and print the address message before final proof output.
+Implement `withDeadline(operationFactory, remainingMs)` first: validate a function and positive safe-integer duration, invoke the factory exactly once, race it against one timer, clear that timer in `finally`, and replace dependency text with a fixed stage error. Implement `waitForExternalFunding(...)` from the exact interface above. Validate `maxAttempts` as a positive safe integer, `delayMs` as a nonnegative safe integer, `maxWaitMs` as a positive safe integer no greater than `600000`, `minimumLamports` as a positive bigint, and every clock/sleep/deadline dependency as a function. One monotonic `start + maxWaitMs` deadline covers every poll, transient error, and scheduled delay. Each attempt calls `getBalance(address, "finalized")` through `withDeadline` using only the remaining time; accept only a nonnegative safe-integer result before bigint conversion. Low balance and transient RPC failure each consume one attempt. Schedule attempt N against `start + (N - 1) * delayMs` rather than sleeping after arbitrary RPC latency, and clear every timer. Add deterministic tests for a hanging poll, transient failures followed by success, all-error exhaustion, low-balance exhaustion, exact 600-second deadline, and RPC latency not extending the wall-clock bound. Production defaults are exactly 120 attempts, 5,000ms schedule, and 600,000ms overall.
+
+Extend `runDevnetRehearsal()` with `fundingMode`, `onExternalAddress`, `fundingMaxAttempts`, `fundingDelayMs`, and deterministic clock/deadline dependencies. After exact stale removal and devnet-genesis verification, external mode awaits the one public callback, waits for finalized balance, and never invokes `requestAirdrop`; faucet mode preserves its own path with no external callback/poll/fallback. Make rehearsal transaction confirmation/evidence reads finalized. Add the independent fetch/evaluator contract above; “zero payer balance” always means zero payer-owned HAKKY base units, never zero SOL. Change `main({ argv, runRehearsal, stdout, stderr })` to parse injected/default `argv` before runner/connection construction and print only the public address message before final proof output.
+
+The preceding RPC requirement is bounded as follows: validate every identity/faucet/confirmation attempt count, schedule delay, and maximum wait before stale deletion; use one monotonic overall deadline per stage with every call wrapped by `withDeadline`; count transient failures against the fixed attempt budget; require signature status exactly `finalized`; and expose only fixed identity/funding/confirmation errors. Production maxima are three attempts with a 500ms schedule and 15,000ms for identity, three attempts with a 500ms schedule and 30,000ms for faucet, and 120 attempts with a 1,000ms schedule and 120,000ms for each signature confirmation. The independent fetch/evaluator/validator contract above is mandatory; "zero payer balance" means zero payer-owned HAKKY base units, never zero SOL.
 
 - [ ] **Step 4: Add RED timeout, wrong-cluster, and stale-proof cases**
 
-Add cases that assert: non-devnet identity prevents key generation and address disclosure; 120 unsuccessful balance polls fail; transient balance RPC errors remain bounded; stale proof is absent after timeout; stdout/stderr/proof contain neither generated secret key.
+Add cases that assert: non-devnet identity prevents key generation and address disclosure; 120 unsuccessful balance polls fail within the one deadline; transient balance RPC errors remain bounded and can recover; all-error exhaustion fails; wrong genesis, timeout, and every operation/evidence/pre-link failure leave the canonical proof absent; wrong program/vault, short vault balance, residual payer balance, non-null authority, non-finalized or missing account context, duplicate account, Token-2022 owner, and unknown evidence keys fail. Mutate one field at a time across every exact proof root/nested/check shape and require the independent proof validator to reject it. Seed dependency/RPC errors with the payer secret encoded as hex, base64, and decimal arrays, then prove stdout, stderr, callback payloads, proof, and thrown public stage errors contain none of those values.
+
+Test stale cleanup and publication explicitly: invalid options do not delete; unlink removes only the exact proof leaf; cleanup failure stops before RPC/key generation; successful output is canonical/exclusive; a concurrently appearing proof is preserved and causes failure; open/write/fsync/pre-link faults never publish; and post-commit temp-unlink failure preserves the committed proof, calls `onPublicationWarning("TEMP_UNLINK_FAILED")` exactly once, and still resolves with the proof without retry even if the callback throws. `main()` emits only fixed public stage messages such as option, cleanup, identity, funding, confirmation, token-operation, evidence, publication, or committed-cleanup warning; it never echoes raw RPC/operation text.
 
 - [ ] **Step 5: Run GREEN tests and refactor common funding flow**
 
@@ -133,14 +133,14 @@ rtk node --test test/devnet-rehearsal.test.mjs
 rtk node --check scripts/rehearse-devnet.mjs
 ```
 
-Expected: PASS. Refactor only duplicated faucet/external branching; do not merge the two modes into an operation that can silently fall back from external funding to a faucet.
+Expected: PASS with injected connections/operations/funding observations/clock/callbacks only. Refactor only duplicated safe setup; do not merge the two funding modes into an operation that can silently fall back. During implementation/review, never run `npm run rehearsal:devnet`, instantiate the default live connection, call a faucet, disclose a generated address for funding, or request external funds.
 
 - [ ] **Step 6: Document the exact rehearsal boundary**
 
 Update `docs/LAUNCH.md` with:
 
 ```markdown
-Run `npm run rehearsal:devnet -- --external-funding` when the public faucet is unavailable. The command prints one ephemeral public devnet address, waits for at least 2 devnet SOL for no more than ten minutes, and never writes its secret key. It proves the classic-SPL policy verifier only; it does not simulate Raydium LaunchLab.
+Run `npm run rehearsal:devnet -- --external-funding` when the public faucet is unavailable. The command prints one ephemeral public devnet address, waits for at least 2 devnet SOL under one ten-minute monotonic deadline, and never writes its secret key. “Zero payer balance” in its proof means zero payer-owned HAKKY base units, not zero SOL. It proves finalized classic-SPL devnet state including the intended vault owner's full HAKKY balance only; it does not simulate Raydium LaunchLab or mainnet metadata.
 ```
 
 - [ ] **Step 7: Commit the devnet slice**
