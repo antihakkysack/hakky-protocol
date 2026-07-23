@@ -11,6 +11,13 @@ import {
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
+const CANONICAL_PROOF_FILES = Object.freeze({
+  mint: "mainnet-mint.json",
+  launchlab: "mainnet-launchlab.json",
+  graduation: "mainnet-graduation.json",
+});
+const CANONICAL_PROOF_FILE_SET = new Set(Object.values(CANONICAL_PROOF_FILES));
+
 function publicationError(code = "PUBLICATION_ERROR") {
   const error = new Error(code);
   error.code = code;
@@ -123,11 +130,25 @@ async function cleanupOwnedTemp(tempPath, expectedIdentity, fileSystem) {
   return "removed";
 }
 
-export function resolveCanonicalMintProofPath({ repositoryRoot = process.cwd() } = {}) {
+function resolveCanonicalProofPath(kind, { repositoryRoot = process.cwd() } = {}) {
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new Error("repositoryRoot must be absolute");
   }
-  return path.join(path.resolve(repositoryRoot), "proof", "mainnet-mint.json");
+  const fileName = CANONICAL_PROOF_FILES[kind];
+  if (!fileName) throw new Error("proof kind is unsupported");
+  return path.join(path.resolve(repositoryRoot), "proof", fileName);
+}
+
+export function resolveCanonicalMintProofPath(options) {
+  return resolveCanonicalProofPath("mint", options);
+}
+
+export function resolveCanonicalLaunchlabProofPath(options) {
+  return resolveCanonicalProofPath("launchlab", options);
+}
+
+export function resolveCanonicalGraduationProofPath(options) {
+  return resolveCanonicalProofPath("graduation", options);
 }
 
 export async function publishJsonProof(outputPath, proof, {
@@ -146,8 +167,11 @@ export async function publishJsonProof(outputPath, proof, {
   };
   const root = path.resolve(repositoryRoot);
   const proofDirectory = path.join(root, "proof");
-  const canonicalOutput = path.join(proofDirectory, "mainnet-mint.json");
-  if (!path.isAbsolute(repositoryRoot) || !samePath(outputPath, canonicalOutput)) throw publicationError();
+  const fileName = path.basename(outputPath);
+  const canonicalOutput = path.join(proofDirectory, fileName);
+  if (!path.isAbsolute(repositoryRoot)
+    || !CANONICAL_PROOF_FILE_SET.has(fileName)
+    || !samePath(outputPath, canonicalOutput)) throw publicationError();
   if (!proof || typeof proof !== "object" || Array.isArray(proof)) throw publicationError();
   if (typeof randomUUIDImpl !== "function") throw publicationError();
   try {
@@ -163,7 +187,10 @@ export async function publishJsonProof(outputPath, proof, {
   }
 
   const bytes = Buffer.from(`${JSON.stringify(proof, null, 2)}\n`, "utf8");
-  const tempPath = path.join(proofDirectory, `.mainnet-mint.${randomUUIDImpl()}.tmp`);
+  const tempPath = path.join(
+    proofDirectory,
+    `.${path.basename(fileName, ".json")}.${randomUUIDImpl()}.tmp`,
+  );
   let handle;
   let ownedIdentity;
   let committed = false;
