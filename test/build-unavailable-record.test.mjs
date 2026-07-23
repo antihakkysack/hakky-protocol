@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildUnavailableRecord } from "../src/canonical-proof.mjs";
-import { createPrelaunchRecordV2 } from "../test-support/launch-fixtures.mjs";
+import {
+  createCurveLiveRecordV2,
+  createPrelaunchRecordV2,
+} from "../test-support/launch-fixtures.mjs";
 import { validateLaunchRecord } from "../web/lib/launch-policy.js";
 
 const MINT = "11111111111111111111111111111111";
@@ -27,6 +30,20 @@ function curveReceipt() {
       launchAccountMatches: true,
     },
     ok: true,
+  };
+}
+
+function graduatedReceipt() {
+  return {
+    ...curveReceipt(),
+    stage: "graduated",
+    signature: `${"1".repeat(63)}2`,
+    finalizedSlot: 300000020,
+    finalizedAt: "2026-07-23T00:02:00.000Z",
+    checks: {
+      ...curveReceipt().checks,
+      poolObserved: true,
+    },
   };
 }
 
@@ -108,4 +125,105 @@ test("same-stage unavailable promotion is idempotent and consumes no fabricated 
   const second = buildUnavailableRecord({ sourceRecord: first.record });
   assert.deepEqual(second, { record: first.record, continuityReceipt: null });
   assert.notStrictEqual(second.record, first.record);
+});
+
+test("verified curve promotes to graduated unavailable only from matching later evidence", () => {
+  const sourceRecord = createCurveLiveRecordV2();
+  const receipt = graduatedReceipt();
+  receipt.mint = sourceRecord.token.mint;
+  const result = buildUnavailableRecord({ sourceRecord, stageReceipt: receipt });
+  assert.equal(result.record.status, "graduated");
+  assert.equal(result.record.token.mint, null);
+  assert.deepEqual(result.record.proof, {
+    stage: "graduated",
+    availability: "unavailable",
+  });
+  assert.deepEqual(validateLaunchRecord(result.record), []);
+  assert.equal(result.continuityReceipt.stage, "graduated");
+  assert.equal(result.continuityReceipt.mint, receipt.mint);
+
+  for (const mutate of [
+    (candidate) => { candidate.mint = LAUNCH_ID; },
+    (candidate) => { candidate.finalizedSlot = sourceRecord.proof.transactions.creation.finalizedSlot - 1; },
+    (candidate) => { candidate.finalizedAt = "2026-07-22T23:59:00.000Z"; },
+    (candidate) => { candidate.checks.poolObserved = false; },
+  ]) {
+    const invalid = graduatedReceipt();
+    invalid.mint = sourceRecord.token.mint;
+    mutate(invalid);
+    assert.throws(
+      () => buildUnavailableRecord({ sourceRecord, stageReceipt: invalid }),
+      /unavailable-/,
+    );
+  }
+});
+
+test("unavailable continuity must bind the exact prior record and receipt", () => {
+  const sourceStageReceipt = curveReceipt();
+  const first = buildUnavailableRecord({
+    sourceRecord: createPrelaunchRecordV2(),
+    stageReceipt: sourceStageReceipt,
+  });
+  const nextStageReceipt = graduatedReceipt();
+  const result = buildUnavailableRecord({
+    sourceRecord: first.record,
+    sourceStageReceipt,
+    sourceContinuityReceipt: first.continuityReceipt,
+    stageReceipt: nextStageReceipt,
+  });
+  assert.equal(result.record.status, "graduated");
+  assert.equal(result.record.token.mint, null);
+  assert.deepEqual(result.record.proof, {
+    stage: "graduated",
+    availability: "unavailable",
+  });
+  assert.deepEqual(validateLaunchRecord(result.record), []);
+
+  for (const mutate of [
+    ({ continuity }) => { continuity.publicRecordSha256 = "0".repeat(64); },
+    ({ continuity }) => { continuity.stageReceiptSha256 = "0".repeat(64); },
+    ({ continuity }) => { continuity.ok = false; },
+    ({ sourceReceipt }) => { sourceReceipt.mint = "SysvarC1ock11111111111111111111111111111111"; },
+    ({ nextReceipt }) => { nextReceipt.launchId = "SysvarC1ock11111111111111111111111111111111"; },
+    ({ nextReceipt }) => { nextReceipt.finalizedSlot = sourceStageReceipt.finalizedSlot - 1; },
+    ({ nextReceipt }) => { nextReceipt.finalizedAt = "2026-07-22T23:59:00.000Z"; },
+  ]) {
+    const sourceReceipt = structuredClone(sourceStageReceipt);
+    const continuity = structuredClone(first.continuityReceipt);
+    const nextReceipt = graduatedReceipt();
+    mutate({ sourceReceipt, continuity, nextReceipt });
+    assert.throws(
+      () => buildUnavailableRecord({
+        sourceRecord: first.record,
+        sourceStageReceipt: sourceReceipt,
+        sourceContinuityReceipt: continuity,
+        stageReceipt: nextReceipt,
+      }),
+      /unavailable-/,
+    );
+  }
+});
+
+test("unavailable builder rejects regressions, jumps, and irrelevant receipt chains", () => {
+  assert.throws(
+    () => buildUnavailableRecord({
+      sourceRecord: createPrelaunchRecordV2(),
+      stageReceipt: graduatedReceipt(),
+    }),
+    /unavailable-/,
+  );
+  assert.throws(
+    () => buildUnavailableRecord({
+      sourceRecord: createCurveLiveRecordV2(),
+      stageReceipt: curveReceipt(),
+    }),
+    /unavailable-/,
+  );
+  assert.throws(
+    () => buildUnavailableRecord({
+      sourceRecord: createCurveLiveRecordV2({ availability: "unavailable" }),
+      stageReceipt: graduatedReceipt(),
+    }),
+    /unavailable-/,
+  );
 });

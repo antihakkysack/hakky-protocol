@@ -416,8 +416,8 @@ export function createCanonicalLaunchlabProofV2({ migrationType = "cpmm" } = {})
     },
     transaction: {
       signature: CREATION_SIGNATURE,
-      finalizedSlot: SLOTS.launch,
-      finalizedAt: TIMES.launchFinalized,
+      finalizedSlot: SLOTS.creation,
+      finalizedAt: TIMES.creation,
       instruction: "initialize-v2",
       instructionDiscriminatorHex: "4399af27da102620",
       transactionSha256: HASHES.transaction,

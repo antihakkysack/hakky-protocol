@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
+import { validateSchema } from "./schema-validation.mjs";
 import {
   EXPECTED_POLICY,
   isCanonicalBase58,
@@ -286,6 +288,223 @@ export async function loadCanonicalProofsForLaunch(
   return loadCanonicalProofArtifacts({ root, readFileImpl });
 }
 
+const CURVE_ARTIFACTS = Object.freeze({
+  "proof/mainnet-mint.json": Object.freeze({ kind: "mint-v2", schemaVersion: 2 }),
+  "proof/mainnet-launchlab.json": Object.freeze({ kind: "launchlab-v2", schemaVersion: 2 }),
+});
+const GRADUATION_ARTIFACT_PATH = "proof/mainnet-graduation.json";
+const CURVE_ARTIFACT_FIELDS = Object.freeze(["path", "sha256", "value"]);
+
+function curveFail(code) {
+  throw new Error(`curve-${code}`);
+}
+
+function clone(value) {
+  return structuredClone(value);
+}
+
+function curveArtifactIssues(artifact, relativePath) {
+  const issues = [];
+  if (!isObject(artifact)
+    || Object.keys(artifact).sort().join(",") !== [...CURVE_ARTIFACT_FIELDS].sort().join(",")) {
+    return [`${relativePath} descriptor shape`];
+  }
+  const specification = CURVE_ARTIFACTS[relativePath];
+  if (artifact.path !== relativePath) issues.push(`${relativePath} path`);
+  if (!/^[0-9a-f]{64}$/.test(artifact.sha256)
+    || artifact.sha256 !== sha256(canonicalBytes(artifact.value))) {
+    issues.push(`${relativePath} sha256`);
+  }
+  if (!specification) {
+    issues.push(`${relativePath} unsupported`);
+    return issues;
+  }
+  const schema = validateSchema(specification.kind, artifact.value);
+  if (!schema.ok) issues.push(...schema.errors.map((issue) => `${relativePath} ${issue}`));
+  return issues;
+}
+
+export async function readCanonicalArtifact(relativePath, {
+  root = process.cwd(),
+  readFileImpl = readFile,
+} = {}) {
+  const specification = CURVE_ARTIFACTS[relativePath];
+  if (!specification) curveFail("artifact-path");
+  let bytes;
+  try {
+    const raw = await readFileImpl(path.join(path.resolve(root), ...relativePath.split("/")));
+    bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+  } catch {
+    throw new Error(`canonical-artifact-read-failed: ${relativePath}`);
+  }
+  let value;
+  try {
+    value = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error(`canonical-artifact-invalid-json: ${relativePath}`);
+  }
+  if (!bytes.equals(canonicalBytes(value))) {
+    throw new Error(`canonical-artifact-noncanonical: ${relativePath}`);
+  }
+  const schema = validateSchema(specification.kind, value);
+  if (!schema.ok) throw new Error(`canonical-artifact-schema-invalid: ${relativePath}`);
+  return {
+    path: relativePath,
+    sha256: sha256(bytes),
+    value,
+  };
+}
+
+export async function loadCurveProofArtifacts({
+  root = process.cwd(),
+  readFileImpl = readFile,
+} = {}) {
+  try {
+    await readFileImpl(path.join(path.resolve(root), ...GRADUATION_ARTIFACT_PATH.split("/")));
+    curveFail("stage-stale");
+  } catch (error) {
+    if (error?.message === "curve-stage-stale") throw error;
+    if (error?.code !== "ENOENT") curveFail("stage-stale-check");
+  }
+  const mintArtifact = await readCanonicalArtifact("proof/mainnet-mint.json", { root, readFileImpl });
+  const launchlabArtifact = await readCanonicalArtifact(
+    "proof/mainnet-launchlab.json",
+    { root, readFileImpl },
+  );
+  return { mintArtifact, launchlabArtifact };
+}
+
+function curveProofFromArtifacts(mintArtifact, launchlabArtifact) {
+  const mint = mintArtifact.value;
+  const launchlab = launchlabArtifact.value;
+  return {
+    stage: "curve-live",
+    availability: "verified",
+    sourceArtifacts: {
+      mint: {
+        path: mintArtifact.path,
+        sha256: mintArtifact.sha256,
+        schemaVersion: mint.schemaVersion,
+      },
+      launchlab: {
+        path: launchlabArtifact.path,
+        sha256: launchlabArtifact.sha256,
+        schemaVersion: launchlab.schemaVersion,
+      },
+    },
+    observation: {
+      finalizedSlot: launchlab.observation.finalizedSlot,
+      finalizedAt: launchlab.observation.finalizedAt,
+      checkedAt: launchlab.observation.checkedAt,
+      rpcHost: launchlab.observation.rpcHost,
+    },
+    supply: clone(mint.supply),
+    authorities: clone(mint.authorities),
+    creatorBalance: clone(mint.creatorBalance),
+    allocations: clone(launchlab.allocations),
+    quote: clone(launchlab.quote),
+    creatorFirstBuy: clone(launchlab.creatorFirstBuy),
+    vesting: clone(launchlab.vesting),
+    fees: clone(launchlab.fees),
+    cost: clone(launchlab.cost),
+    metadata: clone(launchlab.metadata),
+    transactions: {
+      creation: {
+        signature: launchlab.transaction.signature,
+        finalizedSlot: launchlab.transaction.finalizedSlot,
+        finalizedAt: launchlab.transaction.finalizedAt,
+      },
+    },
+    links: clone(launchlab.links),
+  };
+}
+
+function compareCurveFact(issues, label, actual, expected) {
+  if (!isDeepStrictEqual(actual, expected)) issues.push(`curve record ${label} does not match artifacts`);
+}
+
+export function validateCurveProofBinding({ record, mintArtifact, launchlabArtifact }) {
+  const issues = [
+    ...curveArtifactIssues(mintArtifact, "proof/mainnet-mint.json"),
+    ...curveArtifactIssues(launchlabArtifact, "proof/mainnet-launchlab.json"),
+  ];
+  if (issues.length) return issues;
+  issues.push(...validateLaunchRecord(record).map((issue) => `curve record ${issue}`));
+  const mint = mintArtifact.value;
+  const launchlab = launchlabArtifact.value;
+  for (const field of ["mint", "creator", "metadataAccount", "launchId", "launchlabAuthority"]) {
+    if (mint.identities[field] !== launchlab.identities[field]) {
+      issues.push(`artifact identity ${field} does not match`);
+    }
+  }
+  if (!isDeepStrictEqual(mint.metadata, launchlab.metadata)) {
+    issues.push("artifact metadata does not match");
+  }
+  if (mint.network !== launchlab.network
+    || mint.supply.tokenProgram !== launchlab.programs.token
+    || mint.authorities.mintAuthority !== launchlab.identities.launchlabAuthority
+    || mint.observation.creationSignature !== launchlab.transaction.signature
+    || mint.observation.creationSlot > launchlab.transaction.finalizedSlot
+    || launchlab.transaction.finalizedSlot > launchlab.observation.finalizedSlot
+    || Date.parse(mint.observation.checkedAt) > Date.parse(launchlab.observation.checkedAt)) {
+    issues.push("artifact chronology or program binding does not match");
+  }
+  if (!isObject(record)) return [...issues, "curve record shape"];
+  compareCurveFact(issues, "status", record.status, "curve-live");
+  compareCurveFact(issues, "network", record.network, "mainnet-beta");
+  compareCurveFact(issues, "token mint", record.token?.mint, mint.identities.mint);
+  const expectedProof = curveProofFromArtifacts(mintArtifact, launchlabArtifact);
+  for (const [field, expected] of Object.entries(expectedProof)) {
+    compareCurveFact(issues, `proof.${field}`, record.proof?.[field], expected);
+  }
+  return issues;
+}
+
+export function buildCurveLiveRecord(input) {
+  if (!isObject(input)
+    || Object.keys(input).sort().join(",") !== [
+      "launchlabArtifact",
+      "mintArtifact",
+      "publishedAt",
+      "sourceRecord",
+    ].sort().join(",")) curveFail("arguments");
+  const {
+    sourceRecord,
+    mintArtifact,
+    launchlabArtifact,
+    publishedAt,
+  } = input;
+  const sourceIssues = validateLaunchRecord(sourceRecord);
+  const sourceAllowed = sourceRecord?.status === "prelaunch" && sourceRecord.proof === null
+    || sourceRecord?.status === "curve-live"
+      && sourceRecord.proof?.availability === "unavailable";
+  if (sourceIssues.length || !sourceAllowed) curveFail("source-record");
+  const artifactIssues = [
+    ...curveArtifactIssues(mintArtifact, "proof/mainnet-mint.json"),
+    ...curveArtifactIssues(launchlabArtifact, "proof/mainnet-launchlab.json"),
+  ];
+  if (artifactIssues.length) curveFail("artifacts");
+  if (!isExactIsoTimestamp(publishedAt)
+    || Date.parse(publishedAt) < Date.parse(launchlabArtifact.value.observation.checkedAt)) {
+    curveFail("published-at");
+  }
+  const record = {
+    schemaVersion: sourceRecord.schemaVersion,
+    status: "curve-live",
+    network: sourceRecord.network,
+    project: clone(sourceRecord.project),
+    token: {
+      ...clone(sourceRecord.token),
+      mint: mintArtifact.value.identities.mint,
+    },
+    launch: clone(sourceRecord.launch),
+    proof: curveProofFromArtifacts(mintArtifact, launchlabArtifact),
+  };
+  const issues = validateCurveProofBinding({ record, mintArtifact, launchlabArtifact });
+  if (issues.length) curveFail("binding");
+  return record;
+}
+
 const STAGE_RECEIPT_FIELDS = Object.freeze([
   "schemaVersion",
   "network",
@@ -305,6 +524,22 @@ const CURVE_RECEIPT_CHECKS = Object.freeze([
   "transactionFinalized",
   "stageInstructionDecoded",
   "launchAccountMatches",
+]);
+const GRADUATED_RECEIPT_CHECKS = Object.freeze([
+  ...CURVE_RECEIPT_CHECKS,
+  "poolObserved",
+]);
+const CONTINUITY_RECEIPT_FIELDS = Object.freeze([
+  "schemaVersion",
+  "network",
+  "stage",
+  "mint",
+  "launchId",
+  "publicRecordSha256",
+  "stageReceiptSha256",
+  "finalizedSlot",
+  "finalizedAt",
+  "ok",
 ]);
 const LAUNCHLAB_PROGRAM_ID = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj";
 
@@ -327,12 +562,17 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function validateCurveStageReceipt(receipt) {
+function validateStageReceipt(receipt, expectedStage) {
+  const expectedChecks = expectedStage === "curve-live"
+    ? CURVE_RECEIPT_CHECKS
+    : expectedStage === "graduated"
+      ? GRADUATED_RECEIPT_CHECKS
+      : unavailableFail("stage");
   exactUnavailableKeys(receipt, STAGE_RECEIPT_FIELDS, "stage-receipt-shape");
-  exactUnavailableKeys(receipt.checks, CURVE_RECEIPT_CHECKS, "stage-receipt-checks");
+  exactUnavailableKeys(receipt.checks, expectedChecks, "stage-receipt-checks");
   if (receipt.schemaVersion !== "observed-stage-v1"
     || receipt.network !== "mainnet-beta"
-    || receipt.stage !== "curve-live"
+    || receipt.stage !== expectedStage
     || receipt.launchlabProgramId !== LAUNCHLAB_PROGRAM_ID
     || receipt.ok !== true
     || !Number.isSafeInteger(receipt.finalizedSlot)
@@ -341,8 +581,55 @@ function validateCurveStageReceipt(receipt) {
     || !isCanonicalBase58(receipt.mint, 32)
     || !isCanonicalBase58(receipt.launchId, 32)
     || !isCanonicalBase58(receipt.signature, 64)
-    || CURVE_RECEIPT_CHECKS.some((field) => receipt.checks[field] !== true)) {
+    || expectedChecks.some((field) => receipt.checks[field] !== true)) {
     unavailableFail("stage-receipt");
+  }
+}
+
+function buildContinuityReceipt(record, stageReceipt) {
+  return {
+    schemaVersion: "unavailable-continuity-v1",
+    network: "mainnet-beta",
+    stage: stageReceipt.stage,
+    mint: stageReceipt.mint,
+    launchId: stageReceipt.launchId,
+    publicRecordSha256: sha256(canonicalBytes(record)),
+    stageReceiptSha256: sha256(canonicalBytes(stageReceipt)),
+    finalizedSlot: stageReceipt.finalizedSlot,
+    finalizedAt: stageReceipt.finalizedAt,
+    ok: true,
+  };
+}
+
+function validatePriorUnavailableContinuity({
+  sourceRecord,
+  sourceStageReceipt,
+  sourceContinuityReceipt,
+  nextStageReceipt,
+}) {
+  validateStageReceipt(sourceStageReceipt, "curve-live");
+  exactUnavailableKeys(
+    sourceContinuityReceipt,
+    CONTINUITY_RECEIPT_FIELDS,
+    "source-continuity-shape",
+  );
+  const expectedPublicHash = sha256(canonicalBytes(sourceRecord));
+  const expectedStageHash = sha256(canonicalBytes(sourceStageReceipt));
+  if (sourceContinuityReceipt.schemaVersion !== "unavailable-continuity-v1"
+    || sourceContinuityReceipt.network !== "mainnet-beta"
+    || sourceContinuityReceipt.stage !== "curve-live"
+    || sourceContinuityReceipt.mint !== sourceStageReceipt.mint
+    || sourceContinuityReceipt.launchId !== sourceStageReceipt.launchId
+    || sourceContinuityReceipt.publicRecordSha256 !== expectedPublicHash
+    || sourceContinuityReceipt.stageReceiptSha256 !== expectedStageHash
+    || sourceContinuityReceipt.finalizedSlot !== sourceStageReceipt.finalizedSlot
+    || sourceContinuityReceipt.finalizedAt !== sourceStageReceipt.finalizedAt
+    || sourceContinuityReceipt.ok !== true
+    || nextStageReceipt.mint !== sourceStageReceipt.mint
+    || nextStageReceipt.launchId !== sourceStageReceipt.launchId
+    || nextStageReceipt.finalizedSlot < sourceStageReceipt.finalizedSlot
+    || Date.parse(nextStageReceipt.finalizedAt) < Date.parse(sourceStageReceipt.finalizedAt)) {
+    unavailableFail("source-continuity");
   }
 }
 
@@ -364,7 +651,7 @@ export function buildUnavailableRecord(input) {
   const sourceIssues = validateLaunchRecord(sourceRecord);
   if (sourceIssues.length) unavailableFail("source-record");
 
-  if (sourceRecord.status === "curve-live"
+  if (["curve-live", "graduated"].includes(sourceRecord.status)
     && sourceRecord.proof?.availability === "unavailable"
     && stageReceipt === null
     && sourceStageReceipt === null
@@ -374,15 +661,45 @@ export function buildUnavailableRecord(input) {
       continuityReceipt: null,
     };
   }
-  if (sourceRecord.status !== "prelaunch"
-    || sourceRecord.proof !== null
-    || sourceStageReceipt !== null
-    || sourceContinuityReceipt !== null) unavailableFail("transition");
-  validateCurveStageReceipt(stageReceipt);
+  let targetStage;
+  if (sourceRecord.status === "prelaunch"
+    && sourceRecord.proof === null
+    && sourceStageReceipt === null
+    && sourceContinuityReceipt === null) {
+    targetStage = "curve-live";
+    validateStageReceipt(stageReceipt, targetStage);
+  } else if (sourceRecord.status === "curve-live"
+    && sourceRecord.proof?.availability === "verified"
+    && sourceStageReceipt === null
+    && sourceContinuityReceipt === null) {
+    targetStage = "graduated";
+    validateStageReceipt(stageReceipt, targetStage);
+    const creation = sourceRecord.proof.transactions?.creation;
+    if (stageReceipt.mint !== sourceRecord.token.mint
+      || !creation
+      || stageReceipt.finalizedSlot < creation.finalizedSlot
+      || Date.parse(stageReceipt.finalizedAt) < Date.parse(creation.finalizedAt)) {
+      unavailableFail("verified-source-binding");
+    }
+  } else if (sourceRecord.status === "curve-live"
+    && sourceRecord.proof?.availability === "unavailable"
+    && sourceStageReceipt !== null
+    && sourceContinuityReceipt !== null) {
+    targetStage = "graduated";
+    validateStageReceipt(stageReceipt, targetStage);
+    validatePriorUnavailableContinuity({
+      sourceRecord,
+      sourceStageReceipt,
+      sourceContinuityReceipt,
+      nextStageReceipt: stageReceipt,
+    });
+  } else {
+    unavailableFail("transition");
+  }
 
   const record = {
     schemaVersion: sourceRecord.schemaVersion,
-    status: "curve-live",
+    status: targetStage,
     network: sourceRecord.network,
     project: structuredClone(sourceRecord.project),
     token: {
@@ -391,23 +708,12 @@ export function buildUnavailableRecord(input) {
     },
     launch: structuredClone(sourceRecord.launch),
     proof: {
-      stage: "curve-live",
+      stage: targetStage,
       availability: "unavailable",
     },
   };
   const issues = validateLaunchRecord(record);
   if (issues.length) unavailableFail("record");
-  const continuityReceipt = {
-    schemaVersion: "unavailable-continuity-v1",
-    network: "mainnet-beta",
-    stage: "curve-live",
-    mint: stageReceipt.mint,
-    launchId: stageReceipt.launchId,
-    publicRecordSha256: sha256(canonicalBytes(record)),
-    stageReceiptSha256: sha256(canonicalBytes(stageReceipt)),
-    finalizedSlot: stageReceipt.finalizedSlot,
-    finalizedAt: stageReceipt.finalizedAt,
-    ok: true,
-  };
+  const continuityReceipt = buildContinuityReceipt(record, stageReceipt);
   return { record, continuityReceipt };
 }
