@@ -1,16 +1,31 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, rm, stat, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { setTimeout as delay } from "node:timers/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { Keypair } from "@solana/web3.js";
 import {
+  generateDevnetReleaseConfig,
   INSTANCE_DOMAIN,
   instanceCommitment,
   renderRustReleaseConfig,
   restrictPrivateDirectory,
   restrictPrivateFile,
+  runDevnetReleaseConfigCli,
 } from "../src/devnet-release-config.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -19,6 +34,66 @@ const initializer = Keypair.fromSeed(
   Uint8Array.from({ length: 32 }, (_, i) => 255 - i),
 );
 const nonce = Uint8Array.from({ length: 32 }, () => 7);
+
+async function currentWindowsSid() {
+  const { stdout } = await execFileAsync("whoami.exe", [
+    "/user",
+    "/fo",
+    "csv",
+    "/nh",
+  ]);
+  const sid = stdout.match(/S-\d(?:-\d+)+/)?.[0];
+  assert.ok(sid, "current process-token SID must be available");
+  return sid;
+}
+
+async function windowsAcl(targetPath) {
+  const encodedPath = Buffer.from(targetPath, "utf8").toString("base64");
+  const script = `
+$privatePath = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('${encodedPath}')
+)
+$acl = Get-Acl -LiteralPath $privatePath
+$entries = @($acl.Access | ForEach-Object {
+  [PSCustomObject]@{
+    sid = $_.IdentityReference.Translate(
+      [System.Security.Principal.SecurityIdentifier]
+    ).Value
+    type = $_.AccessControlType.ToString()
+    rights = $_.FileSystemRights.ToString()
+    inherited = $_.IsInherited
+  }
+})
+[Console]::Out.Write((ConvertTo-Json -Compress -Depth 4 -InputObject (
+  [PSCustomObject]@{
+    protected = $acl.AreAccessRulesProtected
+    entries = $entries
+  }
+)))
+`;
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { windowsHide: true },
+  );
+  return JSON.parse(stdout);
+}
+
+async function isolatedRepository(t) {
+  const root = await mkdtemp(path.join(tmpdir(), "hakky-release-config-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(path.join(root, "programs", "hakky-market", "src"), {
+    recursive: true,
+  });
+  await writeFile(path.join(root, ".gitignore"), "artifacts/\n", "utf8");
+  return root;
+}
+
+function isolatedModuleUrl(root) {
+  return pathToFileURL(
+    path.join(root, "scripts", "generate-devnet-release-config.mjs"),
+  ).href;
+}
 
 test("renders only public compile-time release values", () => {
   const commitment = instanceCommitment(nonce);
@@ -43,7 +118,7 @@ test("domain-separated commitment is deterministic and nonce-sensitive", () => {
   assert.notDeepEqual(instanceCommitment(nonce), instanceCommitment(changed));
 });
 
-test("restricts private devnet directories to the current user", async (t) => {
+test("replaces hostile Windows ACLs with the exact SID allowlist", async (t) => {
   const directory = path.resolve(
     "artifacts",
     "devnet",
@@ -53,18 +128,273 @@ test("restricts private devnet directories to the current user", async (t) => {
   await mkdir(directory, { recursive: true });
   t.after(() => rm(directory, { recursive: true, force: true }));
 
-  await restrictPrivateDirectory(directory);
   const privateFile = path.join(directory, "permissions-test.txt");
   await writeFile(privateFile, "not a secret\n", "utf8");
-  await restrictPrivateFile(privateFile);
 
   if (process.platform === "win32") {
+    await execFileAsync("icacls.exe", [
+      directory,
+      "/grant",
+      "*S-1-1-0:(OI)(CI)F",
+    ]);
+    await execFileAsync("icacls.exe", [
+      privateFile,
+      "/grant",
+      "*S-1-1-0:F",
+    ]);
     for (const privatePath of [directory, privateFile]) {
-      const { stdout } = await execFileAsync("icacls", [privatePath]);
-      assert.doesNotMatch(stdout, /Authenticated Users|BUILTIN\\Users/i);
+      assert.ok(
+        (await windowsAcl(privatePath)).entries.some(
+          ({ sid }) => sid === "S-1-1-0",
+        ),
+        "the hostile Everyone grant must exist before hardening",
+      );
+    }
+
+    await restrictPrivateDirectory(directory);
+    await restrictPrivateFile(privateFile);
+
+    const allowedSids = [
+      await currentWindowsSid(),
+      "S-1-5-18",
+      "S-1-5-32-544",
+    ].sort();
+    for (const privatePath of [directory, privateFile]) {
+      const acl = await windowsAcl(privatePath);
+      assert.equal(acl.protected, true);
+      assert.deepEqual(
+        acl.entries.map(({ sid }) => sid).sort(),
+        allowedSids,
+      );
+      assert.ok(
+        acl.entries.every(
+          ({ inherited, rights, type }) =>
+            type === "Allow" &&
+            inherited === false &&
+            rights.includes("FullControl"),
+        ),
+      );
     }
   } else {
+    await restrictPrivateDirectory(directory);
+    await restrictPrivateFile(privateFile);
     assert.equal((await stat(directory)).mode & 0o777, 0o700);
     assert.equal((await stat(privateFile)).mode & 0o777, 0o600);
+  }
+});
+
+test("rejects an existing private identity directory without mutation", async (t) => {
+  const root = await isolatedRepository(t);
+  const privateDirectory = path.join(root, "artifacts", "devnet", "private");
+  const sentinelPath = path.join(privateDirectory, "existing-sentinel.txt");
+  const rustConfigPath = path.join(
+    root,
+    "programs",
+    "hakky-market",
+    "src",
+    "release_config.rs",
+  );
+  await mkdir(privateDirectory, { recursive: true });
+  await writeFile(sentinelPath, "existing private set\n", "utf8");
+  await writeFile(rustConfigPath, "existing public binding\n", "utf8");
+
+  await assert.rejects(
+    generateDevnetReleaseConfig({ repositoryRoot: root }),
+    /private identity path already exists/i,
+  );
+
+  assert.equal(await readFile(sentinelPath, "utf8"), "existing private set\n");
+  assert.equal(
+    await readFile(rustConfigPath, "utf8"),
+    "existing public binding\n",
+  );
+  assert.deepEqual(await readdir(privateDirectory), ["existing-sentinel.txt"]);
+});
+
+test("rejects an existing private destination file without overwrite", async (t) => {
+  const root = await isolatedRepository(t);
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  const privatePath = path.join(devnetDirectory, "private");
+  await mkdir(devnetDirectory, { recursive: true });
+  await writeFile(privatePath, "existing destination\n", "utf8");
+
+  await assert.rejects(
+    generateDevnetReleaseConfig({ repositoryRoot: root }),
+    /private identity path already exists/i,
+  );
+
+  assert.equal(await readFile(privatePath, "utf8"), "existing destination\n");
+  assert.equal((await lstat(privatePath)).isFile(), true);
+});
+
+test("no-overwrite publication preserves a destination created after staging", async (t) => {
+  const root = await isolatedRepository(t);
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  const privateDirectory = path.join(devnetDirectory, "private");
+  const rustConfigPath = path.join(
+    root,
+    "programs",
+    "hakky-market",
+    "src",
+    "release_config.rs",
+  );
+  await writeFile(rustConfigPath, "existing public binding\n", "utf8");
+
+  const generation = generateDevnetReleaseConfig({ repositoryRoot: root });
+  let stagingObserved = false;
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const entries = await readdir(devnetDirectory).catch((error) => {
+      if (error?.code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    });
+    if (entries.some((entry) => entry.startsWith(".private-stage-"))) {
+      stagingObserved = true;
+      break;
+    }
+    await delay(10);
+  }
+  assert.equal(stagingObserved, true, "private staging must be observable");
+
+  await mkdir(privateDirectory);
+  const sentinelPath = path.join(privateDirectory, "existing-sentinel.txt");
+  await writeFile(sentinelPath, "race winner\n", "utf8");
+
+  await assert.rejects(generation, /private identity path already exists/i);
+  assert.equal(await readFile(sentinelPath, "utf8"), "race winner\n");
+  assert.equal(
+    await readFile(rustConfigPath, "utf8"),
+    "existing public binding\n",
+  );
+  assert.deepEqual(await readdir(privateDirectory), ["existing-sentinel.txt"]);
+  assert.deepEqual(
+    (await readdir(devnetDirectory)).filter(
+      (entry) => entry.startsWith(".private-stage-") || entry.endsWith(".tmp"),
+    ),
+    [],
+  );
+});
+
+test("rejects redirected secret ancestors and destinations", async (t) => {
+  await t.test("redirected devnet ancestor", async (t) => {
+    const root = await isolatedRepository(t);
+    const artifactsDirectory = path.join(root, "artifacts");
+    const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
+    t.after(() => rm(outside, { recursive: true, force: true }));
+    const sentinelPath = path.join(outside, "sentinel.txt");
+    await mkdir(artifactsDirectory);
+    await writeFile(sentinelPath, "outside unchanged\n", "utf8");
+    await symlink(
+      outside,
+      path.join(artifactsDirectory, "devnet"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({ repositoryRoot: root }),
+      /redirected|reparse|symbolic/i,
+    );
+
+    assert.equal(await readFile(sentinelPath, "utf8"), "outside unchanged\n");
+    assert.deepEqual((await readdir(outside)).sort(), ["sentinel.txt"]);
+  });
+
+  await t.test("redirected private destination", async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
+    t.after(() => rm(outside, { recursive: true, force: true }));
+    const sentinelPath = path.join(outside, "sentinel.txt");
+    await mkdir(devnetDirectory, { recursive: true });
+    await writeFile(sentinelPath, "outside unchanged\n", "utf8");
+    await symlink(
+      outside,
+      path.join(devnetDirectory, "private"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({ repositoryRoot: root }),
+      /private identity path already exists|redirected|reparse|symbolic/i,
+    );
+
+    assert.equal(await readFile(sentinelPath, "utf8"), "outside unchanged\n");
+    assert.deepEqual((await readdir(outside)).sort(), ["sentinel.txt"]);
+  });
+});
+
+test("CLI roots from its module and writes only canonical public JSON", async (t) => {
+  const root = await isolatedRepository(t);
+  let stdout = "";
+
+  const result = await runDevnetReleaseConfigCli({
+    moduleUrl: isolatedModuleUrl(root),
+    stdout: {
+      write(chunk) {
+        stdout += chunk;
+      },
+    },
+  });
+
+  const parsed = JSON.parse(stdout);
+  assert.deepEqual(Object.keys(parsed), [
+    "programId",
+    "initializer",
+    "instanceCommitment",
+    "paths",
+  ]);
+  assert.equal(stdout, result.canonicalPublicJson);
+  assert.equal(
+    stdout,
+    await readFile(
+      path.join(root, "artifacts", "devnet", "public-release-config.json"),
+      "utf8",
+    ),
+  );
+  assert.equal(
+    result.repositoryRoot,
+    path.resolve(root),
+    "module location, not process.cwd(), selects the repository",
+  );
+  assert.deepEqual(
+    (await readdir(path.join(root, "artifacts", "devnet", "private"))).sort(),
+    [
+      "initializer-keypair.json",
+      "instance-nonce.hex",
+      "program-keypair.json",
+    ],
+  );
+  assert.deepEqual(
+    (await readdir(path.join(root, "artifacts", "devnet")))
+      .filter((name) => name.includes(".tmp") || name.includes(".stage-")),
+    [],
+  );
+});
+
+test("blanket artifacts rule is the explicit private ignore policy", async () => {
+  const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const ignoreFile = await readFile(path.join(root, ".gitignore"), "utf8");
+  assert.doesNotMatch(ignoreFile, /^artifacts\/devnet\/private\/$/mu);
+
+  const privatePaths = [
+    "artifacts/devnet/private/program-keypair.json",
+    "artifacts/devnet/private/initializer-keypair.json",
+    "artifacts/devnet/private/instance-nonce.hex",
+  ];
+  const { stdout } = await execFileAsync(
+    process.platform === "win32" ? "git.exe" : "git",
+    ["check-ignore", "-v", ...privatePaths],
+    { cwd: root, windowsHide: true },
+  );
+  const matches = stdout.trim().split(/\r?\n/u);
+  assert.equal(matches.length, privatePaths.length);
+  for (const [index, match] of matches.entries()) {
+    assert.match(
+      match,
+      /^\.gitignore:\d+:artifacts\/\t/u,
+      "blanket artifacts rule must be the matching ignore rule",
+    );
+    assert.ok(match.endsWith(privatePaths[index]));
   }
 });

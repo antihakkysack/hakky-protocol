@@ -10,7 +10,6 @@ target/
 
 # Generated and transient evidence
 artifacts/
-artifacts/devnet/private/
 .superpowers/
 .worktrees/
 
