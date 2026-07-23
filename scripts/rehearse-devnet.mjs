@@ -645,11 +645,29 @@ async function cleanupOwnedTemp(tempPath, fileSystem, expectedIdentity) {
   if (typeof expectedIdentity !== "string" || expectedIdentity.length === 0) {
     throw stageError("PUBLICATION_ERROR");
   }
-  const checkedStats = await assertExactFile(tempPath, fileSystem);
+  let checkedStats;
+  try {
+    checkedStats = await assertExactFile(tempPath, fileSystem);
+  } catch (error) {
+    if (error?.code === "ENOENT") return "already-absent";
+    throw error;
+  }
   if (stableObjectIdentity(checkedStats) !== expectedIdentity) throw stageError("PUBLICATION_ERROR");
-  const immediateStats = await fileSystem.lstat(tempPath);
+  let immediateStats;
+  try {
+    immediateStats = await fileSystem.lstat(tempPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return "already-absent";
+    throw error;
+  }
   if (stableObjectIdentity(immediateStats) !== expectedIdentity) throw stageError("PUBLICATION_ERROR");
-  await fileSystem.unlink(tempPath);
+  try {
+    await fileSystem.unlink(tempPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return "already-absent";
+    throw error;
+  }
+  return "removed";
 }
 
 async function publishProof({

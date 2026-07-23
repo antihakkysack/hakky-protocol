@@ -7,6 +7,7 @@ import {
   mkdtemp,
   open,
   readFile,
+  readdir,
   realpath,
   unlink,
   writeFile,
@@ -1417,6 +1418,57 @@ test("cleanup-path replacement is never unlinked and committed proof remains exa
   assert.equal(tempCleanupCalls, 0);
   await access(substitutedPath);
   assert.equal(JSON.parse(await readFile(proofPath, "utf8")).ok, true);
+});
+
+test("already-absent run-owned temp after commit is accepted without warning or retry", async (t) => {
+  for (const disappearance of ["identity-check", "unlink"]) {
+    await t.test(disappearance, async () => {
+      const outputRoot = await mkdtemp(path.join(os.tmpdir(), `hakky-temp-enoent-${disappearance}-`));
+      const fixture = successfulRunnerOptions({ outputRoot });
+      const proofPath = path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json");
+      let tempLstatCalls = 0;
+      let linkCalls = 0;
+      let warningCalls = 0;
+      fixture.options.onPublicationWarning = async () => { warningCalls += 1; };
+      fixture.options.fileSystem = injectedFileSystem({
+        async lstat(target) {
+          if (path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+            tempLstatCalls += 1;
+            if (disappearance === "identity-check" && tempLstatCalls === 5) {
+              await unlink(target);
+              const error = new Error("already absent");
+              error.code = "ENOENT";
+              throw error;
+            }
+          }
+          return lstat(target);
+        },
+        async link(...args) {
+          linkCalls += 1;
+          return link(...args);
+        },
+        async unlink(target) {
+          if (disappearance === "unlink"
+            && path.basename(target).startsWith(".proof-")
+            && target.endsWith(".tmp")) {
+            await unlink(target);
+            const error = new Error("already absent");
+            error.code = "ENOENT";
+            throw error;
+          }
+          return unlink(target);
+        },
+      });
+      const proof = await runDevnetRehearsal(fixture.options);
+      assert.equal(proof.ok, true);
+      assert.equal(linkCalls, 1);
+      assert.equal(warningCalls, 0);
+      assert.equal(await readFile(proofPath, "utf8"), `${JSON.stringify(proof, null, 2)}\n`);
+      const artifactDirectory = path.dirname(proofPath);
+      const leaves = await readdir(artifactDirectory);
+      assert.deepEqual(leaves, ["proof.json"]);
+    });
+  }
 });
 
 test("post-link proof byte or identity substitution is rejected", async (t) => {
