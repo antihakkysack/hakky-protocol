@@ -1,6 +1,6 @@
 "use strict";
 export const launchV2 = validate20;
-const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://hakky.xyz/schemas/web/launch-v2.schema.json","title":"HAKKY public launch record v2","oneOf":[{"$ref":"#/$defs/prelaunchRecord"},{"$ref":"#/$defs/curveUnavailableRecord"},{"$ref":"#/$defs/curveVerifiedRecord"},{"$ref":"#/$defs/graduatedUnavailableRecord"},{"$ref":"#/$defs/graduatedVerifiedRecord"}],"$defs":{"publicKey":{"type":"string","pattern":"^[1-9A-HJ-NP-Za-km-z]{32,44}$"},"signature":{"type":"string","pattern":"^[1-9A-HJ-NP-Za-km-z]{64,88}$"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"unsignedDecimal":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"timestamp":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"},"slot":{"type":"integer","minimum":0,"maximum":9007199254740991},"rpcHost":{"type":"string","pattern":"^(?=.{1,253}$)(?!.*(?:^|\\.)(?:localhost|local|test|invalid|example)(?:\\.|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"},"contentUri":{"type":"string","pattern":"^ipfs://b[a-z2-7]{10,}$"},"project":{"type":"object","additionalProperties":false,"required":["name","symbol","agent","website","x"],"properties":{"name":{"const":"Hakky Protocol"},"symbol":{"const":"HAKKY"},"agent":{"const":"HakkyAgent"},"website":{"const":"https://hakky.xyz"},"x":{"const":"https://x.com/antihakkysack"}}},"unavailableToken":{"type":"object","additionalProperties":false,"required":["mint","supplyBaseUnits","uiSupply","decimals","tokenProgram"],"properties":{"mint":{"type":"null"},"supplyBaseUnits":{"const":"1000000000000"},"uiSupply":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}},"verifiedToken":{"type":"object","additionalProperties":false,"required":["mint","supplyBaseUnits","uiSupply","decimals","tokenProgram"],"properties":{"mint":{"$ref":"#/$defs/publicKey"},"supplyBaseUnits":{"const":"1000000000000"},"uiSupply":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}},"launch":{"type":"object","additionalProperties":false,"required":["venue","quoteSymbol","publicCurveBps","liquidityBps","teamBps","creatorFirstBuyLamports","vestingBaseUnits","creatorDebitCapLamports"],"properties":{"venue":{"const":"Raydium LaunchLab"},"quoteSymbol":{"const":"SOL"},"publicCurveBps":{"const":8000},"liquidityBps":{"const":2000},"teamBps":{"const":0},"creatorFirstBuyLamports":{"const":"0"},"vestingBaseUnits":{"const":"0"},"creatorDebitCapLamports":{"const":"1000000000"}}},"prelaunchRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"prelaunch"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"type":"null"}}},"curveUnavailableRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"curve-live"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/curveUnavailableProof"}}},"curveVerifiedRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"curve-live"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/verifiedToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/curveVerifiedProof"}}},"graduatedUnavailableRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"graduated"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/graduatedUnavailableProof"}}},"graduatedVerifiedRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"graduated"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/verifiedToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/graduatedVerifiedProof"}}},"curveUnavailableProof":{"type":"object","additionalProperties":false,"required":["stage","availability"],"properties":{"stage":{"const":"curve-live"},"availability":{"const":"unavailable"}}},"graduatedUnavailableProof":{"type":"object","additionalProperties":false,"required":["stage","availability"],"properties":{"stage":{"const":"graduated"},"availability":{"const":"unavailable"}}},"mintArtifact":{"type":"object","additionalProperties":false,"required":["path","sha256","schemaVersion"],"properties":{"path":{"const":"proof/mainnet-mint.json"},"sha256":{"$ref":"#/$defs/sha256"},"schemaVersion":{"const":2}}},"launchlabArtifact":{"type":"object","additionalProperties":false,"required":["path","sha256","schemaVersion"],"properties":{"path":{"const":"proof/mainnet-launchlab.json"},"sha256":{"$ref":"#/$defs/sha256"},"schemaVersion":{"const":2}}},"graduationArtifact":{"type":"object","additionalProperties":false,"required":["path","sha256","schemaVersion"],"properties":{"path":{"const":"proof/mainnet-graduation.json"},"sha256":{"$ref":"#/$defs/sha256"},"schemaVersion":{"const":1}}},"curveSourceArtifacts":{"type":"object","additionalProperties":false,"required":["mint","launchlab"],"properties":{"mint":{"$ref":"#/$defs/mintArtifact"},"launchlab":{"$ref":"#/$defs/launchlabArtifact"}}},"graduatedSourceArtifacts":{"type":"object","additionalProperties":false,"required":["mint","launchlab","graduation"],"properties":{"mint":{"$ref":"#/$defs/mintArtifact"},"launchlab":{"$ref":"#/$defs/launchlabArtifact"},"graduation":{"$ref":"#/$defs/graduationArtifact"}}},"observation":{"type":"object","additionalProperties":false,"required":["finalizedSlot","finalizedAt","checkedAt","rpcHost"],"properties":{"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"},"checkedAt":{"$ref":"#/$defs/timestamp"},"rpcHost":{"$ref":"#/$defs/rpcHost"}}},"supply":{"type":"object","additionalProperties":false,"required":["baseUnits","uiAmount","decimals","tokenProgram"],"properties":{"baseUnits":{"const":"1000000000000"},"uiAmount":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}},"curveAuthorities":{"type":"object","additionalProperties":false,"required":["mintAuthority","authorityKind","freezeAuthority"],"properties":{"mintAuthority":{"const":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh"},"authorityKind":{"const":"launchlab-program-pda"},"freezeAuthority":{"type":"null"}}},"graduatedAuthorities":{"type":"object","additionalProperties":false,"required":["mintAuthority","authorityKind","freezeAuthority"],"properties":{"mintAuthority":{"type":"null"},"authorityKind":{"type":"null"},"freezeAuthority":{"type":"null"}}},"creatorBalanceAccount":{"type":"object","additionalProperties":false,"required":["address","mint","owner","amountBaseUnits","state","accountSha256"],"properties":{"address":{"$ref":"#/$defs/publicKey"},"mint":{"$ref":"#/$defs/publicKey"},"owner":{"$ref":"#/$defs/publicKey"},"amountBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"state":{"enum":["initialized","frozen"]},"accountSha256":{"$ref":"#/$defs/sha256"}}},"creatorBalance":{"type":"object","additionalProperties":false,"required":["owner","accounts","totalAmountBaseUnits","finalizedSlot","finalizedAt"],"properties":{"owner":{"$ref":"#/$defs/publicKey"},"accounts":{"type":"array","items":{"$ref":"#/$defs/creatorBalanceAccount"},"uniqueItems":true},"totalAmountBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"allocations":{"type":"object","additionalProperties":false,"required":["publicCurveBaseUnits","publicCurveBps","liquidityBaseUnits","liquidityBps","teamBaseUnits","teamBps","totalBps"],"properties":{"publicCurveBaseUnits":{"const":"800000000000"},"publicCurveBps":{"const":8000},"liquidityBaseUnits":{"const":"200000000000"},"liquidityBps":{"const":2000},"teamBaseUnits":{"const":"0"},"teamBps":{"const":0},"totalBps":{"const":10000}}},"quote":{"type":"object","additionalProperties":false,"required":["mint","symbol","decimals","fundraisingLamports","graduationThresholdLamports"],"properties":{"mint":{"const":"So11111111111111111111111111111111111111112"},"symbol":{"const":"SOL"},"decimals":{"const":9},"fundraisingLamports":{"$ref":"#/$defs/unsignedDecimal"},"graduationThresholdLamports":{"const":"24000000000"}}},"creatorFirstBuy":{"type":"object","additionalProperties":false,"required":["creatorLamports","creatorTokenBaseUnits"],"properties":{"creatorLamports":{"const":"0"},"creatorTokenBaseUnits":{"const":"0"}}},"vesting":{"type":"object","additionalProperties":false,"required":["lockedBaseUnits","cliffSeconds","unlockSeconds"],"properties":{"lockedBaseUnits":{"const":"0"},"cliffSeconds":{"const":"0"},"unlockSeconds":{"const":"0"}}},"fees":{"type":"object","additionalProperties":false,"required":["protocolBuyFeeRateMillionths","protocolSellFeeRateMillionths","feeRateDenominator","creatorTradingFeeRateMillionths","creatorFeeKey","creatorFeeRights","snapshotImmutable"],"properties":{"protocolBuyFeeRateMillionths":{"$ref":"#/$defs/unsignedDecimal"},"protocolSellFeeRateMillionths":{"$ref":"#/$defs/unsignedDecimal"},"feeRateDenominator":{"const":"1000000"},"creatorTradingFeeRateMillionths":{"const":"0"},"creatorFeeKey":{"type":"null"},"creatorFeeRights":{"const":false},"snapshotImmutable":{"const":true}}},"curveCost":{"type":"object","additionalProperties":false,"required":["metadataUploadLamports","creationDebitLamports","recoveryDebitLamports","graduationDebitLamports","cumulativeCreatorDebitLamports","capLamports","withinCap"],"properties":{"metadataUploadLamports":{"$ref":"#/$defs/unsignedDecimal"},"creationDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"recoveryDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"graduationDebitLamports":{"const":"0"},"cumulativeCreatorDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"capLamports":{"const":"1000000000"},"withinCap":{"const":true}}},"graduatedCost":{"type":"object","additionalProperties":false,"required":["metadataUploadLamports","creationDebitLamports","recoveryDebitLamports","graduationDebitLamports","cumulativeCreatorDebitLamports","capLamports","withinCap"],"properties":{"metadataUploadLamports":{"$ref":"#/$defs/unsignedDecimal"},"creationDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"recoveryDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"graduationDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"cumulativeCreatorDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"capLamports":{"const":"1000000000"},"withinCap":{"const":true}}},"metadata":{"type":"object","additionalProperties":false,"required":["name","symbol","uri","metadataAccount","metadataAccountSha256","jsonSha256","imageUri","imageSha256","externalUrl","twitter","updateAuthority","isMutable"],"properties":{"name":{"const":"Hakky Protocol"},"symbol":{"const":"HAKKY"},"uri":{"$ref":"#/$defs/contentUri"},"metadataAccount":{"$ref":"#/$defs/publicKey"},"metadataAccountSha256":{"$ref":"#/$defs/sha256"},"jsonSha256":{"$ref":"#/$defs/sha256"},"imageUri":{"$ref":"#/$defs/contentUri"},"imageSha256":{"$ref":"#/$defs/sha256"},"externalUrl":{"const":"https://hakky.xyz"},"twitter":{"const":"https://x.com/antihakkysack"},"updateAuthority":{"$ref":"#/$defs/publicKey"},"isMutable":{"const":false}}},"transaction":{"type":"object","additionalProperties":false,"required":["signature","finalizedSlot","finalizedAt"],"properties":{"signature":{"$ref":"#/$defs/signature"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"curveTransactions":{"type":"object","additionalProperties":false,"required":["creation"],"properties":{"creation":{"$ref":"#/$defs/transaction"}}},"graduatedTransactions":{"type":"object","additionalProperties":false,"required":["creation","graduation"],"properties":{"creation":{"$ref":"#/$defs/transaction"},"graduation":{"$ref":"#/$defs/transaction"}}},"curveLinks":{"type":"object","additionalProperties":false,"required":["solscanMint","solscanCreationTransaction","raydiumLaunchlab"],"properties":{"solscanMint":{"type":"string","pattern":"^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},"solscanCreationTransaction":{"type":"string","pattern":"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},"raydiumLaunchlab":{"type":"string","pattern":"^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"}}},"graduatedLinks":{"type":"object","additionalProperties":false,"required":["solscanMint","solscanCreationTransaction","solscanGraduationTransaction","raydiumLaunchlab","raydiumPool"],"properties":{"solscanMint":{"type":"string","pattern":"^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},"solscanCreationTransaction":{"type":"string","pattern":"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},"solscanGraduationTransaction":{"type":"string","pattern":"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},"raydiumLaunchlab":{"type":"string","pattern":"^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},"raydiumPool":{"type":"string","pattern":"^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$"}}},"graduation":{"type":"object","additionalProperties":false,"required":["configuredThresholdLamports","observedQuoteBalanceLamports","status","finalizedSlot","finalizedAt"],"properties":{"configuredThresholdLamports":{"const":"24000000000"},"observedQuoteBalanceLamports":{"$ref":"#/$defs/unsignedDecimal"},"status":{"const":"graduated"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"pool":{"type":"object","additionalProperties":false,"required":["address","programId","quoteVault","quoteVaultBalanceLamports","accountSha256"],"properties":{"address":{"$ref":"#/$defs/publicKey"},"programId":{"enum":["CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C","675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"]},"quoteVault":{"$ref":"#/$defs/publicKey"},"quoteVaultBalanceLamports":{"$ref":"#/$defs/unsignedDecimal"},"accountSha256":{"$ref":"#/$defs/sha256"}}},"cpmmEvidenceAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"enum":["lp-mint","locked-position","lock-nft-mint","lock-nft-token-account","lock-vault","fee-right-account"]},"address":{"$ref":"#/$defs/publicKey"},"ownerProgram":{"$ref":"#/$defs/publicKey"},"accountSha256":{"$ref":"#/$defs/sha256"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"ammEvidenceAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"enum":["lp-mint","burn-source","creator-lp-account","platform-lp-account","withdrawal-queue","fee-right-account"]},"address":{"$ref":"#/$defs/publicKey"},"ownerProgram":{"$ref":"#/$defs/publicKey"},"accountSha256":{"$ref":"#/$defs/sha256"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"cpmmEvidenceAccounts":{"type":"array","minItems":6,"maxItems":6,"items":{"$ref":"#/$defs/cpmmEvidenceAccount"},"allOf":[{"contains":{"$ref":"#/$defs/cpmmRoleLpMint"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockedPosition"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockNftMint"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockNftTokenAccount"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockVault"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleFeeRightAccount"},"minContains":1,"maxContains":1}]},"ammEvidenceAccounts":{"type":"array","minItems":6,"maxItems":6,"items":{"$ref":"#/$defs/ammEvidenceAccount"},"allOf":[{"contains":{"$ref":"#/$defs/ammRoleLpMint"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleBurnSource"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleCreatorLpAccount"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRolePlatformLpAccount"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleWithdrawalQueue"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleFeeRightAccount"},"minContains":1,"maxContains":1}]},"cpmmRoleLpMint":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lp-mint"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockedPosition":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"locked-position"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockNftMint":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lock-nft-mint"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockNftTokenAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lock-nft-token-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockVault":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lock-vault"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleFeeRightAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"fee-right-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleLpMint":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lp-mint"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleBurnSource":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"burn-source"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleCreatorLpAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"creator-lp-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRolePlatformLpAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"platform-lp-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleWithdrawalQueue":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"withdrawal-queue"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleFeeRightAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"fee-right-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"lpDisposition":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","lpMint","lockedPosition","lockProgram","lockNftMint","lockNftTokenAccount","lockVault","platformLpBps","creatorLpBps","irreversibleLpBps","withdrawalAuthority","feeKey","feeRights","recoverableLpBaseUnits","evidenceAccounts"],"properties":{"kind":{"const":"burn-and-earn"},"lpMint":{"$ref":"#/$defs/publicKey"},"lockedPosition":{"$ref":"#/$defs/publicKey"},"lockProgram":{"const":"LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE"},"lockNftMint":{"$ref":"#/$defs/publicKey"},"lockNftTokenAccount":{"$ref":"#/$defs/publicKey"},"lockVault":{"$ref":"#/$defs/publicKey"},"platformLpBps":{"const":0},"creatorLpBps":{"const":0},"irreversibleLpBps":{"const":10000},"withdrawalAuthority":{"type":"null"},"feeKey":{"type":"null"},"feeRights":{"type":"array","maxItems":0},"recoverableLpBaseUnits":{"const":"0"},"evidenceAccounts":{"$ref":"#/$defs/cpmmEvidenceAccounts"}}},{"type":"object","additionalProperties":false,"required":["kind","lpMint","burnedBaseUnits","totalSupplyBaseUnits","creatorLpBaseUnits","platformLpBaseUnits","recoverableLpBaseUnits","withdrawalAuthority","feeKey","feeRights","evidenceAccounts"],"properties":{"kind":{"const":"lp-burn"},"lpMint":{"$ref":"#/$defs/publicKey"},"burnedBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"totalSupplyBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"creatorLpBaseUnits":{"const":"0"},"platformLpBaseUnits":{"const":"0"},"recoverableLpBaseUnits":{"const":"0"},"withdrawalAuthority":{"type":"null"},"feeKey":{"type":"null"},"feeRights":{"type":"array","maxItems":0},"evidenceAccounts":{"$ref":"#/$defs/ammEvidenceAccounts"}}}]},"curveVerifiedProof":{"type":"object","additionalProperties":false,"required":["stage","availability","sourceArtifacts","observation","supply","authorities","creatorBalance","allocations","quote","creatorFirstBuy","vesting","fees","cost","metadata","transactions","links"],"properties":{"stage":{"const":"curve-live"},"availability":{"const":"verified"},"sourceArtifacts":{"$ref":"#/$defs/curveSourceArtifacts"},"observation":{"$ref":"#/$defs/observation"},"supply":{"$ref":"#/$defs/supply"},"authorities":{"$ref":"#/$defs/curveAuthorities"},"creatorBalance":{"$ref":"#/$defs/creatorBalance"},"allocations":{"$ref":"#/$defs/allocations"},"quote":{"$ref":"#/$defs/quote"},"creatorFirstBuy":{"$ref":"#/$defs/creatorFirstBuy"},"vesting":{"$ref":"#/$defs/vesting"},"fees":{"$ref":"#/$defs/fees"},"cost":{"$ref":"#/$defs/curveCost"},"metadata":{"$ref":"#/$defs/metadata"},"transactions":{"$ref":"#/$defs/curveTransactions"},"links":{"$ref":"#/$defs/curveLinks"}}},"graduatedVerifiedProof":{"type":"object","additionalProperties":false,"required":["stage","availability","sourceArtifacts","observation","supply","authorities","creatorBalance","allocations","quote","creatorFirstBuy","vesting","fees","cost","metadata","transactions","links","graduation","pool","lpDisposition"],"properties":{"stage":{"const":"graduated"},"availability":{"const":"verified"},"sourceArtifacts":{"$ref":"#/$defs/graduatedSourceArtifacts"},"observation":{"$ref":"#/$defs/observation"},"supply":{"$ref":"#/$defs/supply"},"authorities":{"$ref":"#/$defs/graduatedAuthorities"},"creatorBalance":{"$ref":"#/$defs/creatorBalance"},"allocations":{"$ref":"#/$defs/allocations"},"quote":{"$ref":"#/$defs/quote"},"creatorFirstBuy":{"$ref":"#/$defs/creatorFirstBuy"},"vesting":{"$ref":"#/$defs/vesting"},"fees":{"$ref":"#/$defs/fees"},"cost":{"$ref":"#/$defs/graduatedCost"},"metadata":{"$ref":"#/$defs/metadata"},"transactions":{"$ref":"#/$defs/graduatedTransactions"},"links":{"$ref":"#/$defs/graduatedLinks"},"graduation":{"$ref":"#/$defs/graduation"},"pool":{"$ref":"#/$defs/pool"},"lpDisposition":{"$ref":"#/$defs/lpDisposition"}},"oneOf":[{"$ref":"#/$defs/cpmmPublicGraduationBranch"},{"$ref":"#/$defs/ammPublicGraduationBranch"}]},"cpmmPublicGraduationBranch":{"type":"object","additionalProperties":false,"required":["pool","lpDisposition"],"properties":{"stage":true,"availability":true,"sourceArtifacts":true,"observation":true,"supply":true,"authorities":true,"creatorBalance":true,"allocations":true,"quote":true,"creatorFirstBuy":true,"vesting":true,"fees":true,"cost":true,"metadata":true,"transactions":true,"links":true,"graduation":true,"pool":{"type":"object","additionalProperties":false,"required":["address","programId","quoteVault","quoteVaultBalanceLamports","accountSha256"],"properties":{"address":true,"programId":{"const":"CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"},"quoteVault":true,"quoteVaultBalanceLamports":true,"accountSha256":true}},"lpDisposition":{"type":"object","additionalProperties":false,"required":["kind","lpMint","lockedPosition","lockProgram","lockNftMint","lockNftTokenAccount","lockVault","platformLpBps","creatorLpBps","irreversibleLpBps","withdrawalAuthority","feeKey","feeRights","recoverableLpBaseUnits","evidenceAccounts"],"properties":{"kind":{"const":"burn-and-earn"},"lpMint":true,"lockedPosition":true,"lockProgram":true,"lockNftMint":true,"lockNftTokenAccount":true,"lockVault":true,"platformLpBps":true,"creatorLpBps":true,"irreversibleLpBps":true,"withdrawalAuthority":true,"feeKey":true,"feeRights":true,"recoverableLpBaseUnits":true,"evidenceAccounts":true}}}},"ammPublicGraduationBranch":{"type":"object","additionalProperties":false,"required":["pool","lpDisposition"],"properties":{"stage":true,"availability":true,"sourceArtifacts":true,"observation":true,"supply":true,"authorities":true,"creatorBalance":true,"allocations":true,"quote":true,"creatorFirstBuy":true,"vesting":true,"fees":true,"cost":true,"metadata":true,"transactions":true,"links":true,"graduation":true,"pool":{"type":"object","additionalProperties":false,"required":["address","programId","quoteVault","quoteVaultBalanceLamports","accountSha256"],"properties":{"address":true,"programId":{"const":"675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"},"quoteVault":true,"quoteVaultBalanceLamports":true,"accountSha256":true}},"lpDisposition":{"type":"object","additionalProperties":false,"required":["kind","lpMint","burnedBaseUnits","totalSupplyBaseUnits","creatorLpBaseUnits","platformLpBaseUnits","recoverableLpBaseUnits","withdrawalAuthority","feeKey","feeRights","evidenceAccounts"],"properties":{"kind":{"const":"lp-burn"},"lpMint":true,"burnedBaseUnits":true,"totalSupplyBaseUnits":true,"creatorLpBaseUnits":true,"platformLpBaseUnits":true,"recoverableLpBaseUnits":true,"withdrawalAuthority":true,"feeKey":true,"feeRights":true,"evidenceAccounts":true}}}}}};
+const schema31 = {"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://hakky.xyz/schemas/web/launch-v2.schema.json","title":"HAKKY public launch record v2","oneOf":[{"$ref":"#/$defs/prelaunchRecord"},{"$ref":"#/$defs/curveUnavailableRecord"},{"$ref":"#/$defs/curveVerifiedRecord"},{"$ref":"#/$defs/graduatedUnavailableRecord"},{"$ref":"#/$defs/graduatedVerifiedRecord"}],"$defs":{"publicKey":{"type":"string","pattern":"^[1-9A-HJ-NP-Za-km-z]{32,44}$"},"signature":{"type":"string","pattern":"^[1-9A-HJ-NP-Za-km-z]{64,88}$"},"sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"},"unsignedDecimal":{"type":"string","pattern":"^(0|[1-9][0-9]*)$"},"timestamp":{"type":"string","pattern":"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"},"slot":{"type":"integer","minimum":0,"maximum":9007199254740991},"rpcHost":{"type":"string","pattern":"^(?=.{1,253}$)(?!.*(?:^|\\.)(?:localhost|local|test|invalid|example)(?:\\.|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$"},"contentUri":{"oneOf":[{"type":"string","pattern":"^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$"},{"type":"string","pattern":"^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"}]},"project":{"type":"object","additionalProperties":false,"required":["name","symbol","agent","website","x"],"properties":{"name":{"const":"Hakky Protocol"},"symbol":{"const":"HAKKY"},"agent":{"const":"HakkyAgent"},"website":{"const":"https://hakky.xyz"},"x":{"const":"https://x.com/antihakkysack"}}},"unavailableToken":{"type":"object","additionalProperties":false,"required":["mint","supplyBaseUnits","uiSupply","decimals","tokenProgram"],"properties":{"mint":{"type":"null"},"supplyBaseUnits":{"const":"1000000000000"},"uiSupply":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}},"verifiedToken":{"type":"object","additionalProperties":false,"required":["mint","supplyBaseUnits","uiSupply","decimals","tokenProgram"],"properties":{"mint":{"$ref":"#/$defs/publicKey"},"supplyBaseUnits":{"const":"1000000000000"},"uiSupply":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}},"launch":{"type":"object","additionalProperties":false,"required":["venue","quoteSymbol","publicCurveBps","liquidityBps","teamBps","creatorFirstBuyLamports","vestingBaseUnits","creatorDebitCapLamports"],"properties":{"venue":{"const":"Raydium LaunchLab"},"quoteSymbol":{"const":"SOL"},"publicCurveBps":{"const":8000},"liquidityBps":{"const":2000},"teamBps":{"const":0},"creatorFirstBuyLamports":{"const":"0"},"vestingBaseUnits":{"const":"0"},"creatorDebitCapLamports":{"const":"1000000000"}}},"prelaunchRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"prelaunch"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"type":"null"}}},"curveUnavailableRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"curve-live"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/curveUnavailableProof"}}},"curveVerifiedRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"curve-live"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/verifiedToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/curveVerifiedProof"}}},"graduatedUnavailableRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"graduated"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/graduatedUnavailableProof"}}},"graduatedVerifiedRecord":{"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"graduated"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/verifiedToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"$ref":"#/$defs/graduatedVerifiedProof"}}},"curveUnavailableProof":{"type":"object","additionalProperties":false,"required":["stage","availability"],"properties":{"stage":{"const":"curve-live"},"availability":{"const":"unavailable"}}},"graduatedUnavailableProof":{"type":"object","additionalProperties":false,"required":["stage","availability"],"properties":{"stage":{"const":"graduated"},"availability":{"const":"unavailable"}}},"mintArtifact":{"type":"object","additionalProperties":false,"required":["path","sha256","schemaVersion"],"properties":{"path":{"const":"proof/mainnet-mint.json"},"sha256":{"$ref":"#/$defs/sha256"},"schemaVersion":{"const":2}}},"launchlabArtifact":{"type":"object","additionalProperties":false,"required":["path","sha256","schemaVersion"],"properties":{"path":{"const":"proof/mainnet-launchlab.json"},"sha256":{"$ref":"#/$defs/sha256"},"schemaVersion":{"const":2}}},"graduationArtifact":{"type":"object","additionalProperties":false,"required":["path","sha256","schemaVersion"],"properties":{"path":{"const":"proof/mainnet-graduation.json"},"sha256":{"$ref":"#/$defs/sha256"},"schemaVersion":{"const":1}}},"curveSourceArtifacts":{"type":"object","additionalProperties":false,"required":["mint","launchlab"],"properties":{"mint":{"$ref":"#/$defs/mintArtifact"},"launchlab":{"$ref":"#/$defs/launchlabArtifact"}}},"graduatedSourceArtifacts":{"type":"object","additionalProperties":false,"required":["mint","launchlab","graduation"],"properties":{"mint":{"$ref":"#/$defs/mintArtifact"},"launchlab":{"$ref":"#/$defs/launchlabArtifact"},"graduation":{"$ref":"#/$defs/graduationArtifact"}}},"observation":{"type":"object","additionalProperties":false,"required":["finalizedSlot","finalizedAt","checkedAt","rpcHost"],"properties":{"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"},"checkedAt":{"$ref":"#/$defs/timestamp"},"rpcHost":{"$ref":"#/$defs/rpcHost"}}},"supply":{"type":"object","additionalProperties":false,"required":["baseUnits","uiAmount","decimals","tokenProgram"],"properties":{"baseUnits":{"const":"1000000000000"},"uiAmount":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}},"curveAuthorities":{"type":"object","additionalProperties":false,"required":["mintAuthority","authorityKind","freezeAuthority"],"properties":{"mintAuthority":{"const":"WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh"},"authorityKind":{"const":"launchlab-program-pda"},"freezeAuthority":{"type":"null"}}},"graduatedAuthorities":{"type":"object","additionalProperties":false,"required":["mintAuthority","authorityKind","freezeAuthority"],"properties":{"mintAuthority":{"type":"null"},"authorityKind":{"type":"null"},"freezeAuthority":{"type":"null"}}},"creatorBalanceAccount":{"type":"object","additionalProperties":false,"required":["address","mint","owner","amountBaseUnits","state","accountSha256"],"properties":{"address":{"$ref":"#/$defs/publicKey"},"mint":{"$ref":"#/$defs/publicKey"},"owner":{"$ref":"#/$defs/publicKey"},"amountBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"state":{"enum":["initialized","frozen"]},"accountSha256":{"$ref":"#/$defs/sha256"}}},"creatorBalance":{"type":"object","additionalProperties":false,"required":["owner","accounts","totalAmountBaseUnits","finalizedSlot","finalizedAt"],"properties":{"owner":{"$ref":"#/$defs/publicKey"},"accounts":{"type":"array","items":{"$ref":"#/$defs/creatorBalanceAccount"},"uniqueItems":true},"totalAmountBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"allocations":{"type":"object","additionalProperties":false,"required":["publicCurveBaseUnits","publicCurveBps","liquidityBaseUnits","liquidityBps","teamBaseUnits","teamBps","totalBps"],"properties":{"publicCurveBaseUnits":{"const":"800000000000"},"publicCurveBps":{"const":8000},"liquidityBaseUnits":{"const":"200000000000"},"liquidityBps":{"const":2000},"teamBaseUnits":{"const":"0"},"teamBps":{"const":0},"totalBps":{"const":10000}}},"quote":{"type":"object","additionalProperties":false,"required":["mint","symbol","decimals","fundraisingLamports","graduationThresholdLamports"],"properties":{"mint":{"const":"So11111111111111111111111111111111111111112"},"symbol":{"const":"SOL"},"decimals":{"const":9},"fundraisingLamports":{"$ref":"#/$defs/unsignedDecimal"},"graduationThresholdLamports":{"const":"24000000000"}}},"creatorFirstBuy":{"type":"object","additionalProperties":false,"required":["creatorLamports","creatorTokenBaseUnits"],"properties":{"creatorLamports":{"const":"0"},"creatorTokenBaseUnits":{"const":"0"}}},"vesting":{"type":"object","additionalProperties":false,"required":["lockedBaseUnits","cliffSeconds","unlockSeconds"],"properties":{"lockedBaseUnits":{"const":"0"},"cliffSeconds":{"const":"0"},"unlockSeconds":{"const":"0"}}},"fees":{"type":"object","additionalProperties":false,"required":["protocolBuyFeeRateMillionths","protocolSellFeeRateMillionths","feeRateDenominator","creatorTradingFeeRateMillionths","creatorFeeKey","creatorFeeRights","snapshotImmutable"],"properties":{"protocolBuyFeeRateMillionths":{"$ref":"#/$defs/unsignedDecimal"},"protocolSellFeeRateMillionths":{"$ref":"#/$defs/unsignedDecimal"},"feeRateDenominator":{"const":"1000000"},"creatorTradingFeeRateMillionths":{"const":"0"},"creatorFeeKey":{"type":"null"},"creatorFeeRights":{"const":false},"snapshotImmutable":{"const":true}}},"curveCost":{"type":"object","additionalProperties":false,"required":["metadataUploadLamports","creationDebitLamports","recoveryDebitLamports","graduationDebitLamports","cumulativeCreatorDebitLamports","capLamports","withinCap"],"properties":{"metadataUploadLamports":{"$ref":"#/$defs/unsignedDecimal"},"creationDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"recoveryDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"graduationDebitLamports":{"const":"0"},"cumulativeCreatorDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"capLamports":{"const":"1000000000"},"withinCap":{"const":true}}},"graduatedCost":{"type":"object","additionalProperties":false,"required":["metadataUploadLamports","creationDebitLamports","recoveryDebitLamports","graduationDebitLamports","cumulativeCreatorDebitLamports","capLamports","withinCap"],"properties":{"metadataUploadLamports":{"$ref":"#/$defs/unsignedDecimal"},"creationDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"recoveryDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"graduationDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"cumulativeCreatorDebitLamports":{"$ref":"#/$defs/unsignedDecimal"},"capLamports":{"const":"1000000000"},"withinCap":{"const":true}}},"metadata":{"type":"object","additionalProperties":false,"required":["name","symbol","uri","metadataAccount","metadataAccountSha256","jsonSha256","imageUri","imageSha256","externalUrl","twitter","updateAuthority","isMutable"],"properties":{"name":{"const":"Hakky Protocol"},"symbol":{"const":"HAKKY"},"uri":{"$ref":"#/$defs/contentUri"},"metadataAccount":{"$ref":"#/$defs/publicKey"},"metadataAccountSha256":{"$ref":"#/$defs/sha256"},"jsonSha256":{"$ref":"#/$defs/sha256"},"imageUri":{"$ref":"#/$defs/contentUri"},"imageSha256":{"$ref":"#/$defs/sha256"},"externalUrl":{"const":"https://hakky.xyz"},"twitter":{"const":"https://x.com/antihakkysack"},"updateAuthority":{"$ref":"#/$defs/publicKey"},"isMutable":{"const":false}}},"transaction":{"type":"object","additionalProperties":false,"required":["signature","finalizedSlot","finalizedAt"],"properties":{"signature":{"$ref":"#/$defs/signature"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"curveTransactions":{"type":"object","additionalProperties":false,"required":["creation"],"properties":{"creation":{"$ref":"#/$defs/transaction"}}},"graduatedTransactions":{"type":"object","additionalProperties":false,"required":["creation","graduation"],"properties":{"creation":{"$ref":"#/$defs/transaction"},"graduation":{"$ref":"#/$defs/transaction"}}},"curveLinks":{"type":"object","additionalProperties":false,"required":["solscanMint","solscanCreationTransaction","raydiumLaunchlab"],"properties":{"solscanMint":{"type":"string","pattern":"^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},"solscanCreationTransaction":{"type":"string","pattern":"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},"raydiumLaunchlab":{"type":"string","pattern":"^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"}}},"graduatedLinks":{"type":"object","additionalProperties":false,"required":["solscanMint","solscanCreationTransaction","solscanGraduationTransaction","raydiumLaunchlab","raydiumPool"],"properties":{"solscanMint":{"type":"string","pattern":"^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},"solscanCreationTransaction":{"type":"string","pattern":"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},"solscanGraduationTransaction":{"type":"string","pattern":"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},"raydiumLaunchlab":{"type":"string","pattern":"^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},"raydiumPool":{"type":"string","pattern":"^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$"}}},"graduation":{"type":"object","additionalProperties":false,"required":["configuredThresholdLamports","observedQuoteBalanceLamports","status","finalizedSlot","finalizedAt"],"properties":{"configuredThresholdLamports":{"const":"24000000000"},"observedQuoteBalanceLamports":{"$ref":"#/$defs/unsignedDecimal"},"status":{"const":"graduated"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"pool":{"type":"object","additionalProperties":false,"required":["address","programId","quoteVault","quoteVaultBalanceLamports","accountSha256"],"properties":{"address":{"$ref":"#/$defs/publicKey"},"programId":{"enum":["CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C","675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"]},"quoteVault":{"$ref":"#/$defs/publicKey"},"quoteVaultBalanceLamports":{"$ref":"#/$defs/unsignedDecimal"},"accountSha256":{"$ref":"#/$defs/sha256"}}},"cpmmEvidenceAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"enum":["lp-mint","locked-position","lock-nft-mint","lock-nft-token-account","lock-vault","fee-right-account"]},"address":{"$ref":"#/$defs/publicKey"},"ownerProgram":{"$ref":"#/$defs/publicKey"},"accountSha256":{"$ref":"#/$defs/sha256"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"ammEvidenceAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"enum":["lp-mint","burn-source","creator-lp-account","platform-lp-account","withdrawal-queue","fee-right-account"]},"address":{"$ref":"#/$defs/publicKey"},"ownerProgram":{"$ref":"#/$defs/publicKey"},"accountSha256":{"$ref":"#/$defs/sha256"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}},"cpmmEvidenceAccounts":{"type":"array","minItems":6,"maxItems":6,"items":{"$ref":"#/$defs/cpmmEvidenceAccount"},"allOf":[{"contains":{"$ref":"#/$defs/cpmmRoleLpMint"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockedPosition"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockNftMint"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockNftTokenAccount"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleLockVault"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/cpmmRoleFeeRightAccount"},"minContains":1,"maxContains":1}]},"ammEvidenceAccounts":{"type":"array","minItems":6,"maxItems":6,"items":{"$ref":"#/$defs/ammEvidenceAccount"},"allOf":[{"contains":{"$ref":"#/$defs/ammRoleLpMint"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleBurnSource"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleCreatorLpAccount"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRolePlatformLpAccount"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleWithdrawalQueue"},"minContains":1,"maxContains":1},{"contains":{"$ref":"#/$defs/ammRoleFeeRightAccount"},"minContains":1,"maxContains":1}]},"cpmmRoleLpMint":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lp-mint"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockedPosition":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"locked-position"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockNftMint":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lock-nft-mint"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockNftTokenAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lock-nft-token-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleLockVault":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lock-vault"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"cpmmRoleFeeRightAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"fee-right-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleLpMint":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"lp-mint"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleBurnSource":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"burn-source"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleCreatorLpAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"creator-lp-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRolePlatformLpAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"platform-lp-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleWithdrawalQueue":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"withdrawal-queue"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"ammRoleFeeRightAccount":{"type":"object","additionalProperties":false,"required":["role","address","ownerProgram","accountSha256","finalizedSlot","finalizedAt"],"properties":{"role":{"const":"fee-right-account"},"address":true,"ownerProgram":true,"accountSha256":true,"finalizedSlot":true,"finalizedAt":true}},"lpDisposition":{"oneOf":[{"type":"object","additionalProperties":false,"required":["kind","lpMint","lockedPosition","lockProgram","lockNftMint","lockNftTokenAccount","lockVault","platformLpBps","creatorLpBps","irreversibleLpBps","withdrawalAuthority","feeKey","feeRights","recoverableLpBaseUnits","evidenceAccounts"],"properties":{"kind":{"const":"burn-and-earn"},"lpMint":{"$ref":"#/$defs/publicKey"},"lockedPosition":{"$ref":"#/$defs/publicKey"},"lockProgram":{"const":"LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE"},"lockNftMint":{"$ref":"#/$defs/publicKey"},"lockNftTokenAccount":{"$ref":"#/$defs/publicKey"},"lockVault":{"$ref":"#/$defs/publicKey"},"platformLpBps":{"const":0},"creatorLpBps":{"const":0},"irreversibleLpBps":{"const":10000},"withdrawalAuthority":{"type":"null"},"feeKey":{"type":"null"},"feeRights":{"type":"array","maxItems":0},"recoverableLpBaseUnits":{"const":"0"},"evidenceAccounts":{"$ref":"#/$defs/cpmmEvidenceAccounts"}}},{"type":"object","additionalProperties":false,"required":["kind","lpMint","burnedBaseUnits","totalSupplyBaseUnits","creatorLpBaseUnits","platformLpBaseUnits","recoverableLpBaseUnits","withdrawalAuthority","feeKey","feeRights","evidenceAccounts"],"properties":{"kind":{"const":"lp-burn"},"lpMint":{"$ref":"#/$defs/publicKey"},"burnedBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"totalSupplyBaseUnits":{"$ref":"#/$defs/unsignedDecimal"},"creatorLpBaseUnits":{"const":"0"},"platformLpBaseUnits":{"const":"0"},"recoverableLpBaseUnits":{"const":"0"},"withdrawalAuthority":{"type":"null"},"feeKey":{"type":"null"},"feeRights":{"type":"array","maxItems":0},"evidenceAccounts":{"$ref":"#/$defs/ammEvidenceAccounts"}}}]},"curveVerifiedProof":{"type":"object","additionalProperties":false,"required":["stage","availability","sourceArtifacts","observation","supply","authorities","creatorBalance","allocations","quote","creatorFirstBuy","vesting","fees","cost","metadata","transactions","links"],"properties":{"stage":{"const":"curve-live"},"availability":{"const":"verified"},"sourceArtifacts":{"$ref":"#/$defs/curveSourceArtifacts"},"observation":{"$ref":"#/$defs/observation"},"supply":{"$ref":"#/$defs/supply"},"authorities":{"$ref":"#/$defs/curveAuthorities"},"creatorBalance":{"$ref":"#/$defs/creatorBalance"},"allocations":{"$ref":"#/$defs/allocations"},"quote":{"$ref":"#/$defs/quote"},"creatorFirstBuy":{"$ref":"#/$defs/creatorFirstBuy"},"vesting":{"$ref":"#/$defs/vesting"},"fees":{"$ref":"#/$defs/fees"},"cost":{"$ref":"#/$defs/curveCost"},"metadata":{"$ref":"#/$defs/metadata"},"transactions":{"$ref":"#/$defs/curveTransactions"},"links":{"$ref":"#/$defs/curveLinks"}}},"graduatedVerifiedProof":{"type":"object","additionalProperties":false,"required":["stage","availability","sourceArtifacts","observation","supply","authorities","creatorBalance","allocations","quote","creatorFirstBuy","vesting","fees","cost","metadata","transactions","links","graduation","pool","lpDisposition"],"properties":{"stage":{"const":"graduated"},"availability":{"const":"verified"},"sourceArtifacts":{"$ref":"#/$defs/graduatedSourceArtifacts"},"observation":{"$ref":"#/$defs/observation"},"supply":{"$ref":"#/$defs/supply"},"authorities":{"$ref":"#/$defs/graduatedAuthorities"},"creatorBalance":{"$ref":"#/$defs/creatorBalance"},"allocations":{"$ref":"#/$defs/allocations"},"quote":{"$ref":"#/$defs/quote"},"creatorFirstBuy":{"$ref":"#/$defs/creatorFirstBuy"},"vesting":{"$ref":"#/$defs/vesting"},"fees":{"$ref":"#/$defs/fees"},"cost":{"$ref":"#/$defs/graduatedCost"},"metadata":{"$ref":"#/$defs/metadata"},"transactions":{"$ref":"#/$defs/graduatedTransactions"},"links":{"$ref":"#/$defs/graduatedLinks"},"graduation":{"$ref":"#/$defs/graduation"},"pool":{"$ref":"#/$defs/pool"},"lpDisposition":{"$ref":"#/$defs/lpDisposition"}},"oneOf":[{"$ref":"#/$defs/cpmmPublicGraduationBranch"},{"$ref":"#/$defs/ammPublicGraduationBranch"}]},"cpmmPublicGraduationBranch":{"type":"object","additionalProperties":false,"required":["pool","lpDisposition"],"properties":{"stage":true,"availability":true,"sourceArtifacts":true,"observation":true,"supply":true,"authorities":true,"creatorBalance":true,"allocations":true,"quote":true,"creatorFirstBuy":true,"vesting":true,"fees":true,"cost":true,"metadata":true,"transactions":true,"links":true,"graduation":true,"pool":{"type":"object","additionalProperties":false,"required":["address","programId","quoteVault","quoteVaultBalanceLamports","accountSha256"],"properties":{"address":true,"programId":{"const":"CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"},"quoteVault":true,"quoteVaultBalanceLamports":true,"accountSha256":true}},"lpDisposition":{"type":"object","additionalProperties":false,"required":["kind","lpMint","lockedPosition","lockProgram","lockNftMint","lockNftTokenAccount","lockVault","platformLpBps","creatorLpBps","irreversibleLpBps","withdrawalAuthority","feeKey","feeRights","recoverableLpBaseUnits","evidenceAccounts"],"properties":{"kind":{"const":"burn-and-earn"},"lpMint":true,"lockedPosition":true,"lockProgram":true,"lockNftMint":true,"lockNftTokenAccount":true,"lockVault":true,"platformLpBps":true,"creatorLpBps":true,"irreversibleLpBps":true,"withdrawalAuthority":true,"feeKey":true,"feeRights":true,"recoverableLpBaseUnits":true,"evidenceAccounts":true}}}},"ammPublicGraduationBranch":{"type":"object","additionalProperties":false,"required":["pool","lpDisposition"],"properties":{"stage":true,"availability":true,"sourceArtifacts":true,"observation":true,"supply":true,"authorities":true,"creatorBalance":true,"allocations":true,"quote":true,"creatorFirstBuy":true,"vesting":true,"fees":true,"cost":true,"metadata":true,"transactions":true,"links":true,"graduation":true,"pool":{"type":"object","additionalProperties":false,"required":["address","programId","quoteVault","quoteVaultBalanceLamports","accountSha256"],"properties":{"address":true,"programId":{"const":"675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"},"quoteVault":true,"quoteVaultBalanceLamports":true,"accountSha256":true}},"lpDisposition":{"type":"object","additionalProperties":false,"required":["kind","lpMint","burnedBaseUnits","totalSupplyBaseUnits","creatorLpBaseUnits","platformLpBaseUnits","recoverableLpBaseUnits","withdrawalAuthority","feeKey","feeRights","evidenceAccounts"],"properties":{"kind":{"const":"lp-burn"},"lpMint":true,"burnedBaseUnits":true,"totalSupplyBaseUnits":true,"creatorLpBaseUnits":true,"platformLpBaseUnits":true,"recoverableLpBaseUnits":true,"withdrawalAuthority":true,"feeKey":true,"feeRights":true,"evidenceAccounts":true}}}}}};
 const schema32 = {"type":"object","additionalProperties":false,"required":["schemaVersion","status","network","project","token","launch","proof"],"properties":{"schemaVersion":{"const":2},"status":{"const":"prelaunch"},"network":{"const":"mainnet-beta"},"project":{"$ref":"#/$defs/project"},"token":{"$ref":"#/$defs/unavailableToken"},"launch":{"$ref":"#/$defs/launch"},"proof":{"type":"null"}}};
 const schema33 = {"type":"object","additionalProperties":false,"required":["name","symbol","agent","website","x"],"properties":{"name":{"const":"Hakky Protocol"},"symbol":{"const":"HAKKY"},"agent":{"const":"HakkyAgent"},"website":{"const":"https://hakky.xyz"},"x":{"const":"https://x.com/antihakkysack"}}};
 const schema34 = {"type":"object","additionalProperties":false,"required":["mint","supplyBaseUnits","uiSupply","decimals","tokenProgram"],"properties":{"mint":{"type":"null"},"supplyBaseUnits":{"const":"1000000000000"},"uiSupply":{"const":"1000000"},"decimals":{"const":6},"tokenProgram":{"const":"TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"}}};
@@ -3147,8 +3147,9 @@ return errors === 0;
 validate45.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
 const schema83 = {"type":"object","additionalProperties":false,"required":["name","symbol","uri","metadataAccount","metadataAccountSha256","jsonSha256","imageUri","imageSha256","externalUrl","twitter","updateAuthority","isMutable"],"properties":{"name":{"const":"Hakky Protocol"},"symbol":{"const":"HAKKY"},"uri":{"$ref":"#/$defs/contentUri"},"metadataAccount":{"$ref":"#/$defs/publicKey"},"metadataAccountSha256":{"$ref":"#/$defs/sha256"},"jsonSha256":{"$ref":"#/$defs/sha256"},"imageUri":{"$ref":"#/$defs/contentUri"},"imageSha256":{"$ref":"#/$defs/sha256"},"externalUrl":{"const":"https://hakky.xyz"},"twitter":{"const":"https://x.com/antihakkysack"},"updateAuthority":{"$ref":"#/$defs/publicKey"},"isMutable":{"const":false}}};
-const schema84 = {"type":"string","pattern":"^ipfs://b[a-z2-7]{10,}$"};
-const pattern25 = new RegExp("^ipfs://b[a-z2-7]{10,}$", "u");
+const schema84 = {"oneOf":[{"type":"string","pattern":"^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$"},{"type":"string","pattern":"^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"}]};
+const pattern25 = new RegExp("^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$", "u");
+const pattern26 = new RegExp("^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$", "u");
 
 function validate47(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -3319,9 +3320,13 @@ errors++;
 }
 if(data.uri !== undefined){
 let data2 = data.uri;
+const _errs6 = errors;
+let valid2 = false;
+let passing0 = null;
+const _errs7 = errors;
 if(typeof data2 === "string"){
 if(!pattern25.test(data2)){
-const err15 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/pattern",keyword:"pattern",params:{pattern: "^ipfs://b[a-z2-7]{10,}$"},message:"must match pattern \""+"^ipfs://b[a-z2-7]{10,}$"+"\""};
+const err15 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/oneOf/0/pattern",keyword:"pattern",params:{pattern: "^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$"},message:"must match pattern \""+"^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$"+"\""};
 if(vErrors === null){
 vErrors = [err15];
 }
@@ -3332,7 +3337,7 @@ errors++;
 }
 }
 else {
-const err16 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/type",keyword:"type",params:{type: "string"},message:"must be string"};
+const err16 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/oneOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err16];
 }
@@ -3341,12 +3346,15 @@ vErrors.push(err16);
 }
 errors++;
 }
+var _valid0 = _errs7 === errors;
+if(_valid0){
+valid2 = true;
+passing0 = 0;
 }
-if(data.metadataAccount !== undefined){
-let data3 = data.metadataAccount;
-if(typeof data3 === "string"){
-if(!pattern4.test(data3)){
-const err17 = {instancePath:instancePath+"/metadataAccount",schemaPath:"#/$defs/publicKey/pattern",keyword:"pattern",params:{pattern: "^[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
+const _errs9 = errors;
+if(typeof data2 === "string"){
+if(!pattern26.test(data2)){
+const err17 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/oneOf/1/pattern",keyword:"pattern",params:{pattern: "^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"},message:"must match pattern \""+"^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"+"\""};
 if(vErrors === null){
 vErrors = [err17];
 }
@@ -3357,7 +3365,7 @@ errors++;
 }
 }
 else {
-const err18 = {instancePath:instancePath+"/metadataAccount",schemaPath:"#/$defs/publicKey/type",keyword:"type",params:{type: "string"},message:"must be string"};
+const err18 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/oneOf/1/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err18];
 }
@@ -3366,12 +3374,19 @@ vErrors.push(err18);
 }
 errors++;
 }
+var _valid0 = _errs9 === errors;
+if(_valid0 && valid2){
+valid2 = false;
+passing0 = [passing0, 1];
 }
-if(data.metadataAccountSha256 !== undefined){
-let data4 = data.metadataAccountSha256;
-if(typeof data4 === "string"){
-if(!pattern5.test(data4)){
-const err19 = {instancePath:instancePath+"/metadataAccountSha256",schemaPath:"#/$defs/sha256/pattern",keyword:"pattern",params:{pattern: "^[0-9a-f]{64}$"},message:"must match pattern \""+"^[0-9a-f]{64}$"+"\""};
+else {
+if(_valid0){
+valid2 = true;
+passing0 = 1;
+}
+}
+if(!valid2){
+const err19 = {instancePath:instancePath+"/uri",schemaPath:"#/$defs/contentUri/oneOf",keyword:"oneOf",params:{passingSchemas: passing0},message:"must match exactly one schema in oneOf"};
 if(vErrors === null){
 vErrors = [err19];
 }
@@ -3380,9 +3395,23 @@ vErrors.push(err19);
 }
 errors++;
 }
+else {
+errors = _errs6;
+if(vErrors !== null){
+if(_errs6){
+vErrors.length = _errs6;
 }
 else {
-const err20 = {instancePath:instancePath+"/metadataAccountSha256",schemaPath:"#/$defs/sha256/type",keyword:"type",params:{type: "string"},message:"must be string"};
+vErrors = null;
+}
+}
+}
+}
+if(data.metadataAccount !== undefined){
+let data3 = data.metadataAccount;
+if(typeof data3 === "string"){
+if(!pattern4.test(data3)){
+const err20 = {instancePath:instancePath+"/metadataAccount",schemaPath:"#/$defs/publicKey/pattern",keyword:"pattern",params:{pattern: "^[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
 if(vErrors === null){
 vErrors = [err20];
 }
@@ -3392,11 +3421,8 @@ vErrors.push(err20);
 errors++;
 }
 }
-if(data.jsonSha256 !== undefined){
-let data5 = data.jsonSha256;
-if(typeof data5 === "string"){
-if(!pattern5.test(data5)){
-const err21 = {instancePath:instancePath+"/jsonSha256",schemaPath:"#/$defs/sha256/pattern",keyword:"pattern",params:{pattern: "^[0-9a-f]{64}$"},message:"must match pattern \""+"^[0-9a-f]{64}$"+"\""};
+else {
+const err21 = {instancePath:instancePath+"/metadataAccount",schemaPath:"#/$defs/publicKey/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err21];
 }
@@ -3406,8 +3432,11 @@ vErrors.push(err21);
 errors++;
 }
 }
-else {
-const err22 = {instancePath:instancePath+"/jsonSha256",schemaPath:"#/$defs/sha256/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.metadataAccountSha256 !== undefined){
+let data4 = data.metadataAccountSha256;
+if(typeof data4 === "string"){
+if(!pattern5.test(data4)){
+const err22 = {instancePath:instancePath+"/metadataAccountSha256",schemaPath:"#/$defs/sha256/pattern",keyword:"pattern",params:{pattern: "^[0-9a-f]{64}$"},message:"must match pattern \""+"^[0-9a-f]{64}$"+"\""};
 if(vErrors === null){
 vErrors = [err22];
 }
@@ -3417,11 +3446,8 @@ vErrors.push(err22);
 errors++;
 }
 }
-if(data.imageUri !== undefined){
-let data6 = data.imageUri;
-if(typeof data6 === "string"){
-if(!pattern25.test(data6)){
-const err23 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/pattern",keyword:"pattern",params:{pattern: "^ipfs://b[a-z2-7]{10,}$"},message:"must match pattern \""+"^ipfs://b[a-z2-7]{10,}$"+"\""};
+else {
+const err23 = {instancePath:instancePath+"/metadataAccountSha256",schemaPath:"#/$defs/sha256/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err23];
 }
@@ -3431,8 +3457,11 @@ vErrors.push(err23);
 errors++;
 }
 }
-else {
-const err24 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.jsonSha256 !== undefined){
+let data5 = data.jsonSha256;
+if(typeof data5 === "string"){
+if(!pattern5.test(data5)){
+const err24 = {instancePath:instancePath+"/jsonSha256",schemaPath:"#/$defs/sha256/pattern",keyword:"pattern",params:{pattern: "^[0-9a-f]{64}$"},message:"must match pattern \""+"^[0-9a-f]{64}$"+"\""};
 if(vErrors === null){
 vErrors = [err24];
 }
@@ -3442,11 +3471,8 @@ vErrors.push(err24);
 errors++;
 }
 }
-if(data.imageSha256 !== undefined){
-let data7 = data.imageSha256;
-if(typeof data7 === "string"){
-if(!pattern5.test(data7)){
-const err25 = {instancePath:instancePath+"/imageSha256",schemaPath:"#/$defs/sha256/pattern",keyword:"pattern",params:{pattern: "^[0-9a-f]{64}$"},message:"must match pattern \""+"^[0-9a-f]{64}$"+"\""};
+else {
+const err25 = {instancePath:instancePath+"/jsonSha256",schemaPath:"#/$defs/sha256/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err25];
 }
@@ -3456,8 +3482,15 @@ vErrors.push(err25);
 errors++;
 }
 }
-else {
-const err26 = {instancePath:instancePath+"/imageSha256",schemaPath:"#/$defs/sha256/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(data.imageUri !== undefined){
+let data6 = data.imageUri;
+const _errs22 = errors;
+let valid7 = false;
+let passing1 = null;
+const _errs23 = errors;
+if(typeof data6 === "string"){
+if(!pattern25.test(data6)){
+const err26 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/oneOf/0/pattern",keyword:"pattern",params:{pattern: "^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$"},message:"must match pattern \""+"^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$"+"\""};
 if(vErrors === null){
 vErrors = [err26];
 }
@@ -3467,9 +3500,8 @@ vErrors.push(err26);
 errors++;
 }
 }
-if(data.externalUrl !== undefined){
-if("https://hakky.xyz" !== data.externalUrl){
-const err27 = {instancePath:instancePath+"/externalUrl",schemaPath:"#/properties/externalUrl/const",keyword:"const",params:{allowedValue: "https://hakky.xyz"},message:"must be equal to constant"};
+else {
+const err27 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/oneOf/0/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err27];
 }
@@ -3478,10 +3510,15 @@ vErrors.push(err27);
 }
 errors++;
 }
+var _valid1 = _errs23 === errors;
+if(_valid1){
+valid7 = true;
+passing1 = 0;
 }
-if(data.twitter !== undefined){
-if("https://x.com/antihakkysack" !== data.twitter){
-const err28 = {instancePath:instancePath+"/twitter",schemaPath:"#/properties/twitter/const",keyword:"const",params:{allowedValue: "https://x.com/antihakkysack"},message:"must be equal to constant"};
+const _errs25 = errors;
+if(typeof data6 === "string"){
+if(!pattern26.test(data6)){
+const err28 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/oneOf/1/pattern",keyword:"pattern",params:{pattern: "^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"},message:"must match pattern \""+"^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$"+"\""};
 if(vErrors === null){
 vErrors = [err28];
 }
@@ -3491,11 +3528,8 @@ vErrors.push(err28);
 errors++;
 }
 }
-if(data.updateAuthority !== undefined){
-let data10 = data.updateAuthority;
-if(typeof data10 === "string"){
-if(!pattern4.test(data10)){
-const err29 = {instancePath:instancePath+"/updateAuthority",schemaPath:"#/$defs/publicKey/pattern",keyword:"pattern",params:{pattern: "^[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
+else {
+const err29 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/oneOf/1/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err29];
 }
@@ -3504,9 +3538,19 @@ vErrors.push(err29);
 }
 errors++;
 }
+var _valid1 = _errs25 === errors;
+if(_valid1 && valid7){
+valid7 = false;
+passing1 = [passing1, 1];
 }
 else {
-const err30 = {instancePath:instancePath+"/updateAuthority",schemaPath:"#/$defs/publicKey/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(_valid1){
+valid7 = true;
+passing1 = 1;
+}
+}
+if(!valid7){
+const err30 = {instancePath:instancePath+"/imageUri",schemaPath:"#/$defs/contentUri/oneOf",keyword:"oneOf",params:{passingSchemas: passing1},message:"must match exactly one schema in oneOf"};
 if(vErrors === null){
 vErrors = [err30];
 }
@@ -3515,10 +3559,23 @@ vErrors.push(err30);
 }
 errors++;
 }
+else {
+errors = _errs22;
+if(vErrors !== null){
+if(_errs22){
+vErrors.length = _errs22;
 }
-if(data.isMutable !== undefined){
-if(false !== data.isMutable){
-const err31 = {instancePath:instancePath+"/isMutable",schemaPath:"#/properties/isMutable/const",keyword:"const",params:{allowedValue: false},message:"must be equal to constant"};
+else {
+vErrors = null;
+}
+}
+}
+}
+if(data.imageSha256 !== undefined){
+let data7 = data.imageSha256;
+if(typeof data7 === "string"){
+if(!pattern5.test(data7)){
+const err31 = {instancePath:instancePath+"/imageSha256",schemaPath:"#/$defs/sha256/pattern",keyword:"pattern",params:{pattern: "^[0-9a-f]{64}$"},message:"must match pattern \""+"^[0-9a-f]{64}$"+"\""};
 if(vErrors === null){
 vErrors = [err31];
 }
@@ -3528,14 +3585,86 @@ vErrors.push(err31);
 errors++;
 }
 }
-}
 else {
-const err32 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+const err32 = {instancePath:instancePath+"/imageSha256",schemaPath:"#/$defs/sha256/type",keyword:"type",params:{type: "string"},message:"must be string"};
 if(vErrors === null){
 vErrors = [err32];
 }
 else {
 vErrors.push(err32);
+}
+errors++;
+}
+}
+if(data.externalUrl !== undefined){
+if("https://hakky.xyz" !== data.externalUrl){
+const err33 = {instancePath:instancePath+"/externalUrl",schemaPath:"#/properties/externalUrl/const",keyword:"const",params:{allowedValue: "https://hakky.xyz"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err33];
+}
+else {
+vErrors.push(err33);
+}
+errors++;
+}
+}
+if(data.twitter !== undefined){
+if("https://x.com/antihakkysack" !== data.twitter){
+const err34 = {instancePath:instancePath+"/twitter",schemaPath:"#/properties/twitter/const",keyword:"const",params:{allowedValue: "https://x.com/antihakkysack"},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err34];
+}
+else {
+vErrors.push(err34);
+}
+errors++;
+}
+}
+if(data.updateAuthority !== undefined){
+let data10 = data.updateAuthority;
+if(typeof data10 === "string"){
+if(!pattern4.test(data10)){
+const err35 = {instancePath:instancePath+"/updateAuthority",schemaPath:"#/$defs/publicKey/pattern",keyword:"pattern",params:{pattern: "^[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
+if(vErrors === null){
+vErrors = [err35];
+}
+else {
+vErrors.push(err35);
+}
+errors++;
+}
+}
+else {
+const err36 = {instancePath:instancePath+"/updateAuthority",schemaPath:"#/$defs/publicKey/type",keyword:"type",params:{type: "string"},message:"must be string"};
+if(vErrors === null){
+vErrors = [err36];
+}
+else {
+vErrors.push(err36);
+}
+errors++;
+}
+}
+if(data.isMutable !== undefined){
+if(false !== data.isMutable){
+const err37 = {instancePath:instancePath+"/isMutable",schemaPath:"#/properties/isMutable/const",keyword:"const",params:{allowedValue: false},message:"must be equal to constant"};
+if(vErrors === null){
+vErrors = [err37];
+}
+else {
+vErrors.push(err37);
+}
+errors++;
+}
+}
+}
+else {
+const err38 = {instancePath,schemaPath:"#/type",keyword:"type",params:{type: "object"},message:"must be object"};
+if(vErrors === null){
+vErrors = [err38];
+}
+else {
+vErrors.push(err38);
 }
 errors++;
 }
@@ -3547,7 +3676,7 @@ validate47.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 const schema91 = {"type":"object","additionalProperties":false,"required":["creation"],"properties":{"creation":{"$ref":"#/$defs/transaction"}}};
 const schema92 = {"type":"object","additionalProperties":false,"required":["signature","finalizedSlot","finalizedAt"],"properties":{"signature":{"$ref":"#/$defs/signature"},"finalizedSlot":{"$ref":"#/$defs/slot"},"finalizedAt":{"$ref":"#/$defs/timestamp"}}};
 const schema93 = {"type":"string","pattern":"^[1-9A-HJ-NP-Za-km-z]{64,88}$"};
-const pattern32 = new RegExp("^[1-9A-HJ-NP-Za-km-z]{64,88}$", "u");
+const pattern34 = new RegExp("^[1-9A-HJ-NP-Za-km-z]{64,88}$", "u");
 
 function validate50(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -3605,7 +3734,7 @@ errors++;
 if(data.signature !== undefined){
 let data0 = data.signature;
 if(typeof data0 === "string"){
-if(!pattern32.test(data0)){
+if(!pattern34.test(data0)){
 const err4 = {instancePath:instancePath+"/signature",schemaPath:"#/$defs/signature/pattern",keyword:"pattern",params:{pattern: "^[1-9A-HJ-NP-Za-km-z]{64,88}$"},message:"must match pattern \""+"^[1-9A-HJ-NP-Za-km-z]{64,88}$"+"\""};
 if(vErrors === null){
 vErrors = [err4];
@@ -3759,9 +3888,9 @@ return errors === 0;
 }
 validate49.evaluated = {"props":true,"dynamicProps":false,"dynamicItems":false};
 
-const pattern34 = new RegExp("^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$", "u");
-const pattern35 = new RegExp("^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$", "u");
-const pattern36 = new RegExp("^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$", "u");
+const pattern36 = new RegExp("^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$", "u");
+const pattern37 = new RegExp("^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$", "u");
+const pattern38 = new RegExp("^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$", "u");
 
 function validate28(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -4619,7 +4748,7 @@ errors++;
 if(data34.solscanMint !== undefined){
 let data35 = data34.solscanMint;
 if(typeof data35 === "string"){
-if(!pattern34.test(data35)){
+if(!pattern36.test(data35)){
 const err71 = {instancePath:instancePath+"/links/solscanMint",schemaPath:"#/$defs/curveLinks/properties/solscanMint/pattern",keyword:"pattern",params:{pattern: "^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
 if(vErrors === null){
 vErrors = [err71];
@@ -4644,7 +4773,7 @@ errors++;
 if(data34.solscanCreationTransaction !== undefined){
 let data36 = data34.solscanCreationTransaction;
 if(typeof data36 === "string"){
-if(!pattern35.test(data36)){
+if(!pattern37.test(data36)){
 const err73 = {instancePath:instancePath+"/links/solscanCreationTransaction",schemaPath:"#/$defs/curveLinks/properties/solscanCreationTransaction/pattern",keyword:"pattern",params:{pattern: "^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},message:"must match pattern \""+"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"+"\""};
 if(vErrors === null){
 vErrors = [err73];
@@ -4669,7 +4798,7 @@ errors++;
 if(data34.raydiumLaunchlab !== undefined){
 let data37 = data34.raydiumLaunchlab;
 if(typeof data37 === "string"){
-if(!pattern36.test(data37)){
+if(!pattern38.test(data37)){
 const err75 = {instancePath:instancePath+"/links/raydiumLaunchlab",schemaPath:"#/$defs/curveLinks/properties/raydiumLaunchlab/pattern",keyword:"pattern",params:{pattern: "^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
 if(vErrors === null){
 vErrors = [err75];
@@ -9921,7 +10050,7 @@ return errors === 0;
 }
 validate81.evaluated = {"dynamicProps":true,"dynamicItems":false};
 
-const pattern47 = new RegExp("^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$", "u");
+const pattern49 = new RegExp("^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$", "u");
 
 function validate59(data, {instancePath="", parentData, parentDataProperty, rootData=data, dynamicAnchors={}}={}){
 let vErrors = null;
@@ -11479,7 +11608,7 @@ errors++;
 if(data42.solscanMint !== undefined){
 let data43 = data42.solscanMint;
 if(typeof data43 === "string"){
-if(!pattern34.test(data43)){
+if(!pattern36.test(data43)){
 const err133 = {instancePath:instancePath+"/links/solscanMint",schemaPath:"#/$defs/graduatedLinks/properties/solscanMint/pattern",keyword:"pattern",params:{pattern: "^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
 if(vErrors === null){
 vErrors = [err133];
@@ -11504,7 +11633,7 @@ errors++;
 if(data42.solscanCreationTransaction !== undefined){
 let data44 = data42.solscanCreationTransaction;
 if(typeof data44 === "string"){
-if(!pattern35.test(data44)){
+if(!pattern37.test(data44)){
 const err135 = {instancePath:instancePath+"/links/solscanCreationTransaction",schemaPath:"#/$defs/graduatedLinks/properties/solscanCreationTransaction/pattern",keyword:"pattern",params:{pattern: "^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},message:"must match pattern \""+"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"+"\""};
 if(vErrors === null){
 vErrors = [err135];
@@ -11529,7 +11658,7 @@ errors++;
 if(data42.solscanGraduationTransaction !== undefined){
 let data45 = data42.solscanGraduationTransaction;
 if(typeof data45 === "string"){
-if(!pattern35.test(data45)){
+if(!pattern37.test(data45)){
 const err137 = {instancePath:instancePath+"/links/solscanGraduationTransaction",schemaPath:"#/$defs/graduatedLinks/properties/solscanGraduationTransaction/pattern",keyword:"pattern",params:{pattern: "^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"},message:"must match pattern \""+"^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$"+"\""};
 if(vErrors === null){
 vErrors = [err137];
@@ -11554,7 +11683,7 @@ errors++;
 if(data42.raydiumLaunchlab !== undefined){
 let data46 = data42.raydiumLaunchlab;
 if(typeof data46 === "string"){
-if(!pattern36.test(data46)){
+if(!pattern38.test(data46)){
 const err139 = {instancePath:instancePath+"/links/raydiumLaunchlab",schemaPath:"#/$defs/graduatedLinks/properties/raydiumLaunchlab/pattern",keyword:"pattern",params:{pattern: "^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
 if(vErrors === null){
 vErrors = [err139];
@@ -11579,7 +11708,7 @@ errors++;
 if(data42.raydiumPool !== undefined){
 let data47 = data42.raydiumPool;
 if(typeof data47 === "string"){
-if(!pattern47.test(data47)){
+if(!pattern49.test(data47)){
 const err141 = {instancePath:instancePath+"/links/raydiumPool",schemaPath:"#/$defs/graduatedLinks/properties/raydiumPool/pattern",keyword:"pattern",params:{pattern: "^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$"},message:"must match pattern \""+"^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$"+"\""};
 if(vErrors === null){
 vErrors = [err141];

@@ -1,7 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { AccountLayout, TOKEN_PROGRAM_ID, getMint } from "@solana/spl-token";
 
-export const MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp";
+export const MAINNET_BETA_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 
 export async function assertMainnetIdentity(connection) {
   const genesisHash = await connection.getGenesisHash();

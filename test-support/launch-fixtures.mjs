@@ -52,6 +52,25 @@ const HASHES = Object.freeze({
   graduationArtifactAmm: "b2".repeat(32),
 });
 
+const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
+
+function rawSha256IpfsUri(sha256) {
+  const bytes = Buffer.concat([Buffer.from([0x01, 0x55, 0x12, 0x20]), Buffer.from(sha256, "hex")]);
+  let accumulator = 0;
+  let bits = 0;
+  let encoded = "";
+  for (const byte of bytes) {
+    accumulator = (accumulator << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      encoded += BASE32_ALPHABET[(accumulator >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) encoded += BASE32_ALPHABET[(accumulator << (5 - bits)) & 31];
+  return `ipfs://b${encoded}`;
+}
+
 const TIMES = Object.freeze({
   creation: "2026-07-23T00:00:00.000Z",
   mintFinalized: "2026-07-23T00:00:01.000Z",
@@ -120,11 +139,11 @@ function metadata() {
   return {
     name: "Hakky Protocol",
     symbol: "HAKKY",
-    uri: "ipfs://bafybeigdyrzt5sfp7udm7hu76n2xrv3zku7eao4n6x7j5rjmw2b5uvzq4",
+    uri: rawSha256IpfsUri(HASHES.metadataJson),
     metadataAccount: ADDRESSES.metadata,
     metadataAccountSha256: HASHES.metadata,
     jsonSha256: HASHES.metadataJson,
-    imageUri: "ipfs://bafybeih5vpm5zs2v4id7fdnmszpp4u6j77iv2ftydv5zcu6amzoiq7m7ya",
+    imageUri: rawSha256IpfsUri(HASHES.metadataImage),
     imageSha256: HASHES.metadataImage,
     externalUrl: "https://hakky.xyz",
     twitter: "https://x.com/antihakkysack",

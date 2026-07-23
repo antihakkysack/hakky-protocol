@@ -210,6 +210,15 @@ test("rejects a non-mainnet RPC genesis hash before evidence collection", async 
   );
 });
 
+test("mainnet identity and mint-v2 schema pin the same full canonical genesis hash", async () => {
+  const expected = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+  const schema = JSON.parse(await readFile(new URL("../schemas/proof/mainnet-mint-v2.schema.json", import.meta.url), "utf8"));
+
+  assert.equal(MAINNET_BETA_GENESIS_HASH, expected);
+  assert.equal(schema.properties.observation.properties.genesisHash.const, expected);
+  await assert.doesNotReject(assertMainnetIdentity({ getGenesisHash: async () => expected }));
+});
+
 test("confines proof output to a JSON file below the worktree proof directory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hakky-worktree-"));
   const proofDirectory = path.join(root, "proof");

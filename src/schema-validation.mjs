@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
+import { validateContentAddressedUri } from "./metadata-integrity.mjs";
 
 const SCHEMA_URLS = Object.freeze({
   "mint-v2": new URL("../schemas/proof/mainnet-mint-v2.schema.json", import.meta.url),
@@ -32,6 +33,7 @@ const PUBLIC_KEY_FIELDS = new Set([
 ]);
 const SIGNATURE_FIELDS = new Set(["creationSignature", "signature"]);
 const TIMESTAMP_FIELDS = new Set(["checkedAt", "creationTime", "finalizedAt"]);
+const CONTENT_URI_FIELDS = new Set(["imageUri", "uri"]);
 const CPMM_PROGRAM = "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C";
 const AMM_V4_PROGRAM = "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8";
 
@@ -110,6 +112,13 @@ function validateScalarSemantics(value, instancePath, issues) {
     }
     if (TIMESTAMP_FIELDS.has(key) && !isExactTimestamp(child)) {
       issues.push(semanticIssue(childPath, "calendarTimestamp", "must be a real canonical UTC timestamp"));
+    }
+    if (typeof child === "string" && CONTENT_URI_FIELDS.has(key)) {
+      try {
+        validateContentAddressedUri(child);
+      } catch {
+        issues.push(semanticIssue(childPath, "contentAddress", "must be an exact canonical IPFS or Arweave identity"));
+      }
     }
     if (key === "updateAuthorities" && Array.isArray(child)) {
       child.forEach((authority, index) => {

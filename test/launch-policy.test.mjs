@@ -142,3 +142,14 @@ test("public graduation threshold is exact and duplicate creator accounts fail c
   duplicate.proof.creatorBalance.accounts.sort((left, right) => left.address.localeCompare(right.address));
   assert.notDeepEqual(validateLaunchRecord(duplicate), []);
 });
+
+test("generated public validation accepts canonical Arweave and rejects DAG-PB metadata identities", () => {
+  const arweave = createCurveLiveRecordV2();
+  arweave.proof.metadata.uri = "https://arweave.net/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  arweave.proof.metadata.imageUri = "https://arweave.net/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  assert.deepEqual(validateLaunchRecord(arweave), []);
+
+  const dagPb = createCurveLiveRecordV2();
+  dagPb.proof.metadata.uri = "ipfs://bafybeigdyrzt5sfp7udm7hu76n2xrv3zku7eao4n6x7j5rjmw2b5uvzq4";
+  assert.notDeepEqual(validateLaunchRecord(dagPb), []);
+});

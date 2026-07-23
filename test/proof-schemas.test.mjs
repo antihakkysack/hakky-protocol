@@ -25,6 +25,15 @@ const cases = [
   ["launch-v2 graduated unavailable", () => createGraduatedRecordV2({ availability: "unavailable" })],
 ];
 
+const CANONICAL_RAW_IPFS_URI = "ipfs://bafkreie6m4wnyrkomjeyopg7gwnvdipy62t7riipav6xp6c6zttqlpfiua";
+const CANONICAL_ARWEAVE_URI = "https://arweave.net/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const metadataCases = [
+  ["mint-v2", createCanonicalMintProofV2, (value) => value.metadata],
+  ["launchlab-v2", createCanonicalLaunchlabProofV2, (value) => value.metadata],
+  ["graduation-v1", createCanonicalGraduationProofV1, (value) => value.metadata],
+  ["launch-v2", createCurveLiveRecordV2, (value) => value.proof.metadata],
+];
+
 function kindFor(label) {
   return label.split(" ")[0];
 }
@@ -128,6 +137,44 @@ test("public URLs reject credentials, unrelated query strings, and fragments", (
     const changed = createCanonicalLaunchlabProofV2();
     changed.links.solscanMint = solscanMint;
     assert.equal(validateSchema("launchlab-v2", changed).ok, false, `accepted ${solscanMint}`);
+  }
+});
+
+test("all lifecycle schemas accept exact canonical IPFS and Arweave metadata identities", () => {
+  for (const [kind, create, selectMetadata] of metadataCases) {
+    for (const uri of [CANONICAL_RAW_IPFS_URI, CANONICAL_ARWEAVE_URI]) {
+      const changed = create();
+      const metadata = selectMetadata(changed);
+      metadata.uri = uri;
+      metadata.imageUri = uri;
+      assert.deepEqual(validateSchema(kind, changed), { ok: true, errors: [] }, `${kind} rejected ${uri}`);
+    }
+  }
+});
+
+test("schema-shape fixtures use canonical raw CIDv1 metadata identities", () => {
+  for (const [kind, create, selectMetadata] of metadataCases) {
+    const metadata = selectMetadata(create());
+    assert.match(metadata.uri, /^ipfs:\/\/bafkrei/u, `${kind} metadata URI is not raw CIDv1`);
+    assert.match(metadata.imageUri, /^ipfs:\/\/bafkrei/u, `${kind} image URI is not raw CIDv1`);
+  }
+});
+
+test("all lifecycle schemas reject malformed or noncanonical metadata identities", () => {
+  const malformed = [
+    "ipfs://bafybeigdyrzt5sfp7udm7hu76n2xrv3zku7eao4n6x7j5rjmw2b5uvzq4",
+    `${CANONICAL_RAW_IPFS_URI.slice(0, -1)}b`,
+    `https://arweave.net/${"A".repeat(42)}B`,
+    `${CANONICAL_ARWEAVE_URI}?download=1`,
+  ];
+  for (const [kind, create, selectMetadata] of metadataCases) {
+    for (const uri of malformed) {
+      for (const field of ["uri", "imageUri"]) {
+        const changed = create();
+        selectMetadata(changed)[field] = uri;
+        assert.equal(validateSchema(kind, changed).ok, false, `${kind} accepted ${field}=${uri}`);
+      }
+    }
   }
 });
 

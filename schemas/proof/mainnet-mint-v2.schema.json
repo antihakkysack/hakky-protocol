@@ -132,6 +132,11 @@
         "isMutable": { "const": false }
       }
     },
-    "contentUri": { "type": "string", "pattern": "^ipfs://b[a-z2-7]{10,}$" }
+    "contentUri": {
+      "oneOf": [
+        { "type": "string", "pattern": "^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$" },
+        { "type": "string", "pattern": "^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$" }
+      ]
+    }
   }
 }
