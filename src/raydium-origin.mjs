@@ -31,12 +31,52 @@ function parseUiUrl(rawUrl) {
   return parsed.href;
 }
 
-function canonicalContentLength(response) {
+function declaredContentLength(response) {
   const raw = response?.headers?.get?.("content-length");
+  if (raw === null) return null;
   if (typeof raw !== "string" || !/^(?:0|[1-9][0-9]*)$/u.test(raw)) fail("content-length");
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < 1 || value > MAX_DOC_BYTES) fail("content-length");
   return value;
+}
+
+async function readBoundedBody(response, deadline) {
+  const expectedLength = declaredContentLength(response);
+  const reader = response?.body?.getReader?.();
+  if (reader) {
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const result = await Promise.race([reader.read(), deadline]);
+        if (!result || typeof result !== "object" || typeof result.done !== "boolean") {
+          fail("response");
+        }
+        if (result.done) break;
+        if (!(result.value instanceof Uint8Array) || result.value.length === 0) {
+          fail("response");
+        }
+        total += result.value.length;
+        if (total > MAX_DOC_BYTES || (expectedLength !== null && total > expectedLength)) {
+          await reader.cancel().catch(() => {});
+          fail("content-length");
+        }
+        chunks.push(Buffer.from(result.value));
+      }
+    } finally {
+      reader.releaseLock?.();
+    }
+    if (total < 1 || (expectedLength !== null && total !== expectedLength)) {
+      fail("content-length");
+    }
+    return Buffer.concat(chunks, total);
+  }
+  if (expectedLength === null || typeof response?.arrayBuffer !== "function") {
+    fail("content-length");
+  }
+  const bytes = Buffer.from(await Promise.race([response.arrayBuffer(), deadline]));
+  if (bytes.length !== expectedLength) fail("content-length");
+  return bytes;
 }
 
 async function fetchOneDocument(startUrl, fetchImpl) {
@@ -69,9 +109,7 @@ async function fetchOneDocument(startUrl, fetchImpl) {
         continue;
       }
       if (!response.ok || response.status !== 200 || response.url !== currentUrl) fail("response");
-      const expectedLength = canonicalContentLength(response);
-      const bytes = Buffer.from(await Promise.race([response.arrayBuffer(), deadline]));
-      if (bytes.length !== expectedLength) fail("content-length");
+      const bytes = await readBoundedBody(response, deadline);
       return { url: currentUrl, bytes };
     } catch (error) {
       if (error?.message?.startsWith("raydium-origin-")) throw error;

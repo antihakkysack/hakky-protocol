@@ -16,15 +16,31 @@ const PROGRAMS_URL = "https://docs.raydium.io/reference/program-addresses";
 const INTRODUCTION = "Raydium's official application is https://raydium.io and no other domain.";
 const PROGRAMS = `LaunchLab program: ${RAYDIUM_LAUNCHLAB_PROGRAM_ID}`;
 
-function response(url, body, { status = 200, headers = {} } = {}) {
+function response(url, body, {
+  status = 200,
+  headers = {},
+  includeContentLength = true,
+  streamed = false,
+} = {}) {
   const bytes = Buffer.from(body, "utf8");
   return {
     status,
     ok: status >= 200 && status < 300,
     url,
+    body: streamed
+      ? new ReadableStream({
+        start(controller) {
+          controller.enqueue(bytes.subarray(0, Math.ceil(bytes.length / 2)));
+          controller.enqueue(bytes.subarray(Math.ceil(bytes.length / 2)));
+          controller.close();
+        },
+      })
+      : undefined,
     headers: {
       get(name) {
-        if (name.toLowerCase() === "content-length") return String(bytes.length);
+        if (name.toLowerCase() === "content-length") {
+          return includeContentLength ? String(bytes.length) : null;
+        }
         return headers[name.toLowerCase()] ?? null;
       },
     },
@@ -88,6 +104,30 @@ test("binds the exact official UI origin to current Raydium documentation", asyn
     pinnedProgramMatches: true,
   });
   assert.equal(receipt.ok, true);
+});
+
+test("accepts chunked official docs while enforcing the bounded streamed body", async () => {
+  const chunkedFetch = async (url) => response(
+    url,
+    url === INTRODUCTION_URL ? INTRODUCTION : PROGRAMS,
+    { includeContentLength: false, streamed: true },
+  );
+  const receipt = await verifyOfficialRaydiumOrigin({
+    uiUrl: "https://raydium.io/launchpad/create/",
+    fetchImpl: chunkedFetch,
+    checkedAt: CHECKED_AT,
+  });
+  assert.equal(receipt.ok, true);
+
+  await assert.rejects(verifyOfficialRaydiumOrigin({
+    uiUrl: "https://raydium.io/launchpad/create/",
+    fetchImpl: async (url) => response(
+      url,
+      url === INTRODUCTION_URL ? "x".repeat(512_001) : PROGRAMS,
+      { includeContentLength: false, streamed: true },
+    ),
+    checkedAt: CHECKED_AT,
+  }), /raydium-origin-content-length/u);
 });
 
 test("rejects lookalikes, authenticated URLs, documentation drift, and cross-origin redirects", async () => {

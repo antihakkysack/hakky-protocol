@@ -124,9 +124,11 @@ The ignored `artifacts/mainnet-session/official-origin.json` and
 `wallet-readiness.json` receipts are fresh public evidence, not approval. The
 origin verifier accepts only `https://raydium.io`, binds the official
 documentation bytes and documented LaunchLab program ID, and expires after 30
-minutes. Wallet readiness binds the exact visible creator address, finalized
-mainnet genesis, finalized balance and slot, fixed one-SOL requirement, and
-lowercase public RPC hostname; it expires after five minutes.
+minutes. Official documentation may use chunked transfer: its native body is
+streamed through a 512,000-byte ceiling, while a declared content length must
+also be canonical and exact. Wallet readiness binds the exact visible creator
+address, finalized mainnet genesis, finalized balance and slot, fixed one-SOL
+requirement, and lowercase public RPC hostname; it expires after five minutes.
 
 The preview consumes the exact raw unsigned transaction from the official flow.
 If those bytes cannot be obtained before signing, stop; never use a screenshot
