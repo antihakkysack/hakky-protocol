@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   chmod,
   lstat,
@@ -16,6 +16,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -144,6 +145,38 @@ async function assertExactPrivateDirectorySecurity(candidate) {
   }
 }
 
+async function assertExactPrivateFileSecurity(candidate) {
+  if (process.platform === "win32") {
+    const allowedSids = [
+      await currentWindowsSid(),
+      "S-1-5-18",
+      "S-1-5-32-544",
+    ].sort();
+    const acl = await windowsAcl(candidate);
+    assert.equal(acl.owner, await currentWindowsSid());
+    assert.equal(acl.protected, true);
+    assert.deepEqual(
+      acl.entries.map(({ sid }) => sid).sort(),
+      allowedSids,
+    );
+    assert.ok(
+      acl.entries.every(
+        ({ inherited, rights, type }) =>
+          type === "Allow" &&
+          inherited === false &&
+          rights.includes("FullControl"),
+      ),
+    );
+    return;
+  }
+
+  const entry = await stat(candidate);
+  assert.equal(entry.mode & 0o777, 0o600);
+  if (process.platform === "linux") {
+    assert.equal(entry.uid, process.getuid());
+  }
+}
+
 async function assertNoWindowsDirectoryPinHelper() {
   if (process.platform !== "win32") {
     return;
@@ -167,6 +200,434 @@ $matches = @(Get-CimInstance Win32_Process | Where-Object {
     await delay(25);
   }
   assert.fail("native directory pin helper must be reaped");
+}
+
+async function createWindowsStaleParentHandle(directory) {
+  assert.equal(process.platform, "win32");
+  const encodedDirectory = Buffer.from(directory, "utf8").toString("base64");
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public sealed class HakkyStaleParentHandle : IDisposable
+{
+    private const uint FILE_LIST_DIRECTORY = 0x00000001;
+    private const uint FILE_ADD_SUBDIRECTORY = 0x00000004;
+    private const uint FILE_DELETE_CHILD = 0x00000040;
+    private const uint FILE_READ_ATTRIBUTES = 0x00000080;
+    private const uint DELETE = 0x00010000;
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint FILE_SHARE_DELETE = 0x00000004;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
+    private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const uint OBJ_CASE_INSENSITIVE = 0x00000040;
+    private const uint FILE_OPEN = 1;
+    private const uint FILE_CREATE = 2;
+    private const uint FILE_DIRECTORY_FILE = 0x00000001;
+    private const uint FILE_OPEN_REPARSE_POINT = 0x00200000;
+    private const int FILE_RENAME_INFORMATION_CLASS = 10;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ObjectAttributes
+    {
+        public int Length;
+        public IntPtr RootDirectory;
+        public IntPtr ObjectName;
+        public uint Attributes;
+        public IntPtr SecurityDescriptor;
+        public IntPtr SecurityQualityOfService;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatusBlock
+    {
+        public IntPtr Status;
+        public IntPtr Information;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile
+    );
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtCreateFile(
+        out SafeFileHandle fileHandle,
+        uint desiredAccess,
+        ref ObjectAttributes objectAttributes,
+        out IoStatusBlock ioStatusBlock,
+        IntPtr allocationSize,
+        uint fileAttributes,
+        uint shareAccess,
+        uint createDisposition,
+        uint createOptions,
+        IntPtr eaBuffer,
+        uint eaLength
+    );
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtSetInformationFile(
+        SafeFileHandle handle,
+        out IoStatusBlock ioStatusBlock,
+        IntPtr fileInformation,
+        uint bufferSize,
+        int fileInformationClass
+    );
+
+    private SafeFileHandle root;
+
+    public HakkyStaleParentHandle(string directoryPath)
+    {
+        root = CreateFileW(
+            directoryPath,
+            FILE_LIST_DIRECTORY |
+                FILE_ADD_SUBDIRECTORY |
+                FILE_DELETE_CHILD |
+                FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            IntPtr.Zero
+        );
+        if (root.IsInvalid)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+    }
+
+    private int OpenRelative(
+        string childName,
+        uint desiredAccess,
+        uint disposition,
+        out SafeFileHandle child
+    )
+    {
+        IntPtr nameBuffer = Marshal.StringToHGlobalUni(childName);
+        IntPtr namePointer = IntPtr.Zero;
+        try
+        {
+            UnicodeString name = new UnicodeString {
+                Length = checked((ushort)(childName.Length * 2)),
+                MaximumLength = checked((ushort)((childName.Length + 1) * 2)),
+                Buffer = nameBuffer
+            };
+            namePointer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(UnicodeString)));
+            Marshal.StructureToPtr(name, namePointer, false);
+            ObjectAttributes attributes = new ObjectAttributes {
+                Length = Marshal.SizeOf(typeof(ObjectAttributes)),
+                RootDirectory = root.DangerousGetHandle(),
+                ObjectName = namePointer,
+                Attributes = OBJ_CASE_INSENSITIVE,
+                SecurityDescriptor = IntPtr.Zero,
+                SecurityQualityOfService = IntPtr.Zero
+            };
+            IoStatusBlock ioStatusBlock;
+            return NtCreateFile(
+                out child,
+                desiredAccess,
+                ref attributes,
+                out ioStatusBlock,
+                IntPtr.Zero,
+                FILE_ATTRIBUTE_DIRECTORY,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                disposition,
+                FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+                IntPtr.Zero,
+                0
+            );
+        }
+        finally
+        {
+            if (namePointer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(namePointer);
+            }
+            Marshal.FreeHGlobal(nameBuffer);
+        }
+    }
+
+    private void RenameRelative(SafeFileHandle child, string destinationName)
+    {
+        byte[] fileName = System.Text.Encoding.Unicode.GetBytes(destinationName);
+        int rootOffset = IntPtr.Size == 8 ? 8 : 4;
+        int lengthOffset = rootOffset + IntPtr.Size;
+        int nameOffset = lengthOffset + sizeof(uint);
+        int headerSize = IntPtr.Size == 8 ? 24 : 16;
+        int bufferSize = checked(headerSize + fileName.Length);
+        IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+        try
+        {
+            for (int offset = 0; offset < bufferSize; offset++)
+            {
+                Marshal.WriteByte(buffer, offset, 0);
+            }
+            Marshal.WriteIntPtr(buffer, rootOffset, root.DangerousGetHandle());
+            Marshal.WriteInt32(buffer, lengthOffset, fileName.Length);
+            Marshal.Copy(fileName, 0, IntPtr.Add(buffer, nameOffset), fileName.Length);
+            IoStatusBlock ioStatusBlock;
+            int status = NtSetInformationFile(
+                child,
+                out ioStatusBlock,
+                buffer,
+                (uint)bufferSize,
+                FILE_RENAME_INFORMATION_CLASS
+            );
+            if (status != 0)
+            {
+                throw new InvalidOperationException(
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "relative child rename failed with NTSTATUS 0x{0:X8}",
+                        status
+                    )
+                );
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+    }
+
+    public string TrySwap(string stagingName)
+    {
+        SafeFileHandle staging;
+        int status = OpenRelative(
+            stagingName,
+            DELETE | FILE_READ_ATTRIBUTES,
+            FILE_OPEN,
+            out staging
+        );
+        if (status != 0)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "BLOCKED:0x{0:X8}",
+                status
+            );
+        }
+        using (staging)
+        {
+            RenameRelative(staging, stagingName + ".original-moved");
+        }
+        SafeFileHandle replacement;
+        status = OpenRelative(
+            stagingName,
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+            FILE_CREATE,
+            out replacement
+        );
+        if (status != 0)
+        {
+            throw new InvalidOperationException(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "relative replacement create failed with NTSTATUS 0x{0:X8}",
+                    status
+                )
+            );
+        }
+        replacement.Dispose();
+        return "SWAPPED";
+    }
+
+    public void Dispose()
+    {
+        if (root != null)
+        {
+            root.Dispose();
+            root = null;
+        }
+    }
+}
+'@
+$directory = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('${encodedDirectory}')
+)
+$holder = $null
+try {
+  $holder = [HakkyStaleParentHandle]::new($directory)
+  [Console]::Out.WriteLine('READY')
+  [Console]::Out.Flush()
+  $encodedName = [Console]::In.ReadLine()
+  if ($encodedName -ne $null) {
+    $stagingName = [Text.Encoding]::UTF8.GetString(
+      [Convert]::FromBase64String($encodedName)
+    )
+    [Console]::Out.WriteLine($holder.TrySwap($stagingName))
+    [Console]::Out.Flush()
+  }
+} catch {
+  [Console]::Error.WriteLine($_.Exception.ToString())
+  exit 1
+} finally {
+  if ($holder -ne $null) {
+    $holder.Dispose()
+  }
+}
+`;
+  const child = spawn(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    {
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    },
+  );
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk.toString("utf8");
+  });
+  const completion = new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(
+          new Error(
+            `stale parent helper exited with ${code ?? signal}: ${stderr}`,
+          ),
+        );
+      }
+    });
+  });
+  completion.catch(() => {});
+  const lines = createInterface({ input: child.stdout });
+  const iterator = lines[Symbol.asyncIterator]();
+  const ready = await iterator.next();
+  assert.equal(ready.done, false);
+  assert.equal(ready.value, "READY");
+
+  let finished = false;
+  return {
+    async trySwap(stagingDirectory) {
+      assert.equal(finished, false);
+      finished = true;
+      child.stdin.end(
+        `${Buffer.from(path.basename(stagingDirectory), "utf8").toString(
+          "base64",
+        )}\n`,
+      );
+      const response = await iterator.next();
+      assert.equal(response.done, false);
+      await completion;
+      lines.close();
+      return response.value;
+    },
+    async release() {
+      if (!finished) {
+        finished = true;
+        child.stdin.end();
+      }
+      if (child.exitCode === null) {
+        await completion;
+      }
+      lines.close();
+    },
+    terminate() {
+      if (child.exitCode === null) {
+        child.kill();
+      }
+    },
+  };
+}
+
+async function controlWindowsDirectoryPinHelpers(action) {
+  assert.equal(process.platform, "win32");
+  assert.ok(["suspend", "terminate"].includes(action));
+  const script = `
+$needle = 'Hakky' + 'DirectoryPin'
+$matches = @(Get-CimInstance Win32_Process | Where-Object {
+  $_.CommandLine -like ('*' + $needle + '*')
+})
+if ($matches.Count -eq 0) {
+  throw 'no directory pin helper found'
+}
+if ('${action}' -eq 'terminate') {
+  foreach ($match in $matches) {
+    Stop-Process -Id $match.ProcessId -Force
+  }
+} else {
+  Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class HakkyTestProcessControl
+{
+    private const uint PROCESS_SUSPEND_RESUME = 0x00000800;
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(
+        uint desiredAccess,
+        bool inheritHandle,
+        uint processId
+    );
+    [DllImport("kernel32.dll")]
+    private static extern bool CloseHandle(IntPtr handle);
+    [DllImport("ntdll.dll")]
+    private static extern int NtSuspendProcess(IntPtr processHandle);
+    public static void Suspend(uint processId)
+    {
+        IntPtr handle = OpenProcess(PROCESS_SUSPEND_RESUME, false, processId);
+        if (handle == IntPtr.Zero)
+        {
+            throw new System.ComponentModel.Win32Exception(
+                Marshal.GetLastWin32Error()
+            );
+        }
+        try
+        {
+            int status = NtSuspendProcess(handle);
+            if (status != 0)
+            {
+                throw new InvalidOperationException(
+                    "NtSuspendProcess failed with NTSTATUS 0x" +
+                    status.ToString("X8")
+                );
+            }
+        }
+        finally
+        {
+            CloseHandle(handle);
+        }
+    }
+}
+'@
+  foreach ($match in $matches) {
+    [HakkyTestProcessControl]::Suspend([uint32]$match.ProcessId)
+  }
+}
+[Console]::Out.Write($matches.Count)
+`;
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { windowsHide: true },
+  );
+  const count = Number.parseInt(stdout, 10);
+  assert.ok(count > 0);
+  return count;
 }
 
 test("renders only public compile-time release values", () => {
@@ -315,7 +776,7 @@ test("no-overwrite publication preserves a destination created after staging", a
   await writeFile(rustConfigPath, "existing public binding\n", "utf8");
 
   const generation = generateDevnetReleaseConfig({ repositoryRoot: root });
-  let stagingObserved = false;
+  let stagingDirectory;
   for (let attempt = 0; attempt < 500; attempt += 1) {
     const entries = await readdir(devnetDirectory).catch((error) => {
       if (error?.code === "ENOENT") {
@@ -323,19 +784,25 @@ test("no-overwrite publication preserves a destination created after staging", a
       }
       throw error;
     });
-    if (entries.some((entry) => entry.startsWith(".private-stage-"))) {
-      stagingObserved = true;
+    const stagingName = entries.find((entry) =>
+      entry.startsWith(".private-stage-"),
+    );
+    if (stagingName) {
+      stagingDirectory = path.join(devnetDirectory, stagingName);
       break;
     }
     await delay(10);
   }
-  assert.equal(stagingObserved, true, "private staging must be observable");
+  assert.ok(stagingDirectory, "private staging must be observable");
 
   await mkdir(privateDirectory);
   const sentinelPath = path.join(privateDirectory, "existing-sentinel.txt");
   await writeFile(sentinelPath, "race winner\n", "utf8");
 
-  await assert.rejects(generation, /private identity path already exists/i);
+  await assert.rejects(
+    generation,
+    /protected incomplete staging retained|explicit recovery required/i,
+  );
   assert.equal(await readFile(sentinelPath, "utf8"), "race winner\n");
   assert.equal(
     await readFile(rustConfigPath, "utf8"),
@@ -343,11 +810,24 @@ test("no-overwrite publication preserves a destination created after staging", a
   );
   assert.deepEqual(await readdir(privateDirectory), ["existing-sentinel.txt"]);
   assert.deepEqual(
+    (await readdir(stagingDirectory)).sort(),
+    [
+      "initializer-keypair.json",
+      "instance-nonce.hex",
+      "program-keypair.json",
+    ],
+  );
+  await assertExactPrivateDirectorySecurity(stagingDirectory);
+  for (const fileName of await readdir(stagingDirectory)) {
+    await assertExactPrivateFileSecurity(path.join(stagingDirectory, fileName));
+  }
+  assert.deepEqual(
     (await readdir(devnetDirectory)).filter(
       (entry) => entry.startsWith(".private-stage-") || entry.endsWith(".tmp"),
     ),
-    [],
+    [path.basename(stagingDirectory)],
   );
+  await assertNoWindowsDirectoryPinHelper();
 });
 
 test("post-validation staging replacement cannot receive secret bytes", async (t) => {
@@ -627,7 +1107,10 @@ test("pre-parent-pin substitutions never become an unverified secret boundary", 
   });
 });
 
-test("staging substitution after pin release cannot be published", async (t) => {
+test(
+  "Windows publishes the retained staging identity when substitution is attempted immediately before publication",
+  { skip: process.platform !== "win32" },
+  async (t) => {
   const root = await isolatedRepository(t);
   const devnetDirectory = path.join(root, "artifacts", "devnet");
   const privateDirectory = path.join(devnetDirectory, "private");
@@ -649,36 +1132,46 @@ test("staging substitution after pin release cannot be published", async (t) => 
   await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
   await writeFile(path.join(outside, "sentinel.txt"), "outside unchanged\n");
 
-  let hookCalled = false;
   let stagingDirectory;
+  let stagingIdentity;
+  let substitutionBlocked = false;
   let movedStagingDirectory;
-  await assert.rejects(
-    generateDevnetReleaseConfig({
-      repositoryRoot: root,
-      async postStagingPinReleaseHook(context) {
-        assert.equal(context.phase, "publication");
-        hookCalled = true;
-        stagingDirectory = context.stagingDirectory;
-        movedStagingDirectory = `${stagingDirectory}.released`;
+  const result = await generateDevnetReleaseConfig({
+    repositoryRoot: root,
+    async postValidationHook(context) {
+      stagingIdentity = await lstat(context.stagingDirectory, { bigint: true });
+    },
+    async postStagingPinReleaseHook(context) {
+      assert.equal(context.phase, "publication");
+      stagingDirectory = context.stagingDirectory;
+      movedStagingDirectory = `${stagingDirectory}.original-moved`;
+      try {
         await rename(stagingDirectory, movedStagingDirectory);
-        await symlink(
-          outside,
-          stagingDirectory,
-          process.platform === "win32" ? "junction" : "dir",
+        await mkdir(stagingDirectory);
+        await writeFile(
+          path.join(stagingDirectory, "substitute-sentinel.txt"),
+          "substitute retained\n",
+          "utf8",
         );
-      },
-    }),
-    /staging identity changed/i,
-  );
+      } catch (error) {
+        substitutionBlocked = true;
+        assert.match(
+          `${error?.code ?? ""} ${error?.message ?? ""}`,
+          /EPERM|EACCES|EBUSY|access|being used|busy|locked|permission/i,
+        );
+      }
+    },
+  });
 
-  assert.equal(hookCalled, true);
+  const publishedIdentity = await lstat(privateDirectory, { bigint: true });
+  assert.equal(publishedIdentity.dev, stagingIdentity.dev);
+  assert.equal(publishedIdentity.ino, stagingIdentity.ino);
+  assert.equal(result.publicConfig.programId.length > 0, true);
+  assert.equal(substitutionBlocked, true);
   assert.deepEqual(await readdir(outside), ["sentinel.txt"]);
-  assert.equal(await lstatIfExistsForTest(privateDirectory), null);
-  assert.equal(await readFile(publicConfigPath, "utf8"), "existing public config\n");
-  assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
-  assert.equal((await lstat(stagingDirectory)).isSymbolicLink(), true);
+  assert.equal(await lstatIfExistsForTest(movedStagingDirectory), null);
   assert.deepEqual(
-    (await readdir(movedStagingDirectory)).sort(),
+    (await readdir(privateDirectory)).sort(),
     [
       "initializer-keypair.json",
       "instance-nonce.hex",
@@ -686,12 +1179,108 @@ test("staging substitution after pin release cannot be published", async (t) => 
     ],
   );
   await assertNoWindowsDirectoryPinHelper();
+  },
+);
 
-  await unlink(stagingDirectory);
-  await rm(movedStagingDirectory, { recursive: true, force: true });
-});
+test(
+  "Windows stale parent handle cannot substitute the retained staging identity",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    const privateDirectory = path.join(devnetDirectory, "private");
+    await mkdir(devnetDirectory, { recursive: true });
 
-test("staging substitution after pin release cannot be removed by cleanup", async (t) => {
+    let attacker;
+    let stagingIdentity;
+    let stagingDirectory;
+    let attackResult;
+    t.after(async () => {
+      if (attacker) {
+        attacker.terminate();
+        await attacker.release().catch(() => {});
+      }
+    });
+
+    await generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async preParentPinHook() {
+        attacker = await createWindowsStaleParentHandle(devnetDirectory);
+      },
+      async postValidationHook(context) {
+        stagingDirectory = context.stagingDirectory;
+        stagingIdentity = await lstat(stagingDirectory, { bigint: true });
+      },
+      async postStagingPinReleaseHook(context) {
+        assert.equal(context.phase, "publication");
+        attackResult = await attacker.trySwap(context.stagingDirectory);
+        assert.match(attackResult, /^BLOCKED:/);
+      },
+    });
+
+    const publishedIdentity = await lstat(privateDirectory, { bigint: true });
+    assert.equal(publishedIdentity.dev, stagingIdentity.dev);
+    assert.equal(publishedIdentity.ino, stagingIdentity.ino);
+    assert.equal(
+      await lstatIfExistsForTest(`${stagingDirectory}.original-moved`),
+      null,
+    );
+    assert.match(attackResult, /^BLOCKED:/);
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows helper protocol faults are bounded and reap every helper",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    for (const action of ["terminate", "suspend"]) {
+      await t.test(action, async (t) => {
+        const root = await isolatedRepository(t);
+        const devnetDirectory = path.join(root, "artifacts", "devnet");
+        const publicConfigPath = path.join(
+          devnetDirectory,
+          "public-release-config.json",
+        );
+        const rustConfigPath = path.join(
+          root,
+          "programs",
+          "hakky-market",
+          "src",
+          "release_config.rs",
+        );
+        await mkdir(devnetDirectory, { recursive: true });
+        await writeFile(publicConfigPath, "existing public config\n", "utf8");
+        await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+
+        await assert.rejects(
+          generateDevnetReleaseConfig({
+            repositoryRoot: root,
+            async postValidationHook() {
+              await controlWindowsDirectoryPinHelpers(action);
+            },
+          }),
+          /directory pin|pin helper|timed out/i,
+        );
+
+        assert.equal(
+          await readFile(publicConfigPath, "utf8"),
+          "existing public config\n",
+        );
+        assert.equal(
+          await readFile(rustConfigPath, "utf8"),
+          "existing Rust binding\n",
+        );
+        await assertNoWindowsDirectoryPinHelper();
+      });
+    }
+  },
+);
+
+test(
+  "Windows post-secret failure retains the protected staging identity and blocks cleanup substitution",
+  { skip: process.platform !== "win32" },
+  async (t) => {
   const root = await isolatedRepository(t);
   const devnetDirectory = path.join(root, "artifacts", "devnet");
   const publicConfigPath = path.join(
@@ -711,61 +1300,111 @@ test("staging substitution after pin release cannot be removed by cleanup", asyn
 
   let hookCalled = false;
   let stagingDirectory;
+  let stagingIdentity;
   let movedStagingDirectory;
+  let substitutionBlocked = false;
   await assert.rejects(
     generateDevnetReleaseConfig({
       repositoryRoot: root,
       async postValidationHook(context) {
-        await writeFile(
-          path.join(context.stagingDirectory, "force-cleanup.txt"),
-          "force cleanup\n",
-          "utf8",
-        );
+        stagingDirectory = context.stagingDirectory;
+        stagingIdentity = await lstat(stagingDirectory, { bigint: true });
+      },
+      async postSecretFileWriteHook({ fileName }) {
+        assert.equal(fileName, "program-keypair.json");
+        throw new Error("injected post-secret failure");
       },
       async postStagingPinReleaseHook(context) {
+        if (context.phase === "publication") {
+          return;
+        }
         assert.equal(context.phase, "cleanup");
         hookCalled = true;
-        stagingDirectory = context.stagingDirectory;
-        movedStagingDirectory = `${stagingDirectory}.released`;
-        await rename(stagingDirectory, movedStagingDirectory);
-        await mkdir(stagingDirectory);
-        await writeFile(
-          path.join(stagingDirectory, "replacement-sentinel.txt"),
-          "replacement retained\n",
-          "utf8",
-        );
+        movedStagingDirectory = `${stagingDirectory}.original-moved`;
+        try {
+          await rename(stagingDirectory, movedStagingDirectory);
+          await mkdir(stagingDirectory);
+          await writeFile(
+            path.join(stagingDirectory, "replacement-sentinel.txt"),
+            "replacement retained\n",
+            "utf8",
+          );
+        } catch (error) {
+          substitutionBlocked = true;
+          assert.match(
+            `${error?.code ?? ""} ${error?.message ?? ""}`,
+            /EPERM|EACCES|EBUSY|access|being used|busy|locked|permission/i,
+          );
+        }
       },
     }),
-    /staging identity changed/i,
+    /protected incomplete staging retained|explicit recovery required/i,
   );
 
   assert.equal(hookCalled, true);
-  assert.deepEqual(await readdir(stagingDirectory), [
-    "replacement-sentinel.txt",
-  ]);
-  assert.equal(
-    await readFile(
-      path.join(stagingDirectory, "replacement-sentinel.txt"),
-      "utf8",
-    ),
-    "replacement retained\n",
+  assert.equal(substitutionBlocked, true);
+  const retainedIdentity = await lstat(stagingDirectory, { bigint: true });
+  assert.equal(retainedIdentity.dev, stagingIdentity.dev);
+  assert.equal(retainedIdentity.ino, stagingIdentity.ino);
+  assert.deepEqual(await readdir(stagingDirectory), ["program-keypair.json"]);
+  await assertExactPrivateDirectorySecurity(stagingDirectory);
+  await assertExactPrivateFileSecurity(
+    path.join(stagingDirectory, "program-keypair.json"),
   );
-  assert.deepEqual(
-    (await readdir(movedStagingDirectory)).sort(),
-    [
-      "force-cleanup.txt",
-      "initializer-keypair.json",
-      "instance-nonce.hex",
-      "program-keypair.json",
-    ],
+  assert.ok(
+    (await stat(path.join(stagingDirectory, "program-keypair.json"))).size > 0,
   );
+  assert.equal(await lstatIfExistsForTest(movedStagingDirectory), null);
   assert.equal(await readFile(publicConfigPath, "utf8"), "existing public config\n");
   assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+  const retainedNames = await readdir(stagingDirectory);
+  await assert.rejects(
+    generateDevnetReleaseConfig({ repositoryRoot: root }),
+    /protected incomplete staging.*explicit recovery required/i,
+  );
+  const afterRetryIdentity = await lstat(stagingDirectory, { bigint: true });
+  assert.equal(afterRetryIdentity.dev, stagingIdentity.dev);
+  assert.equal(afterRetryIdentity.ino, stagingIdentity.ino);
+  assert.deepEqual(await readdir(stagingDirectory), retainedNames);
+  assert.equal(await readFile(publicConfigPath, "utf8"), "existing public config\n");
+  assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+  assert.equal(await lstatIfExistsForTest(path.join(devnetDirectory, "private")), null);
   await assertNoWindowsDirectoryPinHelper();
+  },
+);
 
-  await rm(stagingDirectory, { recursive: true, force: true });
-  await rm(movedStagingDirectory, { recursive: true, force: true });
-});
+test(
+  "secret files have retained identity and exact security before the first byte",
+  { skip: !["linux", "win32"].includes(process.platform) },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const observed = [];
+
+    await generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async beforeSecretFirstByteHook({
+        fileName,
+        filePath,
+        openedIdentity,
+      }) {
+        const namedEntry = await lstat(filePath, { bigint: true });
+        assert.equal(namedEntry.size, 0n);
+        assert.equal(namedEntry.dev, openedIdentity.dev);
+        assert.equal(namedEntry.ino, openedIdentity.ino);
+        await assertExactPrivateDirectorySecurity(path.dirname(filePath));
+        await assertExactPrivateFileSecurity(filePath);
+        observed.push(fileName);
+      },
+    });
+
+    assert.deepEqual(observed, [
+      "program-keypair.json",
+      "initializer-keypair.json",
+      "instance-nonce.hex",
+    ]);
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
 
 test("rejects redirected secret ancestors and destinations", async (t) => {
   await t.test("redirected devnet ancestor", async (t) => {

@@ -26,19 +26,24 @@ const WINDOWS_PIN_TYPE = String.raw`
 using System;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 public sealed class HakkyDirectoryPin : IDisposable
 {
     private const uint FILE_SHARE_READ = 0x00000001;
     private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint FILE_LIST_DIRECTORY = 0x00000001;
     private const uint FILE_READ_ATTRIBUTES = 0x00000080;
+    private const uint DELETE = 0x00010000;
     private const uint OPEN_EXISTING = 3;
     private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
     private const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
     private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
     private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const int FILE_RENAME_INFORMATION_CLASS = 10;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct ByHandleFileInformation
@@ -53,6 +58,13 @@ public sealed class HakkyDirectoryPin : IDisposable
         public uint NumberOfLinks;
         public uint FileIndexHigh;
         public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatusBlock
+    {
+        public IntPtr Status;
+        public IntPtr Information;
     }
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -72,15 +84,49 @@ public sealed class HakkyDirectoryPin : IDisposable
         out ByHandleFileInformation information
     );
 
+    [DllImport("ntdll.dll")]
+    private static extern int NtSetInformationFile(
+        SafeFileHandle handle,
+        out IoStatusBlock ioStatusBlock,
+        IntPtr fileInformation,
+        uint bufferSize,
+        int fileInformationClass
+    );
+
+    [DllImport("ntdll.dll")]
+    private static extern uint RtlNtStatusToDosError(
+        int status
+    );
+
     private SafeFileHandle handle;
+    private readonly string originalPath;
+    private readonly bool renameSource;
+    private readonly bool renameRoot;
+    private string publishedPath;
 
     public string Identity { get; private set; }
 
-    public HakkyDirectoryPin(string directoryPath)
+    public HakkyDirectoryPin(
+        string directoryPath,
+        bool allowRenameSource,
+        bool allowRenameRoot
+    )
     {
+        originalPath = Path.GetFullPath(directoryPath);
+        renameSource = allowRenameSource;
+        renameRoot = allowRenameRoot;
+        uint desiredAccess = FILE_READ_ATTRIBUTES;
+        if (renameSource)
+        {
+            desiredAccess |= DELETE;
+        }
+        if (renameRoot)
+        {
+            desiredAccess |= FILE_LIST_DIRECTORY;
+        }
         handle = CreateFileW(
-            directoryPath,
-            FILE_READ_ATTRIBUTES,
+            originalPath,
+            desiredAccess,
             FILE_SHARE_READ | FILE_SHARE_WRITE,
             IntPtr.Zero,
             OPEN_EXISTING,
@@ -92,35 +138,164 @@ public sealed class HakkyDirectoryPin : IDisposable
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
 
+        Identity = ReadIdentity(handle);
+        VerifyPathIdentity(originalPath);
+    }
+
+    private static string ReadIdentity(SafeFileHandle candidate)
+    {
         ByHandleFileInformation information;
-        if (!GetFileInformationByHandle(handle, out information))
+        if (!GetFileInformationByHandle(candidate, out information))
         {
-            int error = Marshal.GetLastWin32Error();
-            handle.Dispose();
-            throw new Win32Exception(error);
+            throw new Win32Exception(Marshal.GetLastWin32Error());
         }
         if ((information.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
         {
-            handle.Dispose();
             throw new InvalidOperationException(
                 "directory pin rejected a reparse point"
             );
         }
         if ((information.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0)
         {
-            handle.Dispose();
             throw new InvalidOperationException(
                 "directory pin requires a directory"
             );
         }
-
-        Identity = string.Format(
+        return string.Format(
             CultureInfo.InvariantCulture,
             "{0:X8}:{1:X8}:{2:X8}",
             information.VolumeSerialNumber,
             information.FileIndexHigh,
             information.FileIndexLow
         );
+    }
+
+    private void VerifyPathIdentity(string candidatePath)
+    {
+        using (SafeFileHandle candidate = CreateFileW(
+            candidatePath,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            IntPtr.Zero
+        ))
+        {
+            if (candidate.IsInvalid)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            if (ReadIdentity(candidate) != Identity)
+            {
+                throw new InvalidOperationException(
+                    "directory pin path identity changed"
+                );
+            }
+        }
+    }
+
+    public void Verify()
+    {
+        if (handle == null || handle.IsInvalid || handle.IsClosed)
+        {
+            throw new InvalidOperationException("directory pin is closed");
+        }
+        if (ReadIdentity(handle) != Identity)
+        {
+            throw new InvalidOperationException(
+                "opened directory pin identity changed"
+            );
+        }
+        VerifyPathIdentity(publishedPath ?? originalPath);
+    }
+
+    public string PublishPrivate(
+        HakkyDirectoryPin retainedRoot,
+        string destinationPath
+    )
+    {
+        if (!renameSource || retainedRoot == null || !retainedRoot.renameRoot)
+        {
+            throw new InvalidOperationException(
+                "directory pin is not configured for publication"
+            );
+        }
+        if (publishedPath != null)
+        {
+            throw new InvalidOperationException(
+                "directory pin is already published"
+            );
+        }
+        string expectedDestination = Path.GetFullPath(
+            Path.Combine(retainedRoot.originalPath, "private")
+        );
+        if (
+            !string.Equals(
+                Path.GetFullPath(destinationPath),
+                expectedDestination,
+                StringComparison.OrdinalIgnoreCase
+            )
+        )
+        {
+            throw new InvalidOperationException(
+                "directory pin publication destination is not literal private"
+            );
+        }
+
+        Verify();
+        retainedRoot.Verify();
+        byte[] fileName = Encoding.Unicode.GetBytes("private");
+        int rootOffset = IntPtr.Size == 8 ? 8 : 4;
+        int lengthOffset = rootOffset + IntPtr.Size;
+        int nameOffset = lengthOffset + sizeof(uint);
+        int headerSize = IntPtr.Size == 8 ? 24 : 16;
+        int bufferSize = checked(headerSize + fileName.Length);
+        IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
+        try
+        {
+            for (int offset = 0; offset < bufferSize; offset++)
+            {
+                Marshal.WriteByte(buffer, offset, 0);
+            }
+            Marshal.WriteInt32(buffer, 0, 0);
+            Marshal.WriteIntPtr(
+                buffer,
+                rootOffset,
+                retainedRoot.handle.DangerousGetHandle()
+            );
+            Marshal.WriteInt32(buffer, lengthOffset, fileName.Length);
+            Marshal.Copy(fileName, 0, IntPtr.Add(buffer, nameOffset), fileName.Length);
+            IoStatusBlock ioStatusBlock;
+            int status = NtSetInformationFile(
+                handle,
+                out ioStatusBlock,
+                buffer,
+                (uint)bufferSize,
+                FILE_RENAME_INFORMATION_CLASS
+            );
+            if (status != 0)
+            {
+                uint error = RtlNtStatusToDosError(status);
+                throw new Win32Exception(
+                    (int)error,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "native private publication failed ({0})",
+                        error
+                    )
+                );
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+
+        publishedPath = expectedDestination;
+        Verify();
+        retainedRoot.Verify();
+        return Identity;
     }
 
     public void Dispose()
@@ -212,26 +387,46 @@ foreach ($rule in $applied.Access) {
   );
 }
 
-function windowsPinScript(paths, holdOpen) {
+function windowsPinScript(
+  paths,
+  { holdOpen = false, publishPrivate = null } = {},
+) {
   const encodedPaths = paths
     .map(
       (candidate) =>
         `'${Buffer.from(candidate, "utf8").toString("base64")}'`,
     )
     .join(", ");
+  const publishRootIndex = publishPrivate?.rootIndex ?? -1;
+  const publishSourceIndex = publishPrivate?.sourceIndex ?? -1;
+  const encodedPrivatePath = publishPrivate
+    ? Buffer.from(publishPrivate.destination, "utf8").toString("base64")
+    : "";
   return `
 Add-Type -TypeDefinition @'
 ${WINDOWS_PIN_TYPE}
 '@
 $encodedPaths = @(${encodedPaths})
+$publishRootIndex = ${publishRootIndex}
+$publishSourceIndex = ${publishSourceIndex}
+$privatePath = ${
+    publishPrivate
+      ? `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPrivatePath}'))`
+      : "$null"
+  }
 $pins = [System.Collections.ArrayList]::new()
 try {
   $identities = @()
-  foreach ($encodedPath in $encodedPaths) {
+  for ($index = 0; $index -lt $encodedPaths.Count; $index++) {
+    $encodedPath = $encodedPaths[$index]
     $candidate = [Text.Encoding]::UTF8.GetString(
       [Convert]::FromBase64String($encodedPath)
     )
-    $pin = [HakkyDirectoryPin]::new($candidate)
+    $pin = [HakkyDirectoryPin]::new(
+      $candidate,
+      $index -eq $publishSourceIndex,
+      $index -eq $publishRootIndex
+    )
     [void]$pins.Add($pin)
     $identities += $pin.Identity
   }
@@ -241,7 +436,55 @@ try {
   [Console]::Out.Flush()
   ${
     holdOpen
-      ? "[Threading.Thread]::Sleep([Threading.Timeout]::Infinite)"
+      ? `
+  while (($command = [Console]::In.ReadLine()) -ne $null) {
+    if ($command -eq 'VERIFY') {
+      foreach ($pin in $pins) {
+        $pin.Verify()
+      }
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{
+            command = 'VERIFY'
+            identities = [string[]]@($pins | ForEach-Object { $_.Identity })
+          }
+        ))
+      )
+      [Console]::Out.Flush()
+      continue
+    }
+    if (
+      $command -eq 'PUBLISH_PRIVATE' -and
+      $publishRootIndex -ge 0 -and
+      $publishSourceIndex -ge 0
+    ) {
+      $publishedIdentity = $pins[$publishSourceIndex].PublishPrivate(
+        $pins[$publishRootIndex],
+        $privatePath
+      )
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{
+            command = 'PUBLISH_PRIVATE'
+            identity = $publishedIdentity
+          }
+        ))
+      )
+      [Console]::Out.Flush()
+      continue
+    }
+    if ($command -eq 'RELEASE') {
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{ command = 'RELEASE' }
+        ))
+      )
+      [Console]::Out.Flush()
+      break
+    }
+    throw "unsupported directory pin command"
+  }
+`
       : ""
   }
 } catch {
@@ -284,17 +527,24 @@ function withDeadline(promise, message) {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timeout));
 }
 
-async function createWindowsDirectoryIdentityPin(paths, label) {
+async function createWindowsDirectoryIdentityPin(
+  paths,
+  label,
+  { publishPrivate } = {},
+) {
   const child = spawn(
     "powershell.exe",
     [
       "-NoProfile",
       "-NonInteractive",
       "-Command",
-      windowsPinScript(paths, true),
+      windowsPinScript(paths, {
+        holdOpen: true,
+        publishPrivate,
+      }),
     ],
     {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       windowsHide: true,
     },
   );
@@ -343,6 +593,63 @@ async function createWindowsDirectoryIdentityPin(paths, label) {
   }
 
   let released = false;
+  let commandPending = false;
+  async function terminateHelper() {
+    child.stdin.destroy();
+    if (child.exitCode === null) {
+      child.kill();
+    }
+    await completion.catch(() => {});
+    lines.close();
+  }
+  async function sendCommand(command) {
+    if (released) {
+      throw new Error(`${label} identity pin is already released`);
+    }
+    if (commandPending) {
+      throw new Error(`${label} identity pin command is already pending`);
+    }
+    if (child.exitCode !== null) {
+      throw new Error(`${label} identity changed: pin helper exited`);
+    }
+    commandPending = true;
+    try {
+      await withDeadline(
+        new Promise((resolve, reject) => {
+          child.stdin.write(`${command}\n`, "utf8", (error) => {
+            if (error) {
+              reject(error);
+            } else {
+              resolve();
+            }
+          });
+        }),
+        `Windows directory pin ${command} write timed out`,
+      );
+      const nextLine = await withDeadline(
+        iterator.next(),
+        `Windows directory pin ${command} response timed out`,
+      );
+      if (nextLine.done) {
+        await completion;
+        throw new Error(
+          `Windows directory pin exited before acknowledging ${command}`,
+        );
+      }
+      const response = JSON.parse(nextLine.value);
+      if (response.command !== command) {
+        throw new Error(
+          `Windows directory pin returned an invalid ${command} acknowledgement`,
+        );
+      }
+      return response;
+    } catch (error) {
+      await terminateHelper();
+      throw error;
+    } finally {
+      commandPending = false;
+    }
+  }
   async function verifyPaths() {
     let current;
     try {
@@ -364,32 +671,48 @@ async function createWindowsDirectoryIdentityPin(paths, label) {
       if (released) {
         throw new Error(`${label} identity pin is already released`);
       }
-      if (child.exitCode !== null) {
-        throw new Error(`${label} identity changed: pin helper exited`);
+      const response = await sendCommand("VERIFY");
+      if (!sameIdentities(identities, response.identities)) {
+        throw new Error(`${label} identity changed`);
       }
-      await verifyPaths();
     },
     verifyPath: verifyPaths,
+    async verifyPublished(candidate, index) {
+      const current = await readWindowsDirectoryIdentities([candidate]);
+      if (current[0] !== identities[index]) {
+        throw new Error(`${label} published identity changed`);
+      }
+      await this.verify();
+    },
+    async publishPrivate() {
+      if (!publishPrivate) {
+        throw new Error(`${label} identity pin cannot publish private`);
+      }
+      const response = await sendCommand("PUBLISH_PRIVATE");
+      if (response.identity !== identities[publishPrivate.sourceIndex]) {
+        throw new Error(`${label} published identity changed`);
+      }
+      return response.identity;
+    },
     async release() {
       if (released) {
         return;
       }
-      released = true;
-      if (child.exitCode === null) {
-        child.kill();
-      }
       try {
+        if (child.exitCode === null) {
+          await sendCommand("RELEASE");
+          child.stdin.end();
+        }
         await withDeadline(
-          completion.catch(() => {}),
+          completion,
           "Windows directory pin shutdown timed out",
         );
       } catch (error) {
-        if (child.exitCode === null) {
-          child.kill();
-          await completion.catch(() => {});
-        }
+        await terminateHelper();
         throw error;
       } finally {
+        released = true;
+        child.stdin.destroy();
         lines.close();
       }
     },
@@ -455,6 +778,18 @@ async function createLinuxDirectoryIdentityPin(paths, label) {
       await verifyPaths();
     },
     verifyPath: verifyPaths,
+    async verifyPublished(candidate, index) {
+      const entry = await lstat(candidate, { bigint: true });
+      if (
+        entry.isSymbolicLink() ||
+        !entry.isDirectory() ||
+        linuxIdentity(entry) !== identities[index] ||
+        linuxIdentity(await handles[index].stat({ bigint: true })) !==
+          identities[index]
+      ) {
+        throw new Error(`${label} published identity changed`);
+      }
+    },
     async release() {
       if (released) {
         return;
@@ -493,9 +828,9 @@ async function readDirectoryIdentitySnapshot(paths) {
   );
 }
 
-async function createDirectoryIdentityPin(paths, label) {
+async function createDirectoryIdentityPin(paths, label, options = {}) {
   if (process.platform === "win32") {
-    return createWindowsDirectoryIdentityPin(paths, label);
+    return createWindowsDirectoryIdentityPin(paths, label, options);
   }
   if (process.platform === "linux") {
     return createLinuxDirectoryIdentityPin(paths, label);
@@ -676,7 +1011,7 @@ async function validatePrivateDirectory(
 }
 
 async function validatePrivateFile(candidate, stagingReal, openedEntry) {
-  const entry = await lstat(candidate);
+  const entry = await lstat(candidate, { bigint: true });
   await assertNotRedirected(candidate, entry, "private identity file");
   if (!entry.isFile()) {
     throw new Error("private identity path must be a regular file");
@@ -691,7 +1026,7 @@ async function validatePrivateFile(candidate, stagingReal, openedEntry) {
   if (!isContained(stagingReal, resolved)) {
     throw new Error("private identity file escapes its staging directory");
   }
-  if (process.platform !== "win32" && (entry.mode & 0o777) !== 0o600) {
+  if (process.platform !== "win32" && (entry.mode & 0o777n) !== 0o600n) {
     throw new Error("private identity file must have mode 0600");
   }
 }
@@ -701,6 +1036,8 @@ async function writeExclusivePrivateFile(
   contents,
   stagingReal,
   beforeMutation,
+  onOpened,
+  beforeFirstByte,
 ) {
   const flags =
     fsConstants.O_WRONLY |
@@ -710,12 +1047,29 @@ async function writeExclusivePrivateFile(
   await beforeMutation();
   const handle = await open(candidate, flags, 0o600);
   try {
+    onOpened(candidate);
     await beforeMutation();
+    await restrictPrivateFile(candidate);
+    const openedEntry = await handle.stat({ bigint: true });
+    await validatePrivateFile(candidate, stagingReal, openedEntry);
+    await beforeMutation();
+    if (beforeFirstByte) {
+      await beforeFirstByte(
+        Object.freeze({
+          fileName: path.basename(candidate),
+          filePath: candidate,
+          openedIdentity: Object.freeze({
+            dev: openedEntry.dev,
+            ino: openedEntry.ino,
+          }),
+        }),
+      );
+    }
     await handle.writeFile(contents, "utf8");
     await handle.sync();
     await beforeMutation();
     await restrictPrivateFile(candidate);
-    await validatePrivateFile(candidate, stagingReal, await handle.stat());
+    await validatePrivateFile(candidate, stagingReal, openedEntry);
   } finally {
     await handle.close();
   }
@@ -927,12 +1281,20 @@ export function repositoryRootFromModule(moduleUrl) {
 
 export async function generateDevnetReleaseConfig({
   repositoryRoot,
+  beforeSecretFirstByteHook,
   preParentPinHook,
   postValidationHook,
+  postSecretFileWriteHook,
   postStagingPinReleaseHook,
 }) {
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new TypeError("repository root must be an absolute path");
+  }
+  if (
+    beforeSecretFirstByteHook !== undefined &&
+    typeof beforeSecretFirstByteHook !== "function"
+  ) {
+    throw new TypeError("before-secret-first-byte hook must be a function");
   }
   if (
     preParentPinHook !== undefined &&
@@ -945,6 +1307,12 @@ export async function generateDevnetReleaseConfig({
     typeof postValidationHook !== "function"
   ) {
     throw new TypeError("post-validation hook must be a function");
+  }
+  if (
+    postSecretFileWriteHook !== undefined &&
+    typeof postSecretFileWriteHook !== "function"
+  ) {
+    throw new TypeError("post-secret-file-write hook must be a function");
   }
   if (
     postStagingPinReleaseHook !== undefined &&
@@ -972,6 +1340,17 @@ export async function generateDevnetReleaseConfig({
     rootReal,
     "devnet directory",
   );
+  const incompleteStagingName = (await readdir(devnetDirectory))
+    .filter((entry) => entry.startsWith(".private-stage-"))
+    .sort()[0];
+  if (incompleteStagingName) {
+    throw new Error(
+      `protected incomplete staging retained at ${path.join(
+        devnetDirectory,
+        incompleteStagingName,
+      )}; explicit recovery required`,
+    );
+  }
 
   const programsDirectory = path.join(root, "programs");
   await assertSafeDirectory(programsDirectory, rootReal, "programs directory");
@@ -1031,6 +1410,7 @@ export async function generateDevnetReleaseConfig({
   let stagingIdentityPin;
   let stagingPinReleased = false;
   let stagingReleaseHookInvoked = false;
+  let privateHandleCreated = false;
   let publicTemporaryPath;
   let rustTemporaryPath;
 
@@ -1049,14 +1429,7 @@ export async function generateDevnetReleaseConfig({
     await stagingIdentityPin.verify();
   }
 
-  async function releaseStagingPin(phase) {
-    if (!stagingIdentityPin) {
-      return;
-    }
-    if (!stagingPinReleased) {
-      await stagingIdentityPin.release();
-      stagingPinReleased = true;
-    }
+  async function invokeStagingHandoffHook(phase) {
     if (postStagingPinReleaseHook && !stagingReleaseHookInvoked) {
       stagingReleaseHookInvoked = true;
       await postStagingPinReleaseHook(
@@ -1066,6 +1439,16 @@ export async function generateDevnetReleaseConfig({
           stagingDirectory,
         }),
       );
+    }
+  }
+
+  async function releaseStagingPin() {
+    if (!stagingIdentityPin) {
+      return;
+    }
+    if (!stagingPinReleased) {
+      await stagingIdentityPin.release();
+      stagingPinReleased = true;
     }
   }
 
@@ -1116,8 +1499,15 @@ export async function generateDevnetReleaseConfig({
     );
     await verifyParentPin();
     stagingIdentityPin = await createDirectoryIdentityPin(
-      [stagingDirectory],
+      [devnetDirectory, stagingDirectory],
       "staging",
+      {
+        publishPrivate: {
+          destination: privateDirectory,
+          rootIndex: 0,
+          sourceIndex: 1,
+        },
+      },
     );
     if (postValidationHook) {
       await postValidationHook(
@@ -1152,7 +1542,19 @@ export async function generateDevnetReleaseConfig({
         contents,
         stagingReal,
         verifyRetainedPins,
+        () => {
+          privateHandleCreated = true;
+        },
+        beforeSecretFirstByteHook,
       );
+      if (postSecretFileWriteHook) {
+        await postSecretFileWriteHook(
+          Object.freeze({
+            fileName,
+            stagingDirectory,
+          }),
+        );
+      }
     }
     await verifyRetainedPins();
     const stagedNames = (await readdir(stagingDirectory)).sort();
@@ -1194,11 +1596,14 @@ export async function generateDevnetReleaseConfig({
     );
 
     await verifyRetainedPins();
-    await releaseStagingPin("publication");
-    await verifyParentPin();
-    await stagingIdentityPin.verifyPath();
-    await verifyParentPin();
-    await directoryRenameNoReplace(stagingDirectory, privateDirectory);
+    await invokeStagingHandoffHook("publication");
+    await verifyRetainedPins();
+    if (process.platform === "win32") {
+      await stagingIdentityPin.publishPrivate();
+    } else {
+      await directoryRenameNoReplace(stagingDirectory, privateDirectory);
+      await stagingIdentityPin.verifyPublished(privateDirectory, 1);
+    }
     stagingDirectory = null;
     await verifyParentPin();
     await rename(publicTemporaryPath, publicConfigPath);
@@ -1212,14 +1617,63 @@ export async function generateDevnetReleaseConfig({
       publicConfig,
       repositoryRoot: root,
     };
+    await stagingIdentityPin.release();
+    stagingIdentityPin = null;
     await parentIdentityPin.release();
     parentIdentityPin = null;
     return result;
   } catch (error) {
     const cleanupErrors = [];
+    if (
+      privateHandleCreated &&
+      stagingDirectory &&
+      stagingIdentityPin &&
+      parentIdentityPin
+    ) {
+      try {
+        await invokeStagingHandoffHook("cleanup");
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      for (const cleanup of [
+        () =>
+          cleanupOwnedTemporaryFile(
+            publicTemporaryPath,
+            publicConfigPath,
+            verifyParentPin,
+          ),
+        () =>
+          cleanupOwnedTemporaryFile(
+            rustTemporaryPath,
+            rustConfigPath,
+            verifyParentPin,
+          ),
+      ]) {
+        try {
+          await cleanup();
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      try {
+        await releaseStagingPin();
+        stagingIdentityPin = null;
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      try {
+        await parentIdentityPin.release();
+        parentIdentityPin = null;
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      throw new Error(
+        `devnet release generation failed; protected incomplete staging retained at ${stagingDirectory}; explicit recovery required`,
+      );
+    }
     if (stagingIdentityPin) {
       try {
-        await releaseStagingPin("cleanup");
+        await releaseStagingPin();
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
