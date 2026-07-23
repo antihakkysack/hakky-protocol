@@ -1,5 +1,7 @@
 # HAKKY Mainnet and Public-Surface Rollout Implementation Plan
 
+> **Superseded:** Do not execute this plan. It is replaced by `docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md`, which corrects the LaunchLab authority lifecycle and the feature-branch -> PR quality -> approved merge -> main Pages sequence.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Publish the approved prelaunch experience, refresh the owner’s X profile, execute the bounded Raydium LaunchLab mainnet launch with user signing, capture exact proof, and publish only verified launch links.

@@ -41,6 +41,24 @@ approve, sign, send, retry, or authorize recovery. A wallet or RPC display
 failure after submission remains pending until finalized readback proves the
 outcome.
 
+## Launch integrity stops
+
+The public lifecycle is `prelaunch` -> `curve-live` -> `graduated`. During
+`curve-live`, mint authority must be the exact LaunchLab PDA mint authority;
+after verified graduation it must be null. Creator balance is a finalized,
+time-qualified observation. The 24 SOL configured minimum is not the observed
+graduation balance.
+
+Stop before signing or publication if PlatformConfig remains mutable in a way
+that can alter fees or rights, the exact raw unsigned transaction is absent,
+atomic immutable metadata cannot be proved, or the migration has any
+non-full-lock LP disposition. CPMM Burn & Earn permanent lock is not an SPL
+burn; each migration must use its own source-covered evidence union.
+
+Keep `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, and
+`entities@8.0.0` pinned. Do not run `npm audit fix --force`. Recheck the two
+documented upstream exceptions by 2026-08-23.
+
 ## Official-address rule
 
 Before launch, there is no official HAKKY mint. After launch, treat the mint on

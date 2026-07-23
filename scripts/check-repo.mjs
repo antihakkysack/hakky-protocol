@@ -50,7 +50,7 @@ const ACTIVE_PUBLIC_SCRIPT_FILES = new Set([
   "scripts/render-assets.mjs",
   "src/social-copy.mjs",
 ]);
-const LIVE_LAUNCH_PLAN = "docs/superpowers/plans/2026-07-22-hakky-live-launch.md";
+const LIVE_LAUNCH_PLAN = "docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md";
 
 const PLACEHOLDER_VALUES = new Set([
   "",

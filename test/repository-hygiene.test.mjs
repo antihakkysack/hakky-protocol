@@ -60,7 +60,7 @@ test("repository checker rejects retired agent labels on every active public sur
     "brand/fixture.svg",
     "docs/LAUNCH.md",
     "docs/TOKEN.md",
-    "docs/superpowers/plans/2026-07-22-hakky-live-launch.md",
+    "docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md",
     "launch/fixture.md",
     "package.json",
     "proof/fixture.md",

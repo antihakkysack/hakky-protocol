@@ -13,29 +13,34 @@ safe, detecting every scam, giving financial advice, or promising returns.
 - 80% of supply in the public bonding curve;
 - 20% reserved by LaunchLab for post-graduation liquidity;
 - 0% creator, team, treasury, marketing, or vesting allocation;
-- 24 SOL minimum community-funded graduation target;
+- 24 SOL configured minimum community-funded graduation target;
 - no creator first-buy;
 - creator-fee rights disabled;
-- post-graduation LP burned;
+- CPMM Burn & Earn permanent lock with 0% creator/platform and 100% irreversible share;
 - total creator-funded creation and transaction cost no more than 1.00 SOL.
 
-All supply may pass through the launch wallet during setup. Before public
-trading, all 1,000,000 HAKKY must be in the approved launch mechanism and the
-creator wallet balance must be zero.
+All supply may pass through the launch wallet during setup. A creator HAKKY
+balance of zero is accepted only as a finalized, time-qualified observation.
+During `curve-live`, mint authority is the exact LaunchLab PDA mint authority;
+at verified `graduated`, mint and freeze authorities are null.
 
 ## Publication state
 
 `prelaunch` means no official mint is shown and no address from replies or DMs
-should be trusted. `live` is allowed only after the mainnet mint, launch
-transaction, fixed supply, authorities, creator balance, allocation, fees, and
-LP policy have independent readback evidence.
+should be trusted. `curve-live` means the LaunchLab curve exists and its mint
+authority is the exact program PDA. `graduated` means a finalized migration was
+observed. Each on-chain stage independently uses `verified` or `unavailable`
+proof availability; stage never regresses.
 
 ## Stop before signing
 
 Stop if cost exceeds 1.00 SOL; any fixed token or allocation value differs;
-creator fees cannot be disabled; LP cannot be burned; mint authority would
-remain active; freeze authority or an unexpected token extension exists; the
-wallet, metadata, links, preview, or live interface is ambiguous.
+creator fees cannot be disabled; PlatformConfig remains mutable in a way that
+can alter fees or rights; the raw unsigned transaction is absent; atomic
+immutable metadata cannot be proved; a non-full-lock LP disposition exists;
+freeze authority or an unexpected token extension exists; or the wallet,
+metadata, links, preview, or public interface is ambiguous. Burn & Earn
+permanent lock is not an SPL burn.
 
 If a transaction fails, do not announce a launch or create another token
 automatically. Save the signature and state, diagnose the existing mint, and
@@ -170,6 +175,56 @@ covers signature plus debit only when it expressly names both for the exact
 transaction. A merge approval covers automatic Pages only when it expressly
 names both effects for the exact commit. Evidence never carries approval
 forward.
+
+## Reviewed lifecycle release procedure
+
+`releaseLifecycleState({ stage, availability, reviewedSha, xCopySha })` is the
+operator procedure below, not an automated function. It may document only the
+four named stage/availability pairs and exact reviewed hashes; it cannot push,
+open a PR, merge, deploy, post, or pin.
+
+Repeat this complete sequence for `curve-live/verified`,
+`curve-live/unavailable`, `graduated/verified`, and
+`graduated/unavailable`:
+
+The fallback is always a same-stage unavailable record. Unavailable-to-verified recovery requires the complete canonical artifact set. Every external step requires separate action-time approval to push, separate action-time approval before creating or updating the PR, approval that expressly authorizes both the merge and its automatic Pages deployment, and separate approvals for the X post and pin replacement. Pages and X readback are mandatory, and any post-chain failure uses same-stage unavailable rollback.
+
+1. Begin only from a finalized `observed-stage-v1` receipt. For an unavailable
+   source record, re-hash its content-addressed continuity receipt and retained
+   prior stage receipt, and require both to bind the exact source bytes plus the
+   same mint and launch ID. If the complete binding and canonical artifacts
+   pass, build the verified record. Otherwise build the same-stage unavailable
+   record and persist the new append-only stage/continuity receipts before the
+   public rename. Never regress to `prelaunch` or `curve-live` after a later stage is observed.
+2. Commit only stage-appropriate canonical artifacts,
+   `web/data/launch.json`, and generated stage copy. Keep session, browser, and
+   continuity evidence ignored. Run `npm ci`, deterministic assets, the full
+   check, and certify both viewports at 1440 x 1000 and 390 x 844 for that exact
+   record.
+3. Present the branch, base, commit list, exact head SHA, diff summary,
+   canonical artifact hashes, stage/availability, and passing commands. Obtain
+   separate action-time approval to push only that exact SHA. A feature-branch
+   push does not deploy Pages.
+4. Present the exact head/base SHAs and bounded PR title/body. Obtain separate
+   action-time approval before creating or updating the PR. Require exact-head
+   quality and base-to-head security/proof review. If remote `main` moved,
+   create and review a fresh integration commit; do not rewrite a published
+   branch.
+5. Present the exact head/base SHAs, merge method, `https://hakky.xyz`
+   destination, expected stage/availability, automatic production effect, and
+   rollback. Obtain approval that expressly authorizes both the merge and its
+   automatic Pages deployment. Wait for main quality and Pages, then read back
+   both viewports, exact stage/availability/copy/fees/links, console, and
+   network state with no stale destination.
+6. Present exact stage-correct X copy and its hash. Obtain separate approvals
+   for the X post and pin replacement. Read back the live account, text, URL,
+   and pin state. Earlier evidence posts remain published; an unavailable
+   warning holds the pin until a later separately approved verified release.
+7. If proof or Pages readback fails after the on-chain stage exists, use only a
+   newly reviewed same-stage unavailable rollback and warning. Replace it with
+   same-stage verified evidence only after the complete canonical artifact set
+   passes. Never restore a weaker lifecycle claim or delete evidence
+   automatically.
 
 ## Mainnet proof record
 

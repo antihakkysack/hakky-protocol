@@ -31,7 +31,8 @@ accounts only after each account's decoded mint and owner match the exact
 requested identities. Uninitialized, invalid-state, wrong-program, wrong-mint,
 or wrong-owner accounts fail verification.
 
-LaunchLab instruction, PDA, and account decoding is pinned to official Raydium
+LaunchLab instruction, PDA, and account decoding is pinned to
+`@solana/web3.js@1.98.4`, official Raydium
 SDK V2 commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`, official Raydium IDL
 commit `e7e0c96fe77bcf6a020b84a44c47a722aac8e359`, and
 `@solana/spl-token@0.4.15` (official `solana-program/token-2022` commit
@@ -45,6 +46,9 @@ and applicable raw layouts; live API responses and unpinned branch content are
 not evidence. Any upstream commit, IDL, layout, discriminator, account privilege,
 seed, program, or SPL Token version change requires a separate source-drift
 review and regenerated RED/GREEN fixture proof before it can be accepted.
+Keep these versions plus `entities@8.0.0` pinned. Do not run
+`npm audit fix --force`; recheck the two documented upstream exceptions by
+2026-08-23.
 
 Task 2's corrected raw interface consumes classic SPL token accounts and therefore
 exercises only `AccountLayout` (`clients/js-legacy/src/state/account.ts:54-84`).
@@ -62,6 +66,15 @@ LP disposition, burned/locked quantity, withdrawal-right, or fee-right claim.
 PlatformConfig authority decoding likewise consumes transaction-derived metas
 and fee payer, including the reviewed pinned-SDK writable CPMM-config privilege
 at creation and only the exact fee-payer promotion allowed for updates.
+
+Proof lifecycle is `prelaunch` -> `curve-live` -> `graduated`. Curve proof
+requires the exact LaunchLab PDA mint authority and a finalized, time-qualified
+creator balance observation. Graduated proof requires null mint/freeze
+authorities. The 24 SOL configured minimum is distinct from the observed
+graduation balance. CPMM Burn & Earn permanent lock is not an SPL burn, and a
+non-full-lock LP disposition can never enter verified proof. A mutable
+PlatformConfig, absent raw unsigned transaction, or non-atomic immutable
+metadata is also a hard stop.
 
 ## Immutable metadata evidence
 
@@ -154,6 +167,24 @@ classification and no recovery envelope can be emitted. Enabling one recovery
 requires a separate source-pinned decoder and fixture review for that exact
 operation. The session command has no approval, signing, sending, or retry
 surface, and a receipt never carries action-time approval into another effect.
+
+## Reviewed proof release order
+
+For every curve-live or graduated verified/unavailable transition, start from
+finalized stage evidence and validate any content-addressed continuity receipt.
+Build verified only from the complete canonical artifact set; otherwise publish
+the same-stage unavailable record and its append-only receipts. Never regress a
+stage.
+
+Run the complete local gate and both viewport checks, then present exact
+base/head SHAs, artifact hashes, stage, availability, and commands for separate
+push approval. Obtain a second approval before PR create/update and require
+exact-head quality. Obtain a third approval that expressly names both merge and
+automatic main Pages deployment. Read back Pages at 1440 x 1000 and 390 x 844.
+Finally, obtain separate X post and pin approvals and read back both. A failed
+post-chain readback permits only a newly reviewed same-stage unavailable
+rollback; unavailable-to-verified recovery requires the complete artifacts and
+the entire release sequence again.
 
 The LaunchLab artifact includes the exact metadata image, website, X link, and
 canonical Solscan transaction URL in addition to the fields in `docs/LAUNCH.md`.
