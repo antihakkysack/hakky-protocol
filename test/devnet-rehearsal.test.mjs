@@ -1272,8 +1272,8 @@ test("publication revalidates parent confinement before open and hard-link commi
   }
 });
 
-test("open, write, fsync, and generic pre-link faults never publish", async (t) => {
-  for (const stage of ["open", "write", "fsync", "link"]) {
+test("open, handle-stat, write, fsync, and generic pre-link faults never publish", async (t) => {
+  for (const stage of ["open", "handle-stat", "write", "fsync", "link"]) {
     await t.test(stage, async () => {
       const outputRoot = await mkdtemp(path.join(os.tmpdir(), `hakky-publication-${stage}-`));
       const fixture = successfulRunnerOptions({ outputRoot });
@@ -1282,7 +1282,7 @@ test("open, write, fsync, and generic pre-link faults never publish", async (t) 
         async open(...args) {
           if (stage === "open") throw new Error("open dependency secret");
           const handle = await open(...args);
-          return {
+          const wrappedHandle = {
             async writeFile(...writeArgs) {
               if (stage === "write") throw new Error("write dependency secret");
               return handle.writeFile(...writeArgs);
@@ -1295,6 +1295,10 @@ test("open, write, fsync, and generic pre-link faults never publish", async (t) 
               return handle.close();
             },
           };
+          if (stage !== "handle-stat") {
+            wrappedHandle.stat = async () => handle.stat();
+          }
+          return wrappedHandle;
         },
         async link(...args) {
           if (stage === "link") {
@@ -1337,6 +1341,82 @@ test("pre-link temporary proof substitution is rejected before hard-link commit"
   assert.equal(substituted, true);
   assert.equal(linkCalls, 0);
   await assert.rejects(access(proofPath), { code: "ENOENT" });
+});
+
+test("identical-byte pre-link replacement cannot acquire run ownership or be cleaned up", async () => {
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-prelink-identity-replacement-"));
+  const fixture = successfulRunnerOptions({ outputRoot });
+  const proofPath = path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json");
+  let substitutedPath;
+  let linkCalls = 0;
+  let tempCleanupCalls = 0;
+  fixture.options.fileSystem = injectedFileSystem({
+    async lstat(target) {
+      if (!substitutedPath && path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+        const canonicalBytes = await readFile(target);
+        await unlink(target);
+        await writeFile(target, canonicalBytes, { mode: 0o600 });
+        substitutedPath = target;
+      }
+      return lstat(target);
+    },
+    async link(...args) {
+      linkCalls += 1;
+      return link(...args);
+    },
+    async unlink(target) {
+      if (path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+        tempCleanupCalls += 1;
+      }
+      return unlink(target);
+    },
+  });
+  await assert.rejects(runDevnetRehearsal(fixture.options), /PUBLICATION_ERROR/);
+  assert.ok(substitutedPath);
+  assert.equal(linkCalls, 0);
+  assert.equal(tempCleanupCalls, 0);
+  await access(substitutedPath);
+  await assert.rejects(access(proofPath), { code: "ENOENT" });
+});
+
+test("cleanup-path replacement is never unlinked and committed proof remains exact", async () => {
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-cleanup-identity-replacement-"));
+  const fixture = successfulRunnerOptions({ outputRoot });
+  const proofPath = path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json");
+  let tempLstatCalls = 0;
+  let substitutedPath;
+  let linkCalls = 0;
+  let tempCleanupCalls = 0;
+  fixture.options.fileSystem = injectedFileSystem({
+    async lstat(target) {
+      if (path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+        tempLstatCalls += 1;
+        if (tempLstatCalls === 5) {
+          const canonicalBytes = await readFile(target);
+          await unlink(target);
+          await writeFile(target, canonicalBytes, { mode: 0o600 });
+          substitutedPath = target;
+        }
+      }
+      return lstat(target);
+    },
+    async link(...args) {
+      linkCalls += 1;
+      return link(...args);
+    },
+    async unlink(target) {
+      if (path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+        tempCleanupCalls += 1;
+      }
+      return unlink(target);
+    },
+  });
+  await assert.rejects(runDevnetRehearsal(fixture.options), /PUBLICATION_ERROR/);
+  assert.ok(substitutedPath);
+  assert.equal(linkCalls, 1);
+  assert.equal(tempCleanupCalls, 0);
+  await access(substitutedPath);
+  assert.equal(JSON.parse(await readFile(proofPath, "utf8")).ok, true);
 });
 
 test("post-link proof byte or identity substitution is rejected", async (t) => {

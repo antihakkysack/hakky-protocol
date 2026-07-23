@@ -545,19 +545,30 @@ async function assertExactFile(candidate, fileSystem) {
   return stats;
 }
 
-function stableFileIdentity(stats, expectedSize) {
+function stableObjectIdentity(stats) {
+  if (isUnsafeFilesystemObject(stats) || !stats.isFile()) throw stageError("PUBLICATION_ERROR");
   const component = (value) => {
     if (typeof value === "bigint" && value >= 0n) return value.toString();
     if (typeof value === "number" && Number.isInteger(value) && value >= 0) return String(value);
     throw stageError("PUBLICATION_ERROR");
   };
-  if (component(stats.size) !== String(expectedSize)) throw stageError("PUBLICATION_ERROR");
-  return `${component(stats.dev)}:${component(stats.ino)}:${component(stats.size)}`;
+  return `${component(stats.dev)}:${component(stats.ino)}`;
+}
+
+function assertExpectedSize(stats, expectedSize) {
+  const size = stats.size;
+  const matches = (typeof size === "bigint" && size === BigInt(expectedSize))
+    || (typeof size === "number" && Number.isInteger(size) && size === expectedSize);
+  if (!matches) throw stageError("PUBLICATION_ERROR");
 }
 
 async function assertBoundFile(candidate, expectedBytes, fileSystem, expectedIdentity) {
+  if (typeof expectedIdentity !== "string" || expectedIdentity.length === 0) {
+    throw stageError("PUBLICATION_ERROR");
+  }
   const beforeStats = await assertExactFile(candidate, fileSystem);
-  const beforeIdentity = stableFileIdentity(beforeStats, expectedBytes.length);
+  const beforeIdentity = stableObjectIdentity(beforeStats);
+  assertExpectedSize(beforeStats, expectedBytes.length);
   let observed;
   try {
     observed = await fileSystem.readFile(candidate);
@@ -565,11 +576,12 @@ async function assertBoundFile(candidate, expectedBytes, fileSystem, expectedIde
     throw stageError("PUBLICATION_ERROR");
   }
   const afterStats = await assertExactFile(candidate, fileSystem);
-  const afterIdentity = stableFileIdentity(afterStats, expectedBytes.length);
+  const afterIdentity = stableObjectIdentity(afterStats);
+  assertExpectedSize(afterStats, expectedBytes.length);
   if (!(observed instanceof Uint8Array)
     || !Buffer.from(observed).equals(expectedBytes)
     || beforeIdentity !== afterIdentity
-    || (expectedIdentity !== undefined && afterIdentity !== expectedIdentity)) {
+    || afterIdentity !== expectedIdentity) {
     throw stageError("PUBLICATION_ERROR");
   }
   return afterIdentity;
@@ -629,12 +641,15 @@ async function removeStaleProof(proofPath, fileSystem) {
   }
 }
 
-async function cleanupOwnedTemp(tempPath, fileSystem) {
-  try {
-    await fileSystem.unlink(tempPath);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
+async function cleanupOwnedTemp(tempPath, fileSystem, expectedIdentity) {
+  if (typeof expectedIdentity !== "string" || expectedIdentity.length === 0) {
+    throw stageError("PUBLICATION_ERROR");
   }
+  const checkedStats = await assertExactFile(tempPath, fileSystem);
+  if (stableObjectIdentity(checkedStats) !== expectedIdentity) throw stageError("PUBLICATION_ERROR");
+  const immediateStats = await fileSystem.lstat(tempPath);
+  if (stableObjectIdentity(immediateStats) !== expectedIdentity) throw stageError("PUBLICATION_ERROR");
+  await fileSystem.unlink(tempPath);
 }
 
 async function publishProof({
@@ -656,13 +671,17 @@ async function publishProof({
     await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
     await assertLeafAbsent(proofPath, fileSystem);
     handle = await fileSystem.open(tempPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600);
+    if (!isFunction(handle?.stat)) throw stageError("PUBLICATION_ERROR");
+    const openedStats = await handle.stat();
+    publicationIdentity = stableObjectIdentity(openedStats);
+    assertExpectedSize(openedStats, 0);
     await handle.writeFile(bytes);
     await handle.sync();
     await handle.close();
     handle = undefined;
     await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
     await assertLeafAbsent(proofPath, fileSystem);
-    publicationIdentity = await assertBoundFile(tempPath, bytes, fileSystem);
+    await assertBoundFile(tempPath, bytes, fileSystem, publicationIdentity);
     linking = true;
     await fileSystem.link(tempPath, proofPath);
     committed = true;
@@ -674,8 +693,7 @@ async function publishProof({
       if (handle) await handle.close();
       if (!committed) {
         await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
-        await assertExactFile(tempPath, fileSystem);
-        await cleanupOwnedTemp(tempPath, fileSystem);
+        await cleanupOwnedTemp(tempPath, fileSystem, publicationIdentity);
       }
     } catch {
       // The public failure remains fixed and never includes dependency text.
@@ -687,7 +705,7 @@ async function publishProof({
   }
   let tempUnlinkFailed = false;
   try {
-    await cleanupOwnedTemp(tempPath, fileSystem);
+    await cleanupOwnedTemp(tempPath, fileSystem, publicationIdentity);
   } catch {
     tempUnlinkFailed = true;
   }
