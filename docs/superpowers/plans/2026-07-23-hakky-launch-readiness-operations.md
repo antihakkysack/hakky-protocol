@@ -339,12 +339,12 @@ Stage `package-lock.json` only if an intentionally reviewed dependency change is
 - Modify: `proof/README.md`
 
 **Interfaces:**
-- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()`, `decodeCreateMetadataAccountV3()`, raw transaction resolver, bounded raw JSON-RPC client, and `evaluateHakkyLaunchlabSourceCoverage()`, finalized RPC account bytes, exact raw simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
-- Produces: `verifyOfficialRaydiumOrigin({ uiUrl, fetchImpl, checkedAt }) -> officialOriginReceipt`; `fetchWalletReadiness({ connection, creatorAddress, requiredLamports, checkedAt }) -> walletReadinessReceipt`; `decodeUnsignedLaunchTransaction({ serialized, addressLookupTables }) -> normalizedPreview`; `fetchPreviewState({ connection, normalizedPreview }) -> finalizedState`; `evaluateLaunchPreview({ preview, state, simulation, metadataManifest, metadataReadback, officialOriginReceipt, walletReadinessReceipt, creator }) -> evaluation`; `buildApprovalEnvelope(evaluation) -> envelope`; ignored `artifacts/mainnet-session/official-origin.json`, `wallet-readiness.json`, `preview.json`, and `approval-envelope.json`.
+- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()`, `decodeCreateMetadataAccountV3()`, bounded raw JSON-RPC client, raw lookup-table decoder/ordered-resolution primitives, and `evaluateHakkyLaunchlabSourceCoverage()`, finalized RPC account bytes, exact raw simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
+- Produces: `verifyOfficialRaydiumOrigin({ uiUrl, fetchImpl, checkedAt }) -> officialOriginReceipt`; `fetchWalletReadiness({ rpcClient, creatorAddress, requiredLamports, checkedAt }) -> walletReadinessReceipt`; `fetchUnsignedLookupTables({ rpcClient, transactionMessage }) -> { lookupTableAccounts, lookupBarrierSlot }`; `decodeUnsignedLaunchTransaction({ serialized, lookupTableAccounts, lookupBarrierSlot }) -> normalizedPreview`; `fetchPreviewState({ rpcClient, normalizedPreview, minimumSlot }) -> finalizedState`; `evaluateLaunchPreview({ preview, state, simulation, metadataManifest, metadataReadback, officialOriginReceipt, walletReadinessReceipt, creator }) -> evaluation`; `buildApprovalEnvelope(evaluation) -> envelope`; ignored `artifacts/mainnet-session/official-origin.json`, `wallet-readiness.json`, `preview.json`, and `approval-envelope.json`.
 
 The origin receipt has exact keys `schemaVersion`, `checkedAt`, `uiUrl`, `uiOrigin`, `docsUrl`, `docsSha256`, `documentedProgramId`, `pinnedProgramId`, `checks`, `ok`. The verifier fetches `https://docs.raydium.io/introduction/what-is-raydium` and `https://docs.raydium.io/reference/program-addresses` with redirect-origin checks, requires the first to identify `raydium.io` as the official app and the second to identify the exact current LaunchLab program, requires the browser URL origin to be exactly `https://raydium.io`, and requires the documented ID to equal the pinned decoder ID. DNS success, search results, screenshots, cached receipts, `api-v3`, and lookalike/subdomain URLs are insufficient. The receipt expires after 30 minutes and must be regenerated immediately before preview approval; any fetch/parse/drift failure stops signing.
 
-The wallet receipt has exact keys `schemaVersion`, `network`, `creator`, `genesisHash`, `finalizedBalanceLamports`, `requiredLamports`, `finalizedSlot`, `checkedAt`, `rpcHost`, `checks`, `ok`. `checks` has exact booleans `mainnetGenesis`, `creatorMatches`, `finalizedBalance`, `sufficientBalance`; all are true when `ok: true`. The CLI receives only the public creator plus validated metadata readback, requires its exact fixed zero/null creator-payment pair, sets `requiredLamports = 1000000000`, reads an HTTPS RPC URL from `HAKKY_RPC_URL`, calls `getGenesisHash()` and `getBalanceAndContext(..., { commitment: "finalized" })`, and expires after five minutes. Before running it, the operator must read the selected wallet's visible public address and require byte-for-byte equality with the creator; screenshot/account labels alone are insufficient.
+The wallet receipt has exact keys `schemaVersion`, `network`, `creator`, `genesisHash`, `finalizedBalanceLamports`, `requiredLamports`, `finalizedSlot`, `checkedAt`, `rpcHost`, `checks`, `ok`. `checks` has exact booleans `mainnetGenesis`, `creatorMatches`, `finalizedBalance`, `sufficientBalance`; all are true when `ok: true`. The CLI receives only the public creator plus validated metadata readback, requires its exact fixed zero/null creator-payment pair, sets `requiredLamports = 1000000000`, reads `HAKKY_RPC_URL` through Proof Task 3's exact safe public-URL parser, constructs the bounded raw client once, calls exact JSON-RPC `getGenesisHash` with `[]` and `getBalance` with `[creatorAddress, { "commitment": "finalized" }]`, requires the raw balance context and canonical nonnegative safe-integer lamport value, and expires after five minutes. It serializes only the bounded client's canonical lowercase hostname. No `Connection`, authenticated endpoint, or second Solana transport is allowed. Before running it, the operator must read the selected wallet's visible public address and require byte-for-byte equality with the creator; screenshot/account labels alone are insufficient.
 
 - [ ] **Step 1: Write RED policy-matrix tests**
 
@@ -397,31 +397,38 @@ Reject `InitializeWithToken2022`, any unknown LaunchLab instruction in the creat
 In `src/launchlab-rpc.mjs`, implement these exact finalized-only calls:
 
 ```js
-export async function fetchPreviewState({ connection, normalizedPreview }) {
+export async function fetchPreviewState({ rpcClient, normalizedPreview, minimumSlot }) {
   const addresses = normalizedPreview.requiredAccountAddresses;
-  const result = await connection.getMultipleAccountsInfoAndContext(addresses, {
+  const result = await rpcClient.call("getMultipleAccounts", [addresses, {
     commitment: "finalized",
-    minContextSlot: normalizedPreview.addressLookupTableSlot,
-  });
-  if (result.context.slot < normalizedPreview.addressLookupTableSlot) throw new Error("stale finalized account context");
-  return normalizeAndHashFinalizedAccounts({ addresses, result });
+    encoding: "base64",
+    minContextSlot: minimumSlot,
+  }]);
+  if (!Number.isSafeInteger(result?.context?.slot)
+    || result.context.slot < 0
+    || result.context.slot < minimumSlot) throw new Error("stale finalized account context");
+  return {
+    contextSlot: result.context.slot,
+    accounts: normalizeAndHashFinalizedAccounts({ addresses, result }),
+  };
 }
 
-export async function simulatePreview({ rpcClient, canonicalBase64, accountAddresses }) {
+export async function simulatePreview({ rpcClient, canonicalBase64, accountAddresses, minContextSlot }) {
   return rpcClient.call("simulateTransaction", [canonicalBase64, {
     sigVerify: false,
     replaceRecentBlockhash: false,
     commitment: "finalized",
     encoding: "base64",
     innerInstructions: true,
+    minContextSlot,
     accounts: { encoding: "base64", addresses: accountAddresses },
   }]);
 }
 ```
 
-Use Proof Task 3's bounded raw client for simulation; no `Connection.simulateTransaction` or second transport is allowed. Require the simulated transaction bytes to re-encode to the exact supplied base64, `err === null`, and raw non-null `innerInstructions`. Under the same outer InitializeV2 index, require exactly one direct stack-height-2 CreateMetadataAccountV3 CPI, decode it with the shared pinned decoder, and require the exact 6/7-account HAKKY shape, manifest identity, and `isMutable: false`. Post-simulation accounts or logs cannot substitute for absent CPI evidence. If the blockhash is expired or any fresh unsigned transaction differs byte-for-byte, discard all preview evidence, obtain a fresh raw unsigned transaction from the official flow, and repeat origin, wallet-readiness, finalized-account, simulation, hash, and approval-envelope verification; never set `replaceRecentBlockhash: true`.
+Use Proof Task 3's bounded raw client for lookup-table reads, wallet readiness, finalized preview state, and simulation; no `Connection` or second Solana transport is allowed. `fetchUnsignedLookupTables` first calls raw `getSlot` with exact params `[{ "commitment": "finalized" }]` and requires a nonnegative safe-integer result. It derives every lookup address only from the unsigned message, uses raw `getAccountInfo` with base64/finalized and `minContextSlot` equal to that base slot for each table, requires every raw response context slot to be a nonnegative safe integer at least that requested base slot, and validates the source-pinned owner/layout/indices. It returns `lookupBarrierSlot` as the greatest of the base slot and every qualified table response context, so legacy and lookup-free v0 messages still have a finalized barrier. Compute `preStateBarrier = max(walletReadinessReceipt.finalizedSlot, lookupBarrierSlot)` and pass it as `fetchPreviewState.minimumSlot`; then compute `simulationBarrier = max(preStateBarrier, finalizedState.contextSlot)` and pass it as `simulatePreview.minContextSlot`. Require both finalized-state and raw-simulation context slots to be nonnegative safe integers before comparison, and require the simulation slot to be at least `simulationBarrier`. Require the simulated transaction bytes to re-encode to the exact supplied base64, `err === null`, and raw non-null `innerInstructions`. Under the same outer InitializeV2 index, require exactly one direct stack-height-2 CreateMetadataAccountV3 CPI, decode it with the shared pinned decoder, and require the exact 6/7-account HAKKY shape, manifest identity, and `isMutable: false`. Post-simulation accounts or logs cannot substitute for absent CPI evidence. If the blockhash is expired or any fresh unsigned transaction differs byte-for-byte, discard all preview evidence, obtain a fresh raw unsigned transaction from the official flow, and repeat origin, wallet-readiness, lookup-table, finalized-account, simulation, hash, and approval-envelope verification; never set `replaceRecentBlockhash: true`.
 
-Define `normalizeAndHashFinalizedAccounts` in the same module, reject null/extra/out-of-order results, require mainnet genesis identity, exact account owners, and expected LaunchLab/Token/Metadata/System programs, and record the response slot for every normalized account. Reject any mock/client whose captured call omits the exact options above. Store raw account hashes, sanitized simulation logs, compute units, returned post-account hashes, exact decoded metadata-CPI evidence, and fee calculation. Sanitize thrown errors so authenticated RPC URLs and raw wallet data never reach stdout.
+Define `normalizeAndHashFinalizedAccounts` in the same module, reject null/extra/out-of-order results, require mainnet genesis identity, exact account owners, and expected LaunchLab/Token/Metadata/System programs, and record the response slot for every normalized account. `fetchPreviewState` returns exact `contextSlot` plus those normalized `accounts`; no caller may supply or override that context. Reject any mock/client whose captured call omits the exact options above. Store raw account hashes, sanitized simulation logs, compute units, returned post-account hashes, exact decoded metadata-CPI evidence, and fee calculation. Sanitize thrown errors so authenticated RPC URLs and raw wallet data never reach stdout.
 
 - [ ] **Step 5: Implement the immutable-economic-binding hard stop**
 
