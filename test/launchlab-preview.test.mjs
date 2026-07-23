@@ -9,6 +9,7 @@ import {
   runPreviewVerifier,
 } from "../scripts/verify-launchlab-preview.mjs";
 import {
+  assertApprovalEnvelopeV1,
   buildApprovalEnvelope,
   decodeUnsignedLaunchTransaction,
   evaluateLaunchPreview,
@@ -107,15 +108,29 @@ test("exact target is approvable only through the reviewed source-covered dispos
     code: "source-coverage-verified",
     ok: true,
   });
+  assert.deepEqual(evaluation.identities, {
+    mint: fixture.identities.mint,
+    launchId: fixture.identities.launchId,
+  });
   assert.equal(evaluation.observed.protocolBuyFeeRateMillionths, "10000");
   const envelope = buildApprovalEnvelope(evaluation);
   assert.equal(envelope.schemaVersion, "launchlab-approval-envelope-v1");
   assert.equal(envelope.transactionSha256, fixture.preview.transactionSha256);
   assert.equal(envelope.creator, fixture.creator);
+  assert.equal(envelope.mint, fixture.identities.mint);
+  assert.equal(envelope.launchId, fixture.identities.launchId);
   assert.equal(envelope.selectedWallet, fixture.creator);
   assert.deepEqual(envelope.signers, fixture.preview.signers);
   assert.deepEqual(envelope.programs, fixture.preview.programs);
   assert.deepEqual(envelope.transfers, []);
+  const platformConfigState = fixture.state.accounts.find(
+    (account) => account.role === "platform-config",
+  );
+  assert.deepEqual(envelope.platformConfig, {
+    address: fixture.identities.platformId,
+    accountSha256: platformConfigState.dataSha256,
+    finalizedSlot: fixture.state.contextSlot,
+  });
   assert.deepEqual(envelope.walletReadiness, {
     finalizedBalanceLamports: fixture.walletReadinessReceipt.finalizedBalanceLamports,
     finalizedSlot: fixture.walletReadinessReceipt.finalizedSlot,
@@ -153,6 +168,17 @@ test("exact target is approvable only through the reviewed source-covered dispos
     envelope.authorization,
     `Authorize only serialized transaction SHA-256 ${fixture.preview.transactionSha256} with maximum creation debit 1000000000 lamports.`,
   );
+  assert.equal(assertApprovalEnvelopeV1(structuredClone(envelope)).mint, fixture.identities.mint);
+  for (const mutate of [
+    (value) => { value.platformConfig.accountSha256 = "bad"; },
+    (value) => { value.migration.creatorLpBps = 1; },
+    (value) => { value.signers.reverse(); },
+    (value) => { value.authorization = "Authorize something else."; },
+  ]) {
+    const invalid = structuredClone(envelope);
+    mutate(invalid);
+    assert.throws(() => assertApprovalEnvelopeV1(invalid), /approval-envelope-/u);
+  }
   assert.equal(Object.isFrozen(envelope), true);
 });
 

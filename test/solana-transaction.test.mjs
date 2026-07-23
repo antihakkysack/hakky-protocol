@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   encodeBase58,
+  resolveFinalizedTransactionInstructions,
   resolveCreationTransaction,
   sha256Hex,
 } from "../src/solana-transaction.mjs";
+import { RAYDIUM_LAUNCHLAB_PROGRAM_ID } from "../src/raydium-launchlab.mjs";
 import { VersionedTransaction } from "@solana/web3.js";
 const { MINT_V2_SOURCE_FIXTURE: fixture } = await import(
   Buffer.from("Li4vdGVzdC1zdXBwb3J0L21pbnQtdjItcHJvdmVuYW5jZS1maXh0dXJlcy5tanM=", "base64").toString("utf8")
@@ -15,6 +17,29 @@ test("transaction resolver exports the source-pinned pure boundary", () => {
   assert.equal(
     sha256Hex(Buffer.from("HAKKY", "utf8")),
     "4a72026d8c69a1cde54008588eee6fffda23290eec418820db8499c1956e3a10",
+  );
+});
+
+test("generic finalized resolution retains the canonical fee payer and ordered privileges", () => {
+  const { response, keys } = transactionResponse("legacy");
+  const result = resolveFinalizedTransactionInstructions({
+    transactionResponse: response,
+    requestedSignature: fixture.legacySignature,
+  });
+  assert.equal(result.feePayer, keys[0]);
+  const launch = result.instructions.find(
+    (instruction) => instruction.programId === RAYDIUM_LAUNCHLAB_PROGRAM_ID,
+  );
+  assert.ok(launch);
+  assert.equal(launch.accountMetas.length, launch.accountKeys.length);
+  assert.deepEqual(launch.accountMetas[0], {
+    publicKey: keys[0],
+    isSigner: true,
+    isWritable: true,
+  });
+  assert.deepEqual(
+    launch.accountMetas.map((meta) => meta.publicKey),
+    launch.accountKeys,
   );
 });
 
@@ -36,10 +61,13 @@ function transactionResponse(kind) {
     return found;
   };
   const metadataIndex = index(fixture.identities.metadataAccount);
+  const payerIndex = index(fixture.identities.payer);
   const balances = Array(keys.length).fill(1);
   balances[metadataIndex] = 0;
+  balances[payerIndex] = 2_000_000_000;
   const postBalances = [...balances];
   postBalances[metadataIndex] = 1_461_600;
+  postBalances[payerIndex] = 1_998_000_000;
   const inner = {
     programIdIndex: index("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"),
     accounts: [
@@ -62,6 +90,7 @@ function transactionResponse(kind) {
       transaction: [base64, "base64"],
       meta: {
         err: null,
+        fee: 5_000,
         innerInstructions: [{ index: 0, instructions: [inner] }],
         preBalances: balances,
         postBalances,
@@ -85,6 +114,12 @@ test("resolves and verifies the fully signed legacy launch transaction", () => {
   assert.match(result.observation.creationTransactionSha256, /^[0-9a-f]{64}$/u);
   assert.match(result.observation.metadataCreateCpiSha256, /^[0-9a-f]{64}$/u);
   assert.match(result.observation.creationExecutionSha256, /^[0-9a-f]{64}$/u);
+  assert.equal(result.feePayer, fixture.identities.payer);
+  assert.equal(
+    result.feePayerDebitLamports,
+    String(response.meta.preBalances[0] - response.meta.postBalances[0]),
+  );
+  assert.equal(result.feeLamports, String(response.meta.fee));
 });
 
 test("resolves signed v0 lookup addresses in exact message and RPC order", () => {

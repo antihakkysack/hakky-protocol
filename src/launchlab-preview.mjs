@@ -597,6 +597,10 @@ export function evaluateLaunchPreview(input) {
     schemaVersion: "launchlab-preview-evaluation-v1",
     transactionSha256: input.preview.transactionSha256,
     creator: input.creator,
+    identities: {
+      mint: input.preview?.launch?.accounts?.mint ?? null,
+      launchId: input.preview?.launch?.accounts?.launchId ?? null,
+    },
     observed,
     diagnostic: {
       creationDebitLamports: simulation?.creationDebitLamports?.toString() ?? null,
@@ -616,6 +620,11 @@ export function evaluateLaunchPreview(input) {
         finalizedBalanceLamports: input.walletReadinessReceipt.finalizedBalanceLamports,
         finalizedSlot: input.walletReadinessReceipt.finalizedSlot,
       } : null,
+      platformConfig: stateOk ? {
+        address: state.platform.address,
+        accountSha256: state.platform.accountSha256,
+        finalizedSlot: input.state.contextSlot,
+      } : null,
       receipts: {
         officialOrigin: originOk
           ? receiptBinding(input.officialOriginReceipt, ORIGIN_MAX_AGE_MS)
@@ -631,18 +640,159 @@ export function evaluateLaunchPreview(input) {
   });
 }
 
+function approvalEnvelopeFail(code) {
+  throw new Error(`approval-envelope-${code}`);
+}
+
+function approvalEnvelopeKeys(value, keys, code) {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value).sort().join(",") !== [...keys].sort().join(",")) {
+    approvalEnvelopeFail(code);
+  }
+}
+
+export function assertApprovalEnvelopeV1(value) {
+  approvalEnvelopeKeys(value, [
+    "schemaVersion", "transactionSha256", "creator", "mint", "launchId",
+    "selectedWallet", "signers", "programs", "transfers", "walletReadiness",
+    "platformConfig", "cost", "fees", "migration", "receipts", "authorization",
+  ], "root");
+  try {
+    canonicalKey(value.creator, "approval-envelope-creator");
+    canonicalKey(value.mint, "approval-envelope-mint");
+    canonicalKey(value.launchId, "approval-envelope-launch-id");
+  } catch {
+    approvalEnvelopeFail("identity");
+  }
+  if (value.schemaVersion !== "launchlab-approval-envelope-v1"
+    || !/^[0-9a-f]{64}$/u.test(value.transactionSha256)
+    || value.selectedWallet !== value.creator
+    || new Set([value.creator, value.mint, value.launchId]).size !== 3
+    || !Array.isArray(value.signers)
+    || value.signers.length !== 2
+    || value.signers[0] !== value.creator
+    || value.signers[1] !== value.mint
+    || !Array.isArray(value.programs)
+    || value.programs.length === 0
+    || !value.programs.includes(RAYDIUM_LAUNCHLAB_PROGRAM_ID)
+    || new Set(value.programs).size !== value.programs.length
+    || !Array.isArray(value.transfers)
+    || value.transfers.length !== 0) {
+    approvalEnvelopeFail("transaction");
+  }
+  try {
+    for (const program of value.programs) canonicalKey(program, "approval-envelope-program");
+  } catch {
+    approvalEnvelopeFail("transaction");
+  }
+
+  approvalEnvelopeKeys(
+    value.walletReadiness,
+    ["finalizedBalanceLamports", "finalizedSlot"],
+    "wallet",
+  );
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(value.walletReadiness.finalizedBalanceLamports)
+    || BigInt(value.walletReadiness.finalizedBalanceLamports) < BigInt(REQUIRED_LAMPORTS)
+    || !Number.isSafeInteger(value.walletReadiness.finalizedSlot)
+    || value.walletReadiness.finalizedSlot < 0) {
+    approvalEnvelopeFail("wallet");
+  }
+
+  approvalEnvelopeKeys(
+    value.platformConfig,
+    ["address", "accountSha256", "finalizedSlot"],
+    "platform-config",
+  );
+  try {
+    canonicalKey(value.platformConfig.address, "approval-envelope-platform-config");
+  } catch {
+    approvalEnvelopeFail("platform-config");
+  }
+  if (!/^[0-9a-f]{64}$/u.test(value.platformConfig.accountSha256)
+    || !Number.isSafeInteger(value.platformConfig.finalizedSlot)
+    || value.platformConfig.finalizedSlot < value.walletReadiness.finalizedSlot) {
+    approvalEnvelopeFail("platform-config");
+  }
+
+  approvalEnvelopeKeys(value.cost, [
+    "metadataUploadLamports", "maximumCreationDebitLamports",
+    "cumulativeCreatorDebitCapLamports", "simulatedCreationDebitLamports",
+    "simulatedCumulativeCreatorDebitLamports",
+  ], "cost");
+  const costValues = Object.values(value.cost);
+  if (!costValues.every((entry) => /^(?:0|[1-9][0-9]*)$/u.test(entry))
+    || value.cost.metadataUploadLamports !== "0"
+    || value.cost.maximumCreationDebitLamports !== String(REQUIRED_LAMPORTS)
+    || value.cost.cumulativeCreatorDebitCapLamports !== String(REQUIRED_LAMPORTS)
+    || BigInt(value.cost.simulatedCumulativeCreatorDebitLamports)
+      !== BigInt(value.cost.metadataUploadLamports)
+        + BigInt(value.cost.simulatedCreationDebitLamports)
+    || BigInt(value.cost.simulatedCreationDebitLamports) > BigInt(REQUIRED_LAMPORTS)
+    || BigInt(value.cost.simulatedCumulativeCreatorDebitLamports) > BigInt(REQUIRED_LAMPORTS)) {
+    approvalEnvelopeFail("cost");
+  }
+
+  approvalEnvelopeKeys(value.fees, [
+    "protocolBuyFeeRateMillionths", "protocolSellFeeRateMillionths",
+    "feeRateDenominator", "creatorTradingFeeRateMillionths", "creatorFeeRights",
+  ], "fees");
+  if (value.fees.protocolBuyFeeRateMillionths !== TARGET.protocolBuyFeeRateMillionths
+    || value.fees.protocolSellFeeRateMillionths !== TARGET.protocolSellFeeRateMillionths
+    || value.fees.feeRateDenominator !== TARGET.feeRateDenominator
+    || value.fees.creatorTradingFeeRateMillionths !== TARGET.creatorFeeRateMillionths
+    || value.fees.creatorFeeRights !== false) {
+    approvalEnvelopeFail("fees");
+  }
+
+  approvalEnvelopeKeys(value.migration, [
+    "type", "lpPolicy", "platformLpBps", "creatorLpBps", "irreversibleLpBps",
+    "platformFeeKey", "creatorFeeKey", "withdrawalRights", "feeRecipients",
+  ], "migration");
+  if (value.migration.type !== TARGET.migrationType
+    || JSON.stringify({
+      lpPolicy: value.migration.lpPolicy,
+      platformLpBps: value.migration.platformLpBps,
+      creatorLpBps: value.migration.creatorLpBps,
+      irreversibleLpBps: value.migration.irreversibleLpBps,
+      platformFeeKey: value.migration.platformFeeKey,
+      creatorFeeKey: value.migration.creatorFeeKey,
+      withdrawalRights: value.migration.withdrawalRights,
+      feeRecipients: value.migration.feeRecipients,
+    }) !== JSON.stringify(HAKKY_SOURCE_COVERAGE_VERIFIED.disposition)) {
+    approvalEnvelopeFail("migration");
+  }
+
+  approvalEnvelopeKeys(value.receipts, ["officialOrigin", "walletReadiness"], "receipts");
+  for (const [label, receipt] of Object.entries(value.receipts)) {
+    approvalEnvelopeKeys(receipt, ["sha256", "checkedAt", "expiresAt"], `${label}-receipt`);
+    if (!/^[0-9a-f]{64}$/u.test(receipt.sha256)
+      || !canonicalTimestamp(receipt.checkedAt)
+      || !canonicalTimestamp(receipt.expiresAt)
+      || Date.parse(receipt.expiresAt) <= Date.parse(receipt.checkedAt)) {
+      approvalEnvelopeFail(`${label}-receipt`);
+    }
+  }
+  const expectedAuthorization = `Authorize only serialized transaction SHA-256 ${value.transactionSha256} with maximum creation debit ${value.cost.maximumCreationDebitLamports} lamports.`;
+  if (value.authorization !== expectedAuthorization) approvalEnvelopeFail("authorization");
+  return value;
+}
+
 export function buildApprovalEnvelope(evaluation) {
   if (!evaluation || evaluation.ok !== true) {
     const coverageCode = evaluation?.coverage?.code ?? "evaluation-not-approved";
     fail(coverageCode);
   }
   exactKeys(evaluation, [
-    "schemaVersion", "transactionSha256", "creator", "observed", "diagnostic",
+    "schemaVersion", "transactionSha256", "creator", "identities", "observed", "diagnostic",
     "approvalEvidence", "coverage", "checks", "ok",
   ], "approval-evaluation-shape");
   if (evaluation.schemaVersion !== "launchlab-preview-evaluation-v1"
     || !/^[0-9a-f]{64}$/u.test(evaluation.transactionSha256)
     || canonicalKey(evaluation.creator, "approval-creator") !== evaluation.creator
+    || !evaluation.identities
+    || canonicalKey(evaluation.identities.mint, "approval-mint") !== evaluation.identities.mint
+    || canonicalKey(evaluation.identities.launchId, "approval-launch-id")
+      !== evaluation.identities.launchId
     || JSON.stringify(evaluation.observed) !== JSON.stringify(TARGET)
     || JSON.stringify(evaluation.coverage) !== JSON.stringify(HAKKY_SOURCE_COVERAGE_VERIFIED)
     || !Array.isArray(evaluation.checks)
@@ -667,11 +817,19 @@ export function buildApprovalEnvelope(evaluation) {
     fail("approval-diagnostic");
   }
   exactKeys(evaluation.approvalEvidence, [
-    "signers", "programs", "transfers", "walletReadiness", "receipts",
+    "signers", "programs", "transfers", "walletReadiness", "platformConfig", "receipts",
   ], "approval-evidence");
-  const { signers, programs, transfers, walletReadiness, receipts } = evaluation.approvalEvidence;
+  const {
+    signers,
+    programs,
+    transfers,
+    walletReadiness,
+    platformConfig,
+    receipts,
+  } = evaluation.approvalEvidence;
   if (!Array.isArray(signers) || signers.length !== 2
     || signers[0] !== evaluation.creator
+    || signers[1] !== evaluation.identities.mint
     || !signers.every((value) => canonicalKey(value, "approval-signer") === value)
     || !Array.isArray(programs) || programs.length === 0
     || !programs.every((value) => canonicalKey(value, "approval-program") === value)
@@ -687,6 +845,16 @@ export function buildApprovalEnvelope(evaluation) {
     || walletReadiness.finalizedSlot < 0) {
     fail("approval-wallet");
   }
+  exactKeys(platformConfig, [
+    "address", "accountSha256", "finalizedSlot",
+  ], "approval-platform-config");
+  if (canonicalKey(platformConfig.address, "approval-platform-config")
+      !== platformConfig.address
+    || !/^[0-9a-f]{64}$/u.test(platformConfig.accountSha256)
+    || !Number.isSafeInteger(platformConfig.finalizedSlot)
+    || platformConfig.finalizedSlot < walletReadiness.finalizedSlot) {
+    fail("approval-platform-config");
+  }
   exactKeys(receipts, ["officialOrigin", "walletReadiness"], "approval-receipts");
   for (const [label, receipt] of Object.entries(receipts)) {
     exactKeys(receipt, ["sha256", "checkedAt", "expiresAt"], `approval-${label}-receipt`);
@@ -698,15 +866,18 @@ export function buildApprovalEnvelope(evaluation) {
     }
   }
   const disposition = evaluation.coverage.disposition;
-  return recursivelyFreeze({
+  const envelope = {
     schemaVersion: "launchlab-approval-envelope-v1",
     transactionSha256: evaluation.transactionSha256,
     creator: evaluation.creator,
+    mint: evaluation.identities.mint,
+    launchId: evaluation.identities.launchId,
     selectedWallet: evaluation.creator,
     signers: [...signers],
     programs: [...programs],
     transfers: [],
     walletReadiness: { ...walletReadiness },
+    platformConfig: { ...platformConfig },
     cost: {
       metadataUploadLamports: evaluation.observed.metadataUploadLamports,
       maximumCreationDebitLamports: evaluation.observed.maximumCreationDebitLamports,
@@ -731,5 +902,7 @@ export function buildApprovalEnvelope(evaluation) {
       walletReadiness: { ...receipts.walletReadiness },
     },
     authorization: `Authorize only serialized transaction SHA-256 ${evaluation.transactionSha256} with maximum creation debit ${evaluation.observed.maximumCreationDebitLamports} lamports.`,
-  });
+  };
+  assertApprovalEnvelopeV1(envelope);
+  return recursivelyFreeze(envelope);
 }

@@ -289,6 +289,12 @@ export function resolveFinalizedTransactionInstructions({
     ...resolvedLoaded.writable,
     ...resolvedLoaded.readonly,
   ];
+  const privileges = keyPrivileges(
+    message,
+    staticKeys.length,
+    resolvedLoaded.writable.length,
+    allKeys.length,
+  );
   const instructions = message.compiledInstructions.map((instruction) => {
     if (!Number.isSafeInteger(instruction.programIdIndex)
       || instruction.programIdIndex < 0 || instruction.programIdIndex >= allKeys.length
@@ -300,6 +306,13 @@ export function resolveFinalizedTransactionInstructions({
       accountKeys: Object.freeze(
         [...instruction.accountKeyIndexes].map((index) => allKeys[index]),
       ),
+      accountMetas: Object.freeze(
+        [...instruction.accountKeyIndexes].map((index) => Object.freeze({
+          publicKey: allKeys[index],
+          isSigner: privileges[index].signer,
+          isWritable: privileges[index].writable,
+        })),
+      ),
       data: Buffer.from(instruction.data),
     });
   });
@@ -308,6 +321,7 @@ export function resolveFinalizedTransactionInstructions({
     blockTime,
     version: resolvedVersion,
     requestedSignature,
+    feePayer: allKeys[0],
     wireBytes,
     messageBytes,
     accountKeys: Object.freeze(allKeys),
@@ -428,9 +442,13 @@ export function resolveCreationTransaction({
 
   if (!Array.isArray(meta.preBalances) || !Array.isArray(meta.postBalances)
     || meta.preBalances.length !== allKeys.length || meta.postBalances.length !== allKeys.length
-    || [...meta.preBalances, ...meta.postBalances].some((value) => !Number.isSafeInteger(value) || value < 0)) {
+    || [...meta.preBalances, ...meta.postBalances].some((value) => !Number.isSafeInteger(value) || value < 0)
+    || !Number.isSafeInteger(meta.fee) || meta.fee < 0
+    || meta.postBalances[0] > meta.preBalances[0]) {
     fail("transaction-balances");
   }
+  const feePayerDebitLamports = meta.preBalances[0] - meta.postBalances[0];
+  if (feePayerDebitLamports < meta.fee) fail("transaction-balances");
   const metadataIndexes = allKeys.map((key, index) => key === creation.accounts.metadataAccount ? index : -1)
     .filter((index) => index !== -1);
   if (metadataIndexes.length !== 1) fail("metadata-account-index");
@@ -453,6 +471,9 @@ export function resolveCreationTransaction({
     blockTime,
     version: resolvedVersion,
     requestedSignature,
+    feePayer: allKeys[0],
+    feePayerDebitLamports: String(feePayerDebitLamports),
+    feeLamports: String(meta.fee),
     wireBytes,
     messageBytes,
     accountKeys: Object.freeze(allKeys),
