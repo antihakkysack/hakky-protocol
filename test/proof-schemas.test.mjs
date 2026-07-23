@@ -59,6 +59,35 @@ test("all versioned artifact and lifecycle fixture branches satisfy their normat
   }
 });
 
+test("mint-v2 requires all 14 exact true checks and all three execution digests", () => {
+  const pristine = createCanonicalMintProofV2();
+  assert.equal(Object.keys(pristine.checks).length, 14);
+  for (const check of Object.keys(pristine.checks)) {
+    for (const mutation of ["false", "missing"]) {
+      const changed = createCanonicalMintProofV2();
+      if (mutation === "false") changed.checks[check] = false;
+      else delete changed.checks[check];
+      assert.equal(validateSchema("mint-v2", changed).ok, false, `${check} accepted ${mutation}`);
+    }
+  }
+  const extra = createCanonicalMintProofV2();
+  extra.checks.unreviewed = true;
+  assert.equal(validateSchema("mint-v2", extra).ok, false);
+
+  for (const digest of [
+    "creationTransactionSha256",
+    "metadataCreateCpiSha256",
+    "creationExecutionSha256",
+  ]) {
+    const missing = createCanonicalMintProofV2();
+    delete missing.observation[digest];
+    assert.equal(validateSchema("mint-v2", missing).ok, false, `${digest} accepted missing`);
+    const uppercase = createCanonicalMintProofV2();
+    uppercase.observation[digest] = "A".repeat(64);
+    assert.equal(validateSchema("mint-v2", uppercase).ok, false, `${digest} accepted uppercase`);
+  }
+});
+
 test("every root and nested object rejects an unknown property", () => {
   for (const [label, create] of cases) {
     const pristine = create();

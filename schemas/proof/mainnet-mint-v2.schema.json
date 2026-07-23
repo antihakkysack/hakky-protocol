@@ -27,12 +27,15 @@
     "observation": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["genesisHash", "creationSignature", "creationSlot", "creationTime", "mintAccountSha256", "metadataAccountSha256", "finalizedSlot", "finalizedAt", "checkedAt", "rpcHost"],
+      "required": ["genesisHash", "creationSignature", "creationSlot", "creationTime", "creationTransactionSha256", "metadataCreateCpiSha256", "creationExecutionSha256", "mintAccountSha256", "metadataAccountSha256", "finalizedSlot", "finalizedAt", "checkedAt", "rpcHost"],
       "properties": {
         "genesisHash": { "const": "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d" },
         "creationSignature": { "$ref": "#/$defs/signature" },
         "creationSlot": { "$ref": "#/$defs/slot" },
         "creationTime": { "$ref": "#/$defs/timestamp" },
+        "creationTransactionSha256": { "$ref": "#/$defs/sha256" },
+        "metadataCreateCpiSha256": { "$ref": "#/$defs/sha256" },
+        "creationExecutionSha256": { "$ref": "#/$defs/sha256" },
         "mintAccountSha256": { "$ref": "#/$defs/sha256" },
         "metadataAccountSha256": { "$ref": "#/$defs/sha256" },
         "finalizedSlot": { "$ref": "#/$defs/slot" },
@@ -44,15 +47,20 @@
     "checks": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["mainnetGenesis", "classicTokenProgram", "exactSupply", "launchlabAuthority", "nullFreezeAuthority", "zeroCreatorBalance", "immutableMetadata", "metadataDigestMatch", "finalized"],
+      "required": ["mainnetGenesis", "creationTransaction", "validSignatures", "sourcePinnedAccountMetas", "atomicImmutableMetadata", "metadataAccountCreated", "classicTokenProgram", "exactSupply", "launchlabAuthority", "nullFreezeAuthority", "zeroCreatorBalance", "immutableMetadataPostState", "metadataDigestMatch", "finalized"],
       "properties": {
         "mainnetGenesis": { "const": true },
+        "creationTransaction": { "const": true },
+        "validSignatures": { "const": true },
+        "sourcePinnedAccountMetas": { "const": true },
+        "atomicImmutableMetadata": { "const": true },
+        "metadataAccountCreated": { "const": true },
         "classicTokenProgram": { "const": true },
         "exactSupply": { "const": true },
         "launchlabAuthority": { "const": true },
         "nullFreezeAuthority": { "const": true },
         "zeroCreatorBalance": { "const": true },
-        "immutableMetadata": { "const": true },
+        "immutableMetadataPostState": { "const": true },
         "metadataDigestMatch": { "const": true },
         "finalized": { "const": true }
       }

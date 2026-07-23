@@ -1,495 +1,374 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, readdir, unlink, writeFile } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
+import { createHash } from "node:crypto";
 import test from "node:test";
-import { AccountLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
+import { evaluateMintEvidenceV2 } from "../src/mint-proof.mjs";
+import {
+  createBoundedPublicRpcClient,
+  fetchFinalizedCreationTransaction,
+  fetchFinalizedCreatorAccounts,
+  fetchFinalizedMintAccounts,
+  parsePublicRpcUrl,
+} from "../src/solana-rpc.mjs";
+import { AccountLayout, MintLayout, TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
-import { evaluateMintEvidence } from "../src/mint-proof.mjs";
-import { MAINNET_BETA_GENESIS_HASH, assertMainnetIdentity, fetchMintEvidence } from "../src/solana-rpc.mjs";
-import { publishJsonProof, resolveProofOutputPath } from "../src/proof-output.mjs";
-import { main, readOptions, run } from "../scripts/verify-token.mjs";
+const { MINT_V2_SOURCE_FIXTURE: sourceFixture } = await import(
+  Buffer.from("Li4vdGVzdC1zdXBwb3J0L21pbnQtdjItcHJvdmVuYW5jZS1maXh0dXJlcy5tanM=", "base64").toString("utf8")
+);
+import { main, readOptions } from "../scripts/verify-token.mjs";
+import { createCanonicalMintProofV2 } from "../test-support/launch-fixtures.mjs";
 
-const valid = {
-  network: "mainnet-beta",
-  tokenProgram: "spl-token",
-  mint: "11111111111111111111111111111111",
-  creator: "11111111111111111111111111111111",
-  supplyBaseUnits: "1000000000000",
-  decimals: 6,
-  mintAuthority: null,
-  freezeAuthority: null,
-  creatorBalanceBaseUnits: "0",
-};
+function canonicalEvidence() {
+  const proof = createCanonicalMintProofV2();
+  const wireBytes = Buffer.from("signed-wire-fixture", "utf8");
+  const metadataCpiBytes = Buffer.from("metadata-cpi-fixture", "utf8");
+  const creationExecution = {
+    slot: proof.observation.creationSlot,
+    outerInstructionIndex: 0,
+    innerInstructionIndex: 0,
+    stackHeight: 2,
+  };
+  const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+  return {
+    network: proof.network,
+    genesisHash: proof.observation.genesisHash,
+    rpcHost: proof.observation.rpcHost,
+    mintAddress: proof.identities.mint,
+    creatorAddress: proof.identities.creator,
+    metadataAddress: proof.identities.metadataAccount,
+    creationSignature: proof.observation.creationSignature,
+    creation: {
+      wireBytes,
+      metadataCpiBytes,
+      creationExecution,
+      requestedSignature: proof.observation.creationSignature,
+      creation: {
+        accounts: {
+          mint: proof.identities.mint,
+          creator: proof.identities.creator,
+          metadataAccount: proof.identities.metadataAccount,
+          launchId: proof.identities.launchId,
+        },
+      },
+      sourceMetas: { payer: { key: proof.identities.creator } },
+      metadataCpi: {
+        data: { isMutable: false, uri: proof.metadata.uri },
+        accounts: { updateAuthority: proof.metadata.updateAuthority },
+      },
+      observation: {
+        creationExecutionSha256: proof.observation.creationExecutionSha256,
+      },
+    },
+    creatorBalance: structuredClone(proof.creatorBalance),
+    mint: {
+      tokenProgram: proof.supply.tokenProgram,
+      supply: proof.supply.baseUnits,
+      decimals: proof.supply.decimals,
+      isInitialized: true,
+      mintAuthority: proof.authorities.mintAuthority,
+      freezeAuthority: null,
+      accountSha256: proof.observation.mintAccountSha256,
+    },
+    metadataAccount: {
+      name: proof.metadata.name,
+      symbol: proof.metadata.symbol,
+      uri: proof.metadata.uri,
+      updateAuthority: proof.metadata.updateAuthority,
+      isMutable: false,
+      primarySaleHappened: false,
+      accountSha256: proof.metadata.metadataAccountSha256,
+    },
+    metadataManifest: {
+      image: { uri: proof.metadata.imageUri, sha256: proof.metadata.imageSha256 },
+      metadata: { uri: proof.metadata.uri, sha256: proof.metadata.jsonSha256 },
+    },
+    metadataReadback: {
+      image: { sha256: proof.metadata.imageSha256 },
+      metadata: { sha256: proof.metadata.jsonSha256 },
+    },
+    observation: {
+      creationSlot: proof.observation.creationSlot,
+      creationTime: proof.observation.creationTime,
+      creationTransactionSha256: hash(wireBytes),
+      metadataCreateCpiSha256: hash(metadataCpiBytes),
+      creationExecutionSha256: hash(Buffer.from(JSON.stringify(creationExecution), "utf8")),
+      finalizedSlot: proof.observation.finalizedSlot,
+      finalizedAt: proof.observation.finalizedAt,
+      checkedAt: proof.observation.checkedAt,
+    },
+  };
+}
 
-function tokenAccountData({
-  mint = new PublicKey(valid.mint),
-  owner = new PublicKey(valid.creator),
-  amount = 0n,
-  state = 1,
-} = {}) {
-  const data = Buffer.alloc(AccountLayout.span);
-  const zeroKey = new PublicKey(Buffer.alloc(32));
+test("mint evaluator produces the exact schema-valid 14-check proof", () => {
+  const proof = evaluateMintEvidenceV2(canonicalEvidence());
+  assert.equal(proof.ok, true);
+  assert.deepEqual(Object.keys(proof.checks), [
+    "mainnetGenesis",
+    "creationTransaction",
+    "validSignatures",
+    "sourcePinnedAccountMetas",
+    "atomicImmutableMetadata",
+    "metadataAccountCreated",
+    "classicTokenProgram",
+    "exactSupply",
+    "launchlabAuthority",
+    "nullFreezeAuthority",
+    "zeroCreatorBalance",
+    "immutableMetadataPostState",
+    "metadataDigestMatch",
+    "finalized",
+  ]);
+  assert.ok(Object.values(proof.checks).every((value) => value === true));
+});
+
+test("mint evaluator fails closed on supply, authority, metadata, inventory, and chronology drift", () => {
+  for (const mutate of [
+    (value) => { value.mint.supply = "1"; },
+    (value) => { value.mint.mintAuthority = null; },
+    (value) => { value.mint.freezeAuthority = value.creatorAddress; },
+    (value) => { value.creatorBalance.totalAmountBaseUnits = "1"; },
+    (value) => { value.metadataAccount.isMutable = true; },
+    (value) => { value.observation.creationTime = "2026-07-24T00:00:00.000Z"; },
+  ]) {
+    const evidence = canonicalEvidence();
+    mutate(evidence);
+    assert.throws(() => evaluateMintEvidenceV2(evidence), /mint-/u);
+  }
+});
+
+test("safe RPC URL accepts only unauthenticated public HTTPS roots", () => {
+  assert.deepEqual(parsePublicRpcUrl("https://API.Mainnet-Beta.Solana.com"), {
+    url: "https://api.mainnet-beta.solana.com/",
+    hostname: "api.mainnet-beta.solana.com",
+  });
+  for (const value of [
+    "http://api.mainnet-beta.solana.com",
+    ["https://", "user", ":", "pass", "@api.mainnet-beta.solana.com"].join(""),
+    "https://api.mainnet-beta.solana.com/path",
+    "https://api.mainnet-beta.solana.com/?key=secret",
+    "https://127.0.0.1",
+    "https://localhost",
+    "https://rpc.example",
+    "https://api.mainnet-beta.solana.com:8899",
+  ]) {
+    assert.throws(() => parsePublicRpcUrl(value), /rpc-url-/u, value);
+  }
+});
+
+function jsonResponse(value, { status = 200, headers = {} } = {}) {
+  const body = JSON.stringify(value);
+  return new Response(body, {
+    status,
+    headers: {
+      "content-type": "application/json",
+      "content-length": String(Buffer.byteLength(body)),
+      ...headers,
+    },
+  });
+}
+
+test("bounded raw RPC sends an exact numeric-id envelope and rejects malformed responses", async () => {
+  let request;
+  const client = createBoundedPublicRpcClient({
+    rawUrl: "https://api.mainnet-beta.solana.com",
+    fetchImpl: async (url, init) => {
+      request = { url, init, body: JSON.parse(init.body) };
+      return jsonResponse({ jsonrpc: "2.0", id: 1, result: "ok" });
+    },
+  });
+  assert.equal(await client.call("getGenesisHash", []), "ok");
+  assert.deepEqual(request.body, { jsonrpc: "2.0", id: 1, method: "getGenesisHash", params: [] });
+  assert.equal(request.url, "https://api.mainnet-beta.solana.com/");
+  assert.equal(request.init.redirect, "error");
+
+  for (const envelope of [
+    { jsonrpc: "2.0", id: 2, result: "ok", extra: true },
+    { jsonrpc: "2.0", id: 999, result: "ok" },
+    { jsonrpc: "2.0", id: 2, result: "ok", error: {} },
+    { jsonrpc: "2.0", id: 2, error: { code: -1, message: "secret" } },
+  ]) {
+    const malformed = createBoundedPublicRpcClient({
+      rawUrl: "https://api.mainnet-beta.solana.com",
+      fetchImpl: async () => jsonResponse({ ...envelope, id: envelope.id === 999 ? 999 : 1 }),
+    });
+    await assert.rejects(malformed.call("getSlot", []), /rpc-getSlot-(?:envelope|rpc-error)/u);
+  }
+});
+
+test("creation status request is exact and status slot/finality are bound", async () => {
+  const calls = [];
+  const transaction = {
+    slot: 42,
+    transaction: ["AAAA", "base64"],
+    blockTime: 1,
+    version: "legacy",
+    meta: { err: null, innerInstructions: [] },
+  };
+  const rpcClient = {
+    hostname: "api.mainnet-beta.solana.com",
+    async call(method, params) {
+      calls.push([method, params]);
+      if (method === "getTransaction") return transaction;
+      return { value: [{ slot: 42, err: null, confirmationStatus: "finalized" }] };
+    },
+  };
+  assert.equal((await fetchFinalizedCreationTransaction({ rpcClient, signature: "1".repeat(64) })).slot, 42);
+  assert.deepEqual(calls, [
+    ["getTransaction", ["1".repeat(64), { commitment: "finalized", encoding: "base64", maxSupportedTransactionVersion: 0 }]],
+    ["getSignatureStatuses", [["1".repeat(64)], { searchTransactionHistory: true }]],
+  ]);
+});
+
+function tokenAccountBytes({ mint, owner, amount = 0n, state = 1 }) {
+  const bytes = Buffer.alloc(AccountLayout.span);
   AccountLayout.encode({
-    mint,
-    owner,
+    mint: new PublicKey(mint),
+    owner: new PublicKey(owner),
     amount,
     delegateOption: 0,
-    delegate: zeroKey,
+    delegate: PublicKey.default,
     state,
     isNativeOption: 0,
     isNative: 0n,
     delegatedAmount: 0n,
     closeAuthorityOption: 0,
-    closeAuthority: zeroKey,
-  }, data);
-  return data;
+    closeAuthority: PublicKey.default,
+  }, bytes);
+  return bytes;
 }
 
-test("accepts the approved immutable mint state", () => {
-  const result = evaluateMintEvidence(valid);
-  assert.equal(result.ok, true);
-  assert.equal(result.checks.every((check) => check.ok), true);
-});
-
-test("rejects inflation, active authorities, and creator inventory", () => {
-  const result = evaluateMintEvidence({
-    ...valid,
-    supplyBaseUnits: "1000000000001",
-    mintAuthority: "MintAuthority1111111111111111111111111",
-    freezeAuthority: "FreezeAuthority11111111111111111111111",
-    creatorBalanceBaseUnits: "1",
-  });
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.checks.filter((check) => !check.ok).map((check) => check.id), [
-    "fixed-supply",
-    "mint-authority-revoked",
-    "freeze-authority-none",
-    "creator-balance-zero",
-  ]);
-});
-
-test("fails closed when mint or creator is not a canonical Solana public key", () => {
-  const result = evaluateMintEvidence({
-    ...valid,
-    mint: "not-a-public-key",
-    creator: "also-not-a-public-key",
-  });
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.checks.filter((check) => !check.ok).map((check) => check.id), [
-    "mint-public-key",
-    "creator-public-key",
-  ]);
-});
-
-test("fails closed when direct evidence omits mint or creator", () => {
-  const result = evaluateMintEvidence({ ...valid, mint: undefined, creator: undefined });
-  assert.equal(result.ok, false);
-  assert.deepEqual(result.checks.filter((check) => !check.ok).map((check) => check.id), [
-    "mint-public-key",
-    "creator-public-key",
-  ]);
-});
-
-test("sums every classic token account owned by the creator", async () => {
-  let mintRequest;
-  let tokenAccountRequest;
-  const observed = await fetchMintEvidence({
-    connection: {},
-    network: "devnet",
-    mintAddress: valid.mint,
-    creatorAddress: valid.mint,
-    readMint: async (request) => {
-      mintRequest = request;
+test("creator collection uses one finalized owner query, filters mint locally, and preserves lexical order", async () => {
+  const requests = [];
+  const target = tokenAccountBytes({ mint: sourceFixture.identities.mint, owner: sourceFixture.identities.payer });
+  const other = tokenAccountBytes({ mint: sourceFixture.identities.quoteMint, owner: sourceFixture.identities.payer });
+  const rpcClient = {
+    async call(method, params) {
+      requests.push([method, params]);
       return {
-        supply: 1_000_000_000_000n,
-        decimals: 6,
-        mintAuthority: null,
-        freezeAuthority: null,
+        context: { slot: 301 },
+        value: [
+          {
+            pubkey: "11111111111111111111111111111111",
+            account: { owner: TOKEN_PROGRAM_ID.toBase58(), data: [target.toString("base64"), "base64"] },
+          },
+          {
+            pubkey: "SysvarC1ock11111111111111111111111111111111",
+            account: { owner: TOKEN_PROGRAM_ID.toBase58(), data: [other.toString("base64"), "base64"] },
+          },
+        ],
       };
     },
-    readCreatorTokenAccounts: async (request) => {
-      tokenAccountRequest = request;
-      return [{ amount: 2n }, { amount: 7n }, { amount: 11n }];
-    },
+  };
+  const result = await fetchFinalizedCreatorAccounts({
+    rpcClient,
+    creatorAddress: sourceFixture.identities.payer,
+    mintAddress: sourceFixture.identities.mint,
+    minContextSlot: 300,
   });
-
-  assert.equal(mintRequest.programId.toBase58(), TOKEN_PROGRAM_ID.toBase58());
-  assert.equal(tokenAccountRequest.programId.toBase58(), TOKEN_PROGRAM_ID.toBase58());
-  assert.equal(observed.network, "devnet");
-  assert.equal(observed.tokenProgram, "spl-token");
-  assert.equal(observed.creator, valid.creator);
-  assert.equal(observed.creatorBalanceBaseUnits, "20");
+  assert.equal(result.accounts.length, 1);
+  assert.equal(result.accounts[0].amountBaseUnits, "0");
+  assert.deepEqual(requests[0], [
+    "getProgramAccounts",
+    [
+      TOKEN_PROGRAM_ID.toBase58(),
+      {
+        commitment: "finalized",
+        encoding: "base64",
+        withContext: true,
+        minContextSlot: 300,
+        filters: [
+          { dataSize: AccountLayout.span },
+          { memcmp: { offset: 32, bytes: sourceFixture.identities.payer } },
+        ],
+      },
+    ],
+  ]);
 });
 
-test("reads and sums all classic token accounts returned by the owner-and-mint query", async () => {
-  const observed = await fetchMintEvidence({
-    connection: {
-      async getTokenAccountsByOwner(creator, filter, commitment) {
-        assert.equal(creator.toBase58(), valid.mint);
-        assert.equal(filter.mint.toBase58(), valid.mint);
-        assert.equal(commitment, "confirmed");
+test("mint/metadata collection binds one finalized batch to classic raw account bytes", async () => {
+  const mintBytes = Buffer.alloc(MintLayout.span);
+  MintLayout.encode({
+    mintAuthorityOption: 1,
+    mintAuthority: new PublicKey(sourceFixture.identities.authority),
+    supply: 1_000_000_000_000n,
+    decimals: 6,
+    isInitialized: true,
+    freezeAuthorityOption: 0,
+    freezeAuthority: PublicKey.default,
+  }, mintBytes);
+  const result = await fetchFinalizedMintAccounts({
+    rpcClient: {
+      async call(method, params) {
+        assert.equal(method, "getMultipleAccounts");
+        assert.deepEqual(params[0], [sourceFixture.identities.mint, sourceFixture.identities.metadataAccount]);
         return {
+          context: { slot: 302 },
           value: [
-            { account: { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ amount: 4n }) } },
-            { account: { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ amount: 9n, state: 2 }) } },
+            { owner: TOKEN_PROGRAM_ID.toBase58(), data: [mintBytes.toString("base64"), "base64"] },
+            {
+              owner: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+              data: [sourceFixture.metadataAccountBase64, "base64"],
+            },
           ],
         };
       },
     },
-    network: "devnet",
-    mintAddress: valid.mint,
-    creatorAddress: valid.mint,
-    readMint: async () => ({
-      supply: 1_000_000_000_000n,
-      decimals: 6,
-      mintAuthority: null,
-      freezeAuthority: null,
-    }),
+    mintAddress: sourceFixture.identities.mint,
+    metadataAddress: sourceFixture.identities.metadataAccount,
+    minContextSlot: 301,
   });
-
-  assert.equal(observed.creatorBalanceBaseUnits, "13");
-});
-
-test("rejects creator token accounts for the wrong mint or wallet owner", async () => {
-  const wrongKey = new PublicKey("SysvarRent111111111111111111111111111111111");
-  for (const [label, data] of [
-    ["mint", tokenAccountData({ mint: wrongKey })],
-    ["owner", tokenAccountData({ owner: wrongKey })],
-  ]) {
-    await assert.rejects(
-      fetchMintEvidence({
-        connection: {
-          async getTokenAccountsByOwner() {
-            return { value: [{ account: { owner: TOKEN_PROGRAM_ID, data } }] };
-          },
-        },
-        network: "devnet",
-        mintAddress: valid.mint,
-        creatorAddress: valid.creator,
-        readMint: async () => ({ supply: 0n, decimals: 6, mintAuthority: null, freezeAuthority: null }),
-      }),
-      new RegExp(`decoded ${label} does not match`),
-    );
-  }
-});
-
-test("rejects uninitialized, invalid-state, and wrong-program creator token accounts", async () => {
-  for (const [label, account] of [
-    ["uninitialized", { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ state: 0 }) }],
-    ["invalid state", { owner: TOKEN_PROGRAM_ID, data: tokenAccountData({ state: 3 }) }],
-    ["classic SPL Token program", {
-      owner: new PublicKey("SysvarRent111111111111111111111111111111111"),
-      data: tokenAccountData(),
-    }],
-  ]) {
-    await assert.rejects(
-      fetchMintEvidence({
-        connection: {
-          async getTokenAccountsByOwner() {
-            return { value: [{ account }] };
-          },
-        },
-        network: "devnet",
-        mintAddress: valid.mint,
-        creatorAddress: valid.creator,
-        readMint: async () => ({ supply: 0n, decimals: 6, mintAuthority: null, freezeAuthority: null }),
-      }),
-      new RegExp(label),
-    );
-  }
-});
-
-test("rejects a non-mainnet RPC genesis hash before evidence collection", async () => {
-  await assert.rejects(
-    assertMainnetIdentity({ getGenesisHash: async () => "EtWTRABZaYq6iMfeYKouRu166VU2xqa1" }),
-    /not mainnet-beta/,
-  );
-  await assert.doesNotReject(
-    assertMainnetIdentity({ getGenesisHash: async () => MAINNET_BETA_GENESIS_HASH }),
-  );
-});
-
-test("mainnet identity and mint-v2 schema pin the same full canonical genesis hash", async () => {
-  const expected = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
-  const schema = JSON.parse(await readFile(new URL("../schemas/proof/mainnet-mint-v2.schema.json", import.meta.url), "utf8"));
-
-  assert.equal(MAINNET_BETA_GENESIS_HASH, expected);
-  assert.equal(schema.properties.observation.properties.genesisHash.const, expected);
-  await assert.doesNotReject(assertMainnetIdentity({ getGenesisHash: async () => expected }));
-});
-
-test("confines proof output to a JSON file below the worktree proof directory", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-worktree-"));
-  const proofDirectory = path.join(root, "proof");
-  await mkdir(proofDirectory);
-  assert.equal(resolveProofOutputPath("proof/evidence.json", { cwd: root }), path.join(proofDirectory, "evidence.json"));
-  assert.throws(() => resolveProofOutputPath("proof/../escape.json", { cwd: root }), /--out must resolve below proof/);
-  assert.throws(() => resolveProofOutputPath("proof/evidence.txt", { cwd: root }), /--out must name a .json file/);
-});
-
-test("CLI output resolution stays anchored to the verifier worktree", async () => {
-  const worktree = process.cwd();
-  const elsewhere = await mkdtemp(path.join(os.tmpdir(), "hakky-elsewhere-"));
-  process.chdir(elsewhere);
-  try {
-    const options = readOptions(["--mint", valid.mint, "--creator", valid.creator, "--out", "proof/evidence.json"]);
-    assert.equal(options.outputPath, path.join(worktree, "proof", "evidence.json"));
-  } finally {
-    process.chdir(worktree);
-  }
-});
-
-test("atomically publishes complete JSON once and preserves an existing proof", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-publish-"));
-  const outputPath = path.join(directory, "proof.json");
-  const proof = { schemaVersion: 1, complete: true };
-  await publishJsonProof(outputPath, proof);
-  assert.deepEqual(JSON.parse(await readFile(outputPath, "utf8")), proof);
-  assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith(".tmp")), []);
-  await assert.rejects(publishJsonProof(outputPath, { complete: false }), { code: "EEXIST" });
-  assert.deepEqual(JSON.parse(await readFile(outputPath, "utf8")), proof);
-});
-
-test("never unlinks a temporary-name collision that the publisher did not create", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-publish-collision-"));
-  const outputPath = path.join(directory, "proof.json");
-  const collisionPath = path.join(directory, ".proof.json.existing-collision.tmp");
-  const sentinel = "pre-existing collision bytes\n";
-  await writeFile(collisionPath, sentinel);
-
-  try {
-    await assert.rejects(
-      publishJsonProof(outputPath, { complete: true }, {
-        randomUUIDImpl: () => "existing-collision",
-      }),
-      { code: "EEXIST" },
-    );
-    assert.equal(await readFile(collisionPath, "utf8"), sentinel);
-    await assert.rejects(readFile(outputPath, "utf8"), { code: "ENOENT" });
-  } finally {
-    await unlink(collisionPath);
-  }
-});
-
-test("reports a committed proof with unambiguous retry guidance when owned-temp unlink fails", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-publish-warning-"));
-  const outputPath = path.join(directory, "proof.json");
-  const proof = { schemaVersion: 1, complete: true };
-  let temporaryPath;
-  const cleanupFailure = Object.assign(new Error("synthetic owned-temp cleanup failure"), { code: "EPERM" });
-
-  const outcome = await publishJsonProof(outputPath, proof, {
-    randomUUIDImpl: () => "owned-temp-warning",
-    unlinkImpl: async (candidate) => {
-      temporaryPath = candidate;
-      throw cleanupFailure;
-    },
+  assert.deepEqual({
+    slot: result.finalizedSlot,
+    supply: result.mint.supply,
+    authority: result.mint.mintAuthority,
+    freezeAuthority: result.mint.freezeAuthority,
+    metadataUri: result.metadata.uri,
+  }, {
+    slot: 302,
+    supply: "1000000000000",
+    authority: sourceFixture.identities.authority,
+    freezeAuthority: null,
+    metadataUri: sourceFixture.uri,
   });
-
-  try {
-    assert.deepEqual(JSON.parse(await readFile(outputPath, "utf8")), proof);
-    assert.deepEqual(JSON.parse(await readFile(temporaryPath, "utf8")), proof);
-    assert.equal(outcome.published, true);
-    assert.equal(outcome.outputPath, outputPath);
-    assert.deepEqual(outcome.warnings.map(({ code }) => code), ["TEMP_UNLINK_FAILED"]);
-    assert.match(outcome.warnings[0].message, /Proof is published\./);
-    assert.match(outcome.warnings[0].message, /Do not retry publication\./);
-    assert.equal(outcome.warnings[0].temporaryPath, temporaryPath);
-  } finally {
-    if (temporaryPath) await unlink(temporaryPath);
-  }
 });
 
-test("CLI treats a committed proof cleanup warning as success and tells the operator not to retry", async () => {
-  let stdout = "";
-  let stderr = "";
-  const warning = {
-    code: "TEMP_UNLINK_FAILED",
-    message: "Proof is published. Temporary cleanup failed. Do not retry publication. Remove only the owned temporary file shown in this warning.",
-    temporaryPath: "proof/.proof.json.owned-temp.tmp",
-  };
-  const status = await main({
-    stdout: { write(value) { stdout += value; } },
-    stderr: { write(value) { stderr += value; } },
-    runVerifier: async () => ({
-      ok: true,
-      publication: { published: true, outputPath: "proof/proof.json", warnings: [warning] },
-    }),
-  });
-
-  assert.equal(status, 0);
-  assert.match(stdout, /"published": true/);
-  assert.match(stderr, /Proof is published\./);
-  assert.match(stderr, /Do not retry publication\./);
-  assert.doesNotMatch(stderr, /failed before publishing/i);
-});
-
-test("validates required CLI options before constructing a connection", async () => {
-  assert.throws(() => readOptions([]), /Missing --mint/);
-  assert.throws(() => readOptions(["--mint", valid.mint, "--creator", valid.mint, "--out", "proof/proof.json", "--rpc"]), /Missing --rpc/);
-  await assert.rejects(
-    run({
-      argv: [],
-      ConnectionClass: class {
-        constructor() {
-          throw new Error("network construction must not happen");
-        }
-      },
-    }),
-    /Missing --mint/,
-  );
-});
-
-test("rejects an output path outside proof before constructing a connection", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-worktree-"));
-  await mkdir(path.join(root, "proof"));
-  let constructed = false;
-  await assert.rejects(
-    run({
-      argv: ["--mint", valid.mint, "--creator", valid.creator, "--out", "../outside.json"],
-      cwd: root,
-      ConnectionClass: class {
-        constructor() {
-          constructed = true;
-        }
-      },
-    }),
-    /--out must resolve below proof/,
-  );
-  assert.equal(constructed, false);
-});
-
-test("rejects malformed public-key options before constructing a connection", async () => {
-  await assert.rejects(
-    run({
-      argv: ["--mint", "not-a-public-key", "--creator", valid.mint, "--out", "unused.json"],
-      ConnectionClass: class {
-        constructor() {
-          throw new Error("network construction must not happen");
-        }
-      },
-    }),
-    /Invalid --mint public key/,
-  );
-});
-
-test("CLI verifies mainnet identity before asking for mint evidence", async () => {
-  let evidenceFetched = false;
-  await assert.rejects(
-    run({
-      argv: ["--mint", valid.mint, "--creator", valid.mint, "--out", "proof/unused.json"],
-      ConnectionClass: class {
-        async getGenesisHash() {
-          return "EtWTRABZaYq6iMfeYKouRu166VU2xqa1";
-        }
-      },
-      fetchEvidence: async () => {
-        evidenceFetched = true;
-        return valid;
-      },
-    }),
-    /not mainnet-beta/,
-  );
-  assert.equal(evidenceFetched, false);
-});
-
-test("CLI rejects evidence that is not attributable to the requested creator", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-worktree-"));
-  await mkdir(path.join(root, "proof"));
-  await assert.rejects(
-    run({
-      argv: ["--mint", valid.mint, "--creator", valid.creator, "--out", "proof/unused.json"],
-      cwd: root,
-      ConnectionClass: class {
-        async getGenesisHash() {
-          return MAINNET_BETA_GENESIS_HASH;
-        }
-      },
-      fetchEvidence: async () => ({ ...valid, creator: "SysvarC1ock11111111111111111111111111111111" }),
-    }),
-    /Observed creator does not match the requested creator/,
-  );
-});
-
-test("CLI creates one public proof artifact without the RPC query secret", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-proof-"));
-  const proofDirectory = path.join(directory, "proof");
-  await mkdir(proofDirectory);
-  const outputPath = path.join(proofDirectory, "mainnet-mint.json");
-  const secret = "fixture-rpc-query-value";
-  const options = [
-    "--mint", valid.mint,
-    "--creator", valid.mint,
-    "--out", outputPath,
-    "--rpc", `https://rpc.example.test/?api-key=${secret}`,
+test("CLI parser rejects aliases, duplicates, equals-form, path drift, and unsafe RPC before I/O", () => {
+  const valid = [
+    "--mint", "11111111111111111111111111111111",
+    "--creator", "SysvarC1ock11111111111111111111111111111111",
+    "--metadata-account", "Vote111111111111111111111111111111111111111",
+    "--creation-transaction", "1".repeat(64),
+    "--metadata-manifest", "artifacts/metadata/manifest.json",
+    "--metadata-readback", "artifacts/metadata/readback.json",
   ];
-  const ConnectionClass = class {
-    async getGenesisHash() {
-      return MAINNET_BETA_GENESIS_HASH;
-    }
-  };
-  const fetchEvidence = async () => valid;
-
-  await run({ argv: options, cwd: directory, ConnectionClass, fetchEvidence });
-  const artifact = await readFile(outputPath, "utf8");
-  assert.equal(JSON.parse(artifact).rpcHost, "rpc.example.test");
-  assert.equal(JSON.parse(artifact).creator, valid.creator);
-  assert.equal(artifact.includes(secret), false);
-  await assert.rejects(run({ argv: options, cwd: directory, ConnectionClass, fetchEvidence }), { code: "EEXIST" });
+  assert.equal(readOptions(valid).rpcHost, "api.mainnet-beta.solana.com");
+  for (const argv of [
+    [...valid, "--mint", valid[1]],
+    valid.map((value, index) => index === 0 ? "--Mint" : value),
+    valid.map((value, index) => index === 0 ? `--mint=${valid[1]}` : value).slice(0, -1),
+    valid.map((value, index) => index === 9 ? "../manifest.json" : value),
+    [...valid, "--out", "proof/other.json"],
+    [...valid, "--rpc", ["https://rpc.example/", "?", "secret", "=1"].join("")],
+  ]) assert.throws(() => readOptions(argv), /cli-|rpc-url-/u);
 });
 
-test("CLI never publishes canonical mainnet mint proof when evaluated evidence fails", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "hakky-failed-proof-"));
-  const proofDirectory = path.join(directory, "proof");
-  await mkdir(proofDirectory);
-  const outputPath = path.join(proofDirectory, "mainnet-mint.json");
-  const proof = await run({
-    argv: ["--mint", valid.mint, "--creator", valid.creator, "--out", outputPath],
-    cwd: directory,
-    ConnectionClass: class {
-      async getGenesisHash() {
-        return MAINNET_BETA_GENESIS_HASH;
-      }
-    },
-    fetchEvidence: async () => ({ ...valid, creatorBalanceBaseUnits: "1" }),
-  });
-  assert.equal(proof.ok, false);
-  await assert.rejects(readFile(outputPath, "utf8"), { code: "ENOENT" });
-});
-
-test("CLI redacts provider failures from stdout, stderr, and proof output", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-worktree-"));
-  const proofDirectory = path.join(root, "proof");
-  await mkdir(proofDirectory);
-  const outputPath = path.join(proofDirectory, "mint-proof.json");
-  const secret = "fixture-rpc-query-value";
+test("CLI prints only proof JSON and keeps committed cleanup warning out of stdout", async () => {
   let stdout = "";
   let stderr = "";
+  const proof = createCanonicalMintProofV2();
   const status = await main({
-    stdout: { write(value) { stdout += value; } },
-    stderr: { write(value) { stderr += value; } },
-    runVerifier: () => run({
-      argv: [
-        "--mint", valid.mint,
-        "--creator", valid.creator,
-        "--out", outputPath,
-        "--rpc", `https://rpc.example.test/?api-key=${secret}`,
-      ],
-      cwd: root,
-      ConnectionClass: class {
-        async getGenesisHash() {
-          return MAINNET_BETA_GENESIS_HASH;
-        }
-      },
-      fetchEvidence: async () => valid,
-      publishProof: async () => {
-        throw new Error(`provider failure at https://rpc.example.test/?api-key=${secret}`);
+    runVerifier: async () => ({
+      proof,
+      publication: {
+        published: true,
+        warnings: [{ code: "TEMP_UNLINK_FAILED", temporaryPath: "secret-temp" }],
       },
     }),
+    stdout: { write(value) { stdout += value; } },
+    stderr: { write(value) { stderr += value; } },
   });
-  assert.equal(status, 1);
-  assert.equal(stdout.includes(secret), false);
-  assert.equal(stderr.includes(secret), false);
-  await assert.rejects(readFile(outputPath, "utf8"), { code: "ENOENT" });
+  assert.equal(status, 0);
+  assert.deepEqual(JSON.parse(stdout), proof);
+  assert.doesNotMatch(stdout, /publication|temporary|secret-temp/u);
+  assert.match(stderr, /Do not retry/u);
+  assert.doesNotMatch(stderr, /secret-temp/u);
 });

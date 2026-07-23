@@ -18,6 +18,13 @@ export function resolveProofOutputPath(outputPath, { cwd = process.cwd() } = {})
   return resolvedPath;
 }
 
+export function resolveCanonicalMintProofPath({ repositoryRoot = process.cwd() } = {}) {
+  if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
+    throw new Error("repositoryRoot must be absolute");
+  }
+  return path.join(path.resolve(repositoryRoot), "proof", "mainnet-mint.json");
+}
+
 export async function publishJsonProof(outputPath, proof, {
   linkImpl = link,
   mkdirImpl = mkdir,

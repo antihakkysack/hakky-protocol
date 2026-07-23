@@ -155,8 +155,8 @@ function validateChronology(container, instancePath, issues) {
   }
   if (creatorBalance && observation) {
     if (creatorBalance.finalizedSlot > observation.finalizedSlot
-        || (isExactTimestamp(creatorBalance.finalizedAt) && isExactTimestamp(observation.checkedAt)
-          && Date.parse(creatorBalance.finalizedAt) > Date.parse(observation.checkedAt))) {
+        || (isExactTimestamp(creatorBalance.finalizedAt) && isExactTimestamp(observation.finalizedAt)
+          && Date.parse(creatorBalance.finalizedAt) > Date.parse(observation.finalizedAt))) {
       issues.push(semanticIssue(`${instancePath}/creatorBalance`, "chronology", "must not be later than the observation"));
     }
   }

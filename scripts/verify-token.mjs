@@ -1,104 +1,151 @@
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { Connection, PublicKey } from "@solana/web3.js";
-import { evaluateMintEvidence } from "../src/mint-proof.mjs";
-import { publishJsonProof, resolveProofOutputPath } from "../src/proof-output.mjs";
-import { assertMainnetIdentity, fetchMintEvidence } from "../src/solana-rpc.mjs";
+import { fileURLToPath } from "node:url";
+import { PublicKey } from "@solana/web3.js";
+import { decodeBase58 } from "../src/solana-transaction.mjs";
+import { assertMetadataManifestV1, assertMetadataReadbackV1, resolveRepositoryPath } from "../src/metadata-integrity.mjs";
+import { evaluateMintEvidenceV2 } from "../src/mint-proof.mjs";
+import { publishJsonProof, resolveCanonicalMintProofPath } from "../src/proof-output.mjs";
+import {
+  createBoundedPublicRpcClient,
+  DEFAULT_PUBLIC_MAINNET_RPC,
+  fetchMintEvidence,
+  parsePublicRpcUrl,
+} from "../src/solana-rpc.mjs";
 
 const WORKTREE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const REQUIRED = Object.freeze([
+  "--mint",
+  "--creator",
+  "--metadata-account",
+  "--creation-transaction",
+  "--metadata-manifest",
+  "--metadata-readback",
+]);
+const OPTIONAL = Object.freeze(["--rpc"]);
+const MANIFEST_PATH = "artifacts/metadata/manifest.json";
+const READBACK_PATH = "artifacts/metadata/readback.json";
 
-function readRequiredOption(argv, name) {
-  const index = argv.indexOf(name);
-  const value = argv[index + 1];
-  if (index === -1 || !value || value.startsWith("--")) throw new Error(`Missing ${name}`);
+function fail(code) {
+  throw new Error(code);
+}
+
+function canonicalPublicKey(value, name) {
+  try {
+    if (typeof value !== "string" || new PublicKey(value).toBase58() !== value) fail(`cli-invalid-${name}`);
+    return value;
+  } catch {
+    fail(`cli-invalid-${name}`);
+  }
+}
+
+function canonicalSignature(value) {
+  try {
+    decodeBase58(value, { length: 64, code: "cli-invalid-creation-transaction" });
+  } catch {
+    fail("cli-invalid-creation-transaction");
+  }
   return value;
 }
 
-function readPublicKeyOption(argv, name) {
-  const value = readRequiredOption(argv, name);
-  try {
-    return new PublicKey(value).toBase58();
-  } catch {
-    throw new Error(`Invalid ${name} public key`);
+export function readOptions(argv) {
+  if (!Array.isArray(argv)) fail("cli-argv");
+  const allowed = new Set([...REQUIRED, ...OPTIONAL]);
+  const values = new Map();
+  for (let index = 0; index < argv.length; index += 2) {
+    const flag = argv[index];
+    const value = argv[index + 1];
+    if (typeof flag !== "string" || !flag.startsWith("--") || flag.includes("=") || !allowed.has(flag)) fail("cli-flag");
+    if (values.has(flag)) fail("cli-duplicate");
+    if (typeof value !== "string" || value.length === 0 || value.startsWith("--")) fail(`cli-missing-${flag.slice(2)}`);
+    values.set(flag, value);
   }
+  if (argv.length % 2 !== 0) fail("cli-missing-value");
+  for (const flag of REQUIRED) if (!values.has(flag)) fail(`cli-missing-${flag.slice(2)}`);
+  const metadataManifestPath = values.get("--metadata-manifest");
+  const metadataReadbackPath = values.get("--metadata-readback");
+  if (metadataManifestPath !== MANIFEST_PATH || metadataReadbackPath !== READBACK_PATH) fail("cli-metadata-path");
+  const rpc = parsePublicRpcUrl(values.get("--rpc") ?? DEFAULT_PUBLIC_MAINNET_RPC);
+  return Object.freeze({
+    mintAddress: canonicalPublicKey(values.get("--mint"), "mint"),
+    creatorAddress: canonicalPublicKey(values.get("--creator"), "creator"),
+    metadataAddress: canonicalPublicKey(values.get("--metadata-account"), "metadata-account"),
+    creationSignature: canonicalSignature(values.get("--creation-transaction")),
+    metadataManifestPath,
+    metadataReadbackPath,
+    rpcUrl: rpc.url,
+    rpcHost: rpc.hostname,
+  });
 }
 
-export function readOptions(argv, { cwd = WORKTREE_ROOT } = {}) {
-  const mintAddress = readPublicKeyOption(argv, "--mint");
-  const creatorAddress = readPublicKeyOption(argv, "--creator");
-  const outputPath = resolveProofOutputPath(readRequiredOption(argv, "--out"), { cwd });
-  const rpcIndex = argv.indexOf("--rpc");
-  const rpcValue = rpcIndex === -1 ? "https://api.mainnet-beta.solana.com" : readRequiredOption(argv, "--rpc");
-  let rpc;
+async function readExactJson(repositoryRoot, relativePath) {
+  const resolved = await resolveRepositoryPath(repositoryRoot, relativePath);
+  const source = await readFile(resolved, "utf8");
+  let value;
   try {
-    rpc = new URL(rpcValue);
+    value = JSON.parse(source);
   } catch {
-    throw new Error("Invalid --rpc URL");
+    fail("cli-json");
   }
-  if (rpc.protocol !== "https:") throw new Error("--rpc must use https");
-  if (rpc.username || rpc.password) throw new Error("--rpc must not include credentials");
-  return { mintAddress, creatorAddress, outputPath, rpcUrl: rpc.toString(), rpcHost: rpc.host };
+  if (`${JSON.stringify(value, null, 2)}\n` !== source) fail("cli-json-canonical");
+  return value;
 }
 
-export async function run({
+export async function runMintVerifier({
   argv = process.argv.slice(2),
-  cwd = WORKTREE_ROOT,
-  ConnectionClass = Connection,
+  createRpcClient = createBoundedPublicRpcClient,
   fetchEvidence = fetchMintEvidence,
   publishProof = publishJsonProof,
+  repositoryRoot = WORKTREE_ROOT,
+  now = () => new Date(),
 } = {}) {
-  const { mintAddress, creatorAddress, outputPath, rpcUrl, rpcHost } = readOptions(argv, { cwd });
-  const connection = new ConnectionClass(rpcUrl, "confirmed");
-  await assertMainnetIdentity(connection);
-  const observed = await fetchEvidence({
-    connection,
-    network: "mainnet-beta",
-    mintAddress,
-    creatorAddress,
+  const options = readOptions(argv);
+  const root = path.resolve(repositoryRoot);
+  const [metadataManifest, metadataReadback] = await Promise.all([
+    readExactJson(root, options.metadataManifestPath),
+    readExactJson(root, options.metadataReadbackPath),
+  ]);
+  assertMetadataManifestV1(metadataManifest);
+  assertMetadataReadbackV1({ manifest: metadataManifest, readback: metadataReadback });
+  const rpcClient = createRpcClient({ rawUrl: options.rpcUrl });
+  if (rpcClient.hostname !== options.rpcHost) fail("rpc-host-mismatch");
+  const evidence = await fetchEvidence({
+    rpcClient,
+    mintAddress: options.mintAddress,
+    creatorAddress: options.creatorAddress,
+    metadataAddress: options.metadataAddress,
+    creationSignature: options.creationSignature,
+    metadataManifest,
+    metadataReadback,
+    repositoryRoot: root,
+    now,
   });
-  if (observed.creator !== creatorAddress) {
-    throw new Error("Observed creator does not match the requested creator");
-  }
-  const proof = {
-    schemaVersion: 1,
-    checkedAt: new Date().toISOString(),
-    rpcHost,
-    creator: creatorAddress,
-    ...evaluateMintEvidence(observed),
-  };
-  if (proof.ok) {
-    proof.publication = await publishProof(outputPath, proof) ?? {
-      published: true,
-      outputPath,
-      warnings: [],
-    };
-  }
-  return proof;
+  const proof = evaluateMintEvidenceV2(evidence);
+  const outputPath = resolveCanonicalMintProofPath({ repositoryRoot: root });
+  await resolveRepositoryPath(root, "proof/mainnet-mint.json");
+  const publication = await publishProof(outputPath, proof);
+  return Object.freeze({ proof, publication });
 }
+
+export const run = runMintVerifier;
 
 function sanitizeCliError(error) {
   const message = error instanceof Error ? error.message : "";
-  if (
-    message.startsWith("Missing --")
-    || message.startsWith("Invalid --")
-    || message.startsWith("--rpc ")
-    || message.startsWith("--out ")
-  ) {
-    return message;
-  }
-  return "Verification failed before publishing a proof.";
+  return message.startsWith("cli-") || message.startsWith("rpc-url-")
+    ? message
+    : "Verification failed before publishing a proof.";
 }
 
-export async function main({ runVerifier = run, stdout = process.stdout, stderr = process.stderr } = {}) {
+export async function main({ runVerifier = runMintVerifier, stdout = process.stdout, stderr = process.stderr } = {}) {
   try {
-    const proof = await runVerifier();
-    stdout.write(`${JSON.stringify(proof, null, 2)}\n`);
-    for (const warning of proof.publication?.warnings ?? []) {
+    const result = await runVerifier();
+    stdout.write(`${JSON.stringify(result.proof, null, 2)}\n`);
+    for (const warning of result.publication?.warnings ?? []) {
       if (warning?.code === "TEMP_UNLINK_FAILED") {
-        stderr.write(`WARNING: ${warning.message}\nOwned temporary file: ${warning.temporaryPath}\n`);
+        stderr.write("WARNING: Proof was committed, but owned temporary cleanup failed. Do not retry publication.\n");
       }
     }
-    return proof.ok && (proof.publication?.published ?? true) ? 0 : 1;
+    return result.proof.ok && (result.publication?.published ?? true) ? 0 : 1;
   } catch (error) {
     stderr.write(`${sanitizeCliError(error)}\n`);
     return 1;
