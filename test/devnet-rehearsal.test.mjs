@@ -20,6 +20,7 @@ import {
   AuthorityType,
   MintLayout,
   TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
 } from "@solana/spl-token";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
@@ -28,6 +29,7 @@ import {
   confirmSignature,
   evaluateDevnetRehearsalEvidence,
   fetchDevnetRehearsalEvidence,
+  main,
   parseRehearsalOptions,
   runDevnetRehearsal,
   waitForExternalFunding,
@@ -119,29 +121,38 @@ function successfulRunnerOptions({ outputRoot, fundingMode = "external" }) {
   };
 }
 
-function mintAccountInfo() {
+function mintAccountInfo({ initialized = true, programOwner = TOKEN_PROGRAM_ID } = {}) {
   const data = Buffer.alloc(MintLayout.span);
   MintLayout.encode({
     mintAuthorityOption: 0,
     mintAuthority: PublicKey.default,
     supply: 1_000_000_000_000n,
     decimals: 6,
-    isInitialized: true,
+    isInitialized: initialized,
     freezeAuthorityOption: 0,
     freezeAuthority: PublicKey.default,
   }, data);
-  return { data, owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1, rentEpoch: 0 };
+  return { data, owner: programOwner, executable: false, lamports: 1, rentEpoch: 0 };
 }
 
-function tokenAccountEntry({ address, owner, amount }) {
+function tokenAccountEntry({
+  address,
+  owner,
+  amount,
+  state = 1,
+  programOwner = TOKEN_PROGRAM_ID,
+  decodedOwner = owner,
+  tokenMint = mint,
+  dataOverride,
+}) {
   const data = Buffer.alloc(AccountLayout.span);
   AccountLayout.encode({
-    mint,
-    owner,
+    mint: tokenMint,
+    owner: decodedOwner,
     amount,
     delegateOption: 0,
     delegate: PublicKey.default,
-    state: 1,
+    state,
     isNativeOption: 0,
     isNative: 0n,
     delegatedAmount: 0n,
@@ -150,7 +161,13 @@ function tokenAccountEntry({ address, owner, amount }) {
   }, data);
   return {
     pubkey: address,
-    account: { data, owner: TOKEN_PROGRAM_ID, executable: false, lamports: 1, rentEpoch: 0 },
+    account: {
+      data: dataOverride ?? data,
+      owner: programOwner,
+      executable: false,
+      lamports: 1,
+      rentEpoch: 0,
+    },
   };
 }
 
@@ -174,6 +191,49 @@ test("parses only the two supported funding modes", () => {
   }
 });
 
+test("rejects every one-over production ceiling before stale deletion or dependency use", async () => {
+  const ceilings = [
+    ["identityMaxAttempts", 4],
+    ["identityDelayMs", 501],
+    ["identityMaxWaitMs", 15_001],
+    ["faucetMaxAttempts", 4],
+    ["faucetDelayMs", 501],
+    ["faucetMaxWaitMs", 30_001],
+    ["fundingMaxAttempts", 121],
+    ["fundingDelayMs", 5_001],
+    ["fundingMaxWaitMs", 600_001],
+    ["confirmationMaxAttempts", 121],
+    ["confirmationDelayMs", 1_001],
+    ["confirmationMaxWaitMs", 120_001],
+  ];
+  for (const [name, value] of ceilings) {
+    const outputRoot = await mkdtemp(path.join(os.tmpdir(), `hakky-cap-${name}-`));
+    const fixture = successfulRunnerOptions({ outputRoot, fundingMode: "external" });
+    let unlinkCalls = 0;
+    let connectionCalls = 0;
+    let rpcCalls = 0;
+    fixture.options.connection = undefined;
+    fixture.options.createConnection = async () => {
+      connectionCalls += 1;
+      return {
+        async getGenesisHash() { rpcCalls += 1; return DEVNET_GENESIS_HASH; },
+        async getBalance() { rpcCalls += 1; return 2_000_000_000; },
+      };
+    };
+    fixture.options.fileSystem = injectedFileSystem({
+      async unlink(target) {
+        unlinkCalls += 1;
+        return unlink(target);
+      },
+    });
+    fixture.options[name] = value;
+    await assert.rejects(runDevnetRehearsal(fixture.options), /OPTION_ERROR/);
+    assert.equal(unlinkCalls, 0, name);
+    assert.equal(connectionCalls, 0, name);
+    assert.equal(rpcCalls, 0, name);
+  }
+});
+
 test("deadline validates its contract, invokes once, and sanitizes dependency text", async () => {
   let calls = 0;
   assert.equal(await withDeadline(async () => {
@@ -186,8 +246,69 @@ test("deadline validates its contract, invokes once, and sanitizes dependency te
     (error) => error.message === "DEADLINE_OPERATION_FAILED" && !error.message.includes("private"),
   );
   await assert.rejects(withDeadline(() => new Promise(() => {}), 10), /DEADLINE_TIMEOUT/);
+  let timerActive = false;
+  let observedSignal;
+  await assert.rejects(withDeadline((signal) => new Promise((resolve, reject) => {
+    observedSignal = signal;
+    timerActive = true;
+    const timer = setTimeout(resolve, 10_000);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      timerActive = false;
+      reject(new Error("aborted dependency text"));
+    }, { once: true });
+  }), 10), /DEADLINE_TIMEOUT/);
+  assert.equal(observedSignal.aborted, true);
+  assert.equal(timerActive, false);
   await assert.rejects(withDeadline(null, 10), /OPTION_ERROR/);
   await assert.rejects(withDeadline(() => {}, 0), /OPTION_ERROR/);
+});
+
+test("programmatic and CLI errors are fresh fixed stage errors without secret fields", async () => {
+  const keypair = Keypair.generate();
+  const encodings = [
+    Buffer.from(keypair.secretKey).toString("hex"),
+    Buffer.from(keypair.secretKey).toString("base64"),
+    JSON.stringify(Array.from(keypair.secretKey)),
+  ];
+  const injected = new Error("IDENTITY_ERROR", { cause: new Error(encodings.join("|")) });
+  injected.hex = encodings[0];
+  injected.base64 = encodings[1];
+  injected.decimal = encodings[2];
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-fresh-error-"));
+  const fixture = successfulRunnerOptions({ outputRoot, fundingMode: "external" });
+  fixture.options.connection.getGenesisHash = async () => { throw injected; };
+  fixture.options.identityMaxAttempts = 1;
+  let caught;
+  try {
+    await runDevnetRehearsal(fixture.options);
+  } catch (error) {
+    caught = error;
+  }
+  assert.ok(caught instanceof Error);
+  assert.notEqual(caught, injected);
+  assert.equal(caught.message, "IDENTITY_ERROR");
+  assert.equal(caught.cause, undefined);
+  assert.deepEqual(Object.keys(caught), []);
+  for (const encoding of encodings) assert.equal(JSON.stringify(caught).includes(encoding), false);
+
+  const cliInjected = new Error("PUBLICATION_ERROR", { cause: new Error(encodings.join("|")) });
+  cliInjected.payload = encodings;
+  let stdout = "";
+  let stderr = "";
+  const exitCode = await main({
+    argv: [],
+    runRehearsal: async () => { throw cliInjected; },
+    stdout: { write(value) { stdout += value; } },
+    stderr: { write(value) { stderr += value; } },
+  });
+  assert.equal(exitCode, 1);
+  assert.equal(stdout, "");
+  assert.equal(stderr, "Devnet rehearsal failed: PUBLICATION_ERROR\n");
+  for (const encoding of encodings) {
+    assert.equal(stdout.includes(encoding), false);
+    assert.equal(stderr.includes(encoding), false);
+  }
 });
 
 test("external balance polling is finalized, bounded, and recovers from transient errors", async () => {
@@ -236,6 +357,67 @@ test("external balance polling is finalized, bounded, and recovers from transien
     delayMs: 0,
     maxWaitMs: 600_001,
   }), /OPTION_ERROR/);
+});
+
+test("funding deadline covers hanging RPCs, all-error exhaustion, and latency-based schedules", async () => {
+  const payer = Keypair.generate();
+  const started = performance.now();
+  await assert.rejects(waitForExternalFunding({
+    connection: { async getBalance() { return new Promise(() => {}); } },
+    address: payer.publicKey,
+    minimumLamports: 2n,
+    maxAttempts: 1,
+    delayMs: 0,
+    maxWaitMs: 20,
+  }), /FUNDING_ERROR/);
+  assert.ok(performance.now() - started < 500);
+
+  let allErrorAttempts = 0;
+  await assert.rejects(waitForExternalFunding({
+    connection: { async getBalance() { allErrorAttempts += 1; throw new Error("transient"); } },
+    address: payer.publicKey,
+    minimumLamports: 2n,
+    maxAttempts: 3,
+    delayMs: 0,
+    maxWaitMs: 1_000,
+  }), /FUNDING_ERROR/);
+  assert.equal(allErrorAttempts, 3);
+
+  let now = 0;
+  await assert.rejects(waitForExternalFunding({
+    connection: { async getBalance() { now = 600_000; return 2; } },
+    address: payer.publicKey,
+    minimumLamports: 2n,
+    maxAttempts: 1,
+    delayMs: 0,
+    maxWaitMs: 600_000,
+    monotonicNow: () => now,
+    sleepImpl: async () => {},
+    withDeadline: async (factory) => factory(new AbortController().signal),
+  }), /FUNDING_ERROR/);
+
+  now = 0;
+  const sleeps = [];
+  let latencyAttempts = 0;
+  const funded = await waitForExternalFunding({
+    connection: {
+      async getBalance() {
+        latencyAttempts += 1;
+        now += 60;
+        return latencyAttempts === 3 ? 2 : 0;
+      },
+    },
+    address: payer.publicKey,
+    minimumLamports: 2n,
+    maxAttempts: 3,
+    delayMs: 100,
+    maxWaitMs: 1_000,
+    monotonicNow: () => now,
+    sleepImpl: async (duration) => { sleeps.push(duration); now += duration; },
+    withDeadline: async (factory) => factory(new AbortController().signal),
+  });
+  assert.equal(funded, 2n);
+  assert.deepEqual(sleeps, [40, 40]);
 });
 
 test("independent evidence evaluator and v2 proof validator reject shape and policy drift", () => {
@@ -288,17 +470,44 @@ test("independent evidence evaluator and v2 proof validator reject shape and pol
   const mutations = [
     (value) => { value.unknown = true; },
     (value) => { delete value.checkedAt; },
+    (value) => { value.schemaVersion = "devnet-rehearsal-v1"; },
+    (value) => { value.cluster = "mainnet-beta"; },
+    (value) => { value.checkedAt = "2026-07-23T00:00:00Z"; },
+    (value) => { value.identities = null; },
+    (value) => { value.supply = null; },
+    (value) => { value.authorities = null; },
+    (value) => { value.balances = null; },
+    (value) => { value.observation = null; },
+    (value) => { value.checks = null; },
+    (value) => { value.ok = false; },
     (value) => { value.identities.unknown = true; },
+    (value) => { value.identities.mint = "bad"; },
+    (value) => { value.identities.payer = "bad"; },
+    (value) => { value.identities.vaultOwner = "bad"; },
+    (value) => { value.identities.tokenProgram = "11111111111111111111111111111111"; },
     (value) => { value.supply.unknown = true; },
+    (value) => { value.supply.baseUnits = "999"; },
+    (value) => { value.supply.decimals = 9; },
     (value) => { value.authorities.unknown = true; },
+    (value) => { value.authorities.mintAuthority = value.identities.payer; },
+    (value) => { value.authorities.freezeAuthority = value.identities.payer; },
     (value) => { value.balances.unknown = true; },
+    (value) => { value.balances.payerBaseUnits = "1"; },
+    (value) => { value.balances.vaultBaseUnits = "999"; },
     (value) => { value.observation.unknown = true; },
+    (value) => { value.observation.genesisHash = "wrong"; },
+    (value) => { value.observation.commitment = "confirmed"; },
+    (value) => { value.observation.slot = -1; },
+    (value) => { value.observation.checkedAt = "2026-07-23T00:00:01.000Z"; },
     (value) => { value.checks[0].unknown = true; },
     (value) => { [value.checks[0], value.checks[1]] = [value.checks[1], value.checks[0]]; },
-    (value) => { value.checkedAt = "2026-07-23T00:00:00Z"; },
-    (value) => { value.observation.checkedAt = "2026-07-23T00:00:01.000Z"; },
-    (value) => { value.checks[0].ok = false; },
   ];
+  for (let index = 0; index < proof.checks.length; index += 1) {
+    mutations.push(
+      (value) => { value.checks[index].id = `wrong-${index}`; },
+      (value) => { value.checks[index].ok = false; },
+    );
+  }
   for (const mutate of mutations) {
     const candidate = clone(proof);
     mutate(candidate);
@@ -346,6 +555,111 @@ test("fetches finalized raw classic-token evidence for exhaustive payer and vaul
     ["owner", payer.publicKey.toBase58(), TOKEN_PROGRAM_ID.toBase58(), { commitment: "finalized", minContextSlot: 40 }],
     ["owner", vaultOwner.publicKey.toBase58(), TOKEN_PROGRAM_ID.toBase58(), { commitment: "finalized", minContextSlot: 40 }],
   ]);
+});
+
+test("fetch evidence rejects stale or missing context and every invalid raw account class", async (t) => {
+  const payer = Keypair.generate();
+  const vaultOwner = Keypair.generate();
+  const payerEntry = () => tokenAccountEntry({
+    address: creatorAta,
+    owner: payer.publicKey,
+    amount: 0n,
+  });
+  const vaultEntry = () => tokenAccountEntry({
+    address: vaultAta,
+    owner: vaultOwner.publicKey,
+    amount: 1_000_000_000_000n,
+  });
+  const scenarios = [
+    ["missing-context", {
+      payerResponse: { value: [payerEntry()] },
+    }],
+    ["stale-context", {
+      payerResponse: { context: { slot: 39 }, value: [payerEntry()] },
+    }],
+    ["uninitialized-mint", {
+      mintResponse: { context: { slot: 41 }, value: mintAccountInfo({ initialized: false }) },
+    }],
+    ["invalid-account-data", {
+      payerResponse: {
+        context: { slot: 42 },
+        value: [tokenAccountEntry({
+          address: creatorAta,
+          owner: payer.publicKey,
+          amount: 0n,
+          dataOverride: Buffer.alloc(1),
+        })],
+      },
+    }],
+    ["uninitialized-account", {
+      payerResponse: {
+        context: { slot: 42 },
+        value: [tokenAccountEntry({ address: creatorAta, owner: payer.publicKey, amount: 0n, state: 0 })],
+      },
+    }],
+    ["frozen-account", {
+      payerResponse: {
+        context: { slot: 42 },
+        value: [tokenAccountEntry({ address: creatorAta, owner: payer.publicKey, amount: 0n, state: 2 })],
+      },
+    }],
+    ["cross-set-duplicate", {
+      vaultResponse: {
+        context: { slot: 43 },
+        value: [tokenAccountEntry({
+          address: creatorAta,
+          owner: vaultOwner.publicKey,
+          amount: 1_000_000_000_000n,
+        })],
+      },
+    }],
+    ["token-2022-owner", {
+      payerResponse: {
+        context: { slot: 42 },
+        value: [tokenAccountEntry({
+          address: creatorAta,
+          owner: payer.publicKey,
+          amount: 0n,
+          programOwner: TOKEN_2022_PROGRAM_ID,
+        })],
+      },
+    }],
+    ["wrong-decoded-owner", {
+      payerResponse: {
+        context: { slot: 42 },
+        value: [tokenAccountEntry({
+          address: creatorAta,
+          owner: payer.publicKey,
+          decodedOwner: vaultOwner.publicKey,
+          amount: 0n,
+        })],
+      },
+    }],
+  ];
+
+  for (const [name, overrides] of scenarios) {
+    await t.test(name, async () => {
+      const mintResponse = overrides.mintResponse
+        ?? { context: { slot: 41 }, value: mintAccountInfo() };
+      const payerResponse = overrides.payerResponse
+        ?? { context: { slot: 42 }, value: [payerEntry()] };
+      const vaultResponse = overrides.vaultResponse
+        ?? { context: { slot: 43 }, value: [vaultEntry()] };
+      await assert.rejects(fetchDevnetRehearsalEvidence({
+        connection: {
+          async getSlot() { return 40; },
+          async getAccountInfoAndContext() { return mintResponse; },
+          async getTokenAccountsByOwner(owner) {
+            return owner.equals(payer.publicKey) ? payerResponse : vaultResponse;
+          },
+        },
+        genesisHash: DEVNET_GENESIS_HASH,
+        mintAddress: mint.toBase58(),
+        payerAddress: payer.publicKey.toBase58(),
+        vaultOwnerAddress: vaultOwner.publicKey.toBase58(),
+      }), /EVIDENCE_ERROR/);
+    });
+  }
 });
 
 test("external funding announces only the public address and never requests an airdrop", async () => {
@@ -869,6 +1183,135 @@ test("invalid options and stale cleanup failures stop before connection, keys, o
   assert.equal(disclosed, 0);
 });
 
+test("publication revalidates parent confinement before open and hard-link commit", async (t) => {
+  const symbolicDirectoryStats = {
+    isDirectory: () => true,
+    isFile: () => false,
+    isSymbolicLink: () => true,
+    isReparsePoint: () => false,
+  };
+  for (const scenario of [
+    "posix-symlink-before-open",
+    "junction-before-open",
+    "swap-before-link",
+    "swap-after-link",
+    "swap-after-cleanup",
+  ]) {
+    await t.test(scenario, async () => {
+      const outputRoot = await mkdtemp(path.join(os.tmpdir(), `hakky-confinement-${scenario}-`));
+      const artifactDirectory = path.join(outputRoot, "artifacts", "devnet-rehearsal");
+      const fixture = successfulRunnerOptions({ outputRoot });
+      let directoryLstatCalls = 0;
+      let directoryRealpathCalls = 0;
+      let openCalls = 0;
+      let linkCalls = 0;
+      let unsafeTempUnlinks = 0;
+      fixture.options.fileSystem = injectedFileSystem({
+        async lstat(target) {
+          if (target === artifactDirectory) {
+            directoryLstatCalls += 1;
+            if (scenario === "posix-symlink-before-open" && directoryLstatCalls === 2) {
+              return symbolicDirectoryStats;
+            }
+            if (scenario === "swap-before-link" && directoryLstatCalls >= 3) {
+              return symbolicDirectoryStats;
+            }
+            if (scenario === "swap-after-link" && directoryLstatCalls >= 4) {
+              return symbolicDirectoryStats;
+            }
+            if (scenario === "swap-after-cleanup" && directoryLstatCalls >= 5) {
+              return symbolicDirectoryStats;
+            }
+          }
+          return lstat(target);
+        },
+        async realpath(target) {
+          if (target === artifactDirectory) {
+            directoryRealpathCalls += 1;
+            if (scenario === "junction-before-open" && directoryRealpathCalls === 2) {
+              return `${artifactDirectory}-junction-target`;
+            }
+          }
+          return realpath(target);
+        },
+        async open(...args) {
+          openCalls += 1;
+          return open(...args);
+        },
+        async link(...args) {
+          linkCalls += 1;
+          return link(...args);
+        },
+        async unlink(target) {
+          if (path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+            unsafeTempUnlinks += 1;
+          }
+          return unlink(target);
+        },
+      });
+      await assert.rejects(runDevnetRehearsal(fixture.options), /PUBLICATION_ERROR/);
+      if (scenario === "swap-before-link") {
+        assert.equal(openCalls, 1);
+        assert.equal(linkCalls, 0);
+        assert.equal(unsafeTempUnlinks, 0);
+      } else if (scenario === "swap-after-link") {
+        assert.equal(openCalls, 1);
+        assert.equal(linkCalls, 1);
+        assert.equal(unsafeTempUnlinks, 0);
+      } else if (scenario === "swap-after-cleanup") {
+        assert.equal(openCalls, 1);
+        assert.equal(linkCalls, 1);
+        assert.equal(unsafeTempUnlinks, 1);
+      } else {
+        assert.equal(openCalls, 0);
+        assert.equal(linkCalls, 0);
+      }
+    });
+  }
+});
+
+test("open, write, fsync, and generic pre-link faults never publish", async (t) => {
+  for (const stage of ["open", "write", "fsync", "link"]) {
+    await t.test(stage, async () => {
+      const outputRoot = await mkdtemp(path.join(os.tmpdir(), `hakky-publication-${stage}-`));
+      const fixture = successfulRunnerOptions({ outputRoot });
+      const proofPath = path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json");
+      fixture.options.fileSystem = injectedFileSystem({
+        async open(...args) {
+          if (stage === "open") throw new Error("open dependency secret");
+          const handle = await open(...args);
+          return {
+            async writeFile(...writeArgs) {
+              if (stage === "write") throw new Error("write dependency secret");
+              return handle.writeFile(...writeArgs);
+            },
+            async sync() {
+              if (stage === "fsync") throw new Error("fsync dependency secret");
+              return handle.sync();
+            },
+            async close() {
+              return handle.close();
+            },
+          };
+        },
+        async link(...args) {
+          if (stage === "link") {
+            const error = new Error("link dependency secret");
+            error.code = "EIO";
+            throw error;
+          }
+          return link(...args);
+        },
+      });
+      await assert.rejects(
+        runDevnetRehearsal(fixture.options),
+        (error) => error.message === "PUBLICATION_ERROR" && !error.message.includes("secret"),
+      );
+      await assert.rejects(access(proofPath), { code: "ENOENT" });
+    });
+  }
+});
+
 test("exclusive publication preserves a concurrent proof and fails closed", async () => {
   const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-publication-conflict-"));
   const fixture = successfulRunnerOptions({ outputRoot });
@@ -909,6 +1352,43 @@ test("post-commit temporary cleanup warning does not invalidate or retry publica
   assert.equal(proof.ok, true);
   assert.equal(linkCalls, 1);
   assert.deepEqual(warnings, ["TEMP_UNLINK_FAILED"]);
+  const published = await readFile(
+    path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json"),
+    "utf8",
+  );
+  assert.equal(published, `${JSON.stringify(proof, null, 2)}\n`);
+});
+
+test("throwing publication warning callback cannot invalidate a committed proof", async () => {
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-warning-throws-"));
+  const fixture = successfulRunnerOptions({ outputRoot });
+  let callbackCalls = 0;
+  fixture.options.onPublicationWarning = async () => {
+    callbackCalls += 1;
+    throw new Error("warning callback secret text");
+  };
+  fixture.options.fileSystem = injectedFileSystem({
+    async unlink(target) {
+      if (path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+        const error = new Error("cleanup secret text");
+        error.code = "EACCES";
+        throw error;
+      }
+      return unlink(target);
+    },
+  });
+  const originalWrite = process.stderr.write;
+  let fixedStderr = "";
+  process.stderr.write = (value) => { fixedStderr += value; return true; };
+  let proof;
+  try {
+    proof = await runDevnetRehearsal(fixture.options);
+  } finally {
+    process.stderr.write = originalWrite;
+  }
+  assert.equal(proof.ok, true);
+  assert.equal(callbackCalls, 1);
+  assert.equal(fixedStderr, "Devnet rehearsal warning: TEMP_UNLINK_FAILED\n");
   const published = await readFile(
     path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json"),
     "utf8",

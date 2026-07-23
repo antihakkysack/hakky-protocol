@@ -74,8 +74,10 @@ function assertPositiveSafeInteger(value, maximum = Number.MAX_SAFE_INTEGER) {
   }
 }
 
-function assertNonnegativeSafeInteger(value) {
-  if (!Number.isSafeInteger(value) || value < 0) throw stageError("OPTION_ERROR");
+function assertNonnegativeSafeInteger(value, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(value) || value < 0 || value > maximum) {
+    throw stageError("OPTION_ERROR");
+  }
 }
 
 function assertExactKeys(value, keys) {
@@ -116,7 +118,9 @@ function publicStage(error, fallback) {
     "DEADLINE_TIMEOUT",
     "DEADLINE_OPERATION_FAILED",
   ]);
-  return error instanceof Error && safe.has(error.message) ? error : stageError(fallback);
+  return error instanceof Error && safe.has(error.message)
+    ? stageError(error.message)
+    : stageError(fallback);
 }
 
 export function parseRehearsalOptions(argv) {
@@ -133,19 +137,42 @@ export function parseRehearsalOptions(argv) {
 export async function withDeadline(operationFactory, remainingMs) {
   assertFunction(operationFactory);
   assertPositiveSafeInteger(remainingMs);
+  const controller = new AbortController();
   let timer;
   try {
     return await Promise.race([
-      Promise.resolve().then(operationFactory).catch(() => {
+      Promise.resolve().then(() => operationFactory(controller.signal)).catch(() => {
         throw stageError("DEADLINE_OPERATION_FAILED");
       }),
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(stageError("DEADLINE_TIMEOUT")), remainingMs);
+        timer = setTimeout(() => {
+          reject(stageError("DEADLINE_TIMEOUT"));
+          controller.abort();
+        }, remainingMs);
       }),
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }
+}
+
+function abortableSleep(duration, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(stageError("DEADLINE_TIMEOUT"));
+      return;
+    }
+    let timer;
+    const onAbort = () => {
+      if (timer !== undefined) clearTimeout(timer);
+      reject(stageError("DEADLINE_TIMEOUT"));
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, duration);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function waitUntilScheduled({ scheduledAt, deadline, monotonicNow, sleepImpl, deadlineImpl }) {
@@ -155,7 +182,7 @@ async function waitUntilScheduled({ scheduledAt, deadline, monotonicNow, sleepIm
   if (delay === 0) return;
   const remaining = Math.floor(deadline - now);
   if (remaining <= 0) throw stageError("DEADLINE_TIMEOUT");
-  await deadlineImpl(() => sleepImpl(delay), remaining);
+  await deadlineImpl((signal) => sleepImpl(delay, signal), remaining);
 }
 
 export async function waitForExternalFunding({
@@ -166,7 +193,7 @@ export async function waitForExternalFunding({
   delayMs = 5_000,
   maxWaitMs = 600_000,
   monotonicNow = () => performance.now(),
-  sleepImpl = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+  sleepImpl = abortableSleep,
   withDeadline: deadlineImpl = withDeadline,
 }) {
   if (!connection || typeof connection !== "object" || !isFunction(connection.getBalance)) {
@@ -176,8 +203,8 @@ export async function waitForExternalFunding({
   if (typeof minimumLamports !== "bigint" || minimumLamports <= 0n) {
     throw stageError("OPTION_ERROR");
   }
-  assertPositiveSafeInteger(maxAttempts);
-  assertNonnegativeSafeInteger(delayMs);
+  assertPositiveSafeInteger(maxAttempts, 120);
+  assertNonnegativeSafeInteger(delayMs, 5_000);
   assertPositiveSafeInteger(maxWaitMs, 600_000);
   assertFunction(monotonicNow);
   assertFunction(sleepImpl);
@@ -202,6 +229,8 @@ export async function waitForExternalFunding({
         () => connection.getBalance(address, "finalized"),
         remaining,
       );
+      const observedAt = monotonicNow();
+      if (!Number.isFinite(observedAt) || observedAt >= deadline) continue;
       if (Number.isSafeInteger(balance) && balance >= 0 && BigInt(balance) >= minimumLamports) {
         return BigInt(balance);
       }
@@ -238,9 +267,11 @@ async function runBoundedStage({
       const remaining = Math.floor(deadline - monotonicNow());
       if (remaining <= 0) throw stageError("DEADLINE_TIMEOUT");
       const result = await deadlineImpl(operation, remaining);
+      const observedAt = monotonicNow();
+      if (!Number.isFinite(observedAt) || observedAt >= deadline) continue;
       if (!accept || accept(result)) return result;
     } catch (error) {
-      if (error instanceof Error && error.message === failureCode) throw error;
+      if (error instanceof Error && error.message === failureCode) throw stageError(failureCode);
       // Every dependency failure consumes exactly one attempt and is sanitized below.
     }
   }
@@ -255,16 +286,16 @@ export async function confirmSignature(
     delayMs = 1_000,
     maxWaitMs = 120_000,
     monotonicNow = () => performance.now(),
-    sleepImpl = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+    sleepImpl = abortableSleep,
     withDeadline: deadlineImpl = withDeadline,
   } = {},
 ) {
   if (!connection || !isFunction(connection.getSignatureStatuses) || typeof signature !== "string" || signature.length === 0) {
     throw stageError("OPTION_ERROR");
   }
-  assertPositiveSafeInteger(maxAttempts);
-  assertNonnegativeSafeInteger(delayMs);
-  assertPositiveSafeInteger(maxWaitMs);
+  assertPositiveSafeInteger(maxAttempts, 120);
+  assertNonnegativeSafeInteger(delayMs, 1_000);
+  assertPositiveSafeInteger(maxWaitMs, 120_000);
   assertFunction(monotonicNow);
   assertFunction(sleepImpl);
   assertFunction(deadlineImpl);
@@ -484,15 +515,60 @@ export function assertDevnetRehearsalProofV2(proof) {
   return proof;
 }
 
+function sameFilesystemPath(actual, expected) {
+  const normalize = (value) => {
+    const normalized = path.normalize(path.resolve(value));
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  return normalize(actual) === normalize(expected);
+}
+
+function isUnsafeFilesystemObject(stats) {
+  return !stats
+    || stats.isSymbolicLink()
+    || (isFunction(stats.isReparsePoint) && stats.isReparsePoint());
+}
+
+async function assertExactDirectory(candidate, fileSystem, failureCode = "PUBLICATION_ERROR") {
+  const stats = await fileSystem.lstat(candidate);
+  if (isUnsafeFilesystemObject(stats) || !stats.isDirectory()) throw stageError(failureCode);
+  const resolved = await fileSystem.realpath(candidate);
+  if (!sameFilesystemPath(resolved, candidate)) throw stageError(failureCode);
+}
+
+async function assertExactFile(candidate, fileSystem) {
+  const stats = await fileSystem.lstat(candidate);
+  if (isUnsafeFilesystemObject(stats) || !stats.isFile()) throw stageError("PUBLICATION_ERROR");
+  const resolved = await fileSystem.realpath(candidate);
+  if (!sameFilesystemPath(resolved, candidate)) throw stageError("PUBLICATION_ERROR");
+}
+
+async function assertLeafAbsent(candidate, fileSystem) {
+  try {
+    await fileSystem.lstat(candidate);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw stageError("PUBLICATION_ERROR");
+  }
+  throw stageError("PUBLICATION_CONFLICT");
+}
+
+async function assertPublicationParents({ outputRoot, artifactDirectory, fileSystem }) {
+  const root = path.resolve(outputRoot);
+  const artifactsRoot = path.join(root, "artifacts");
+  if (path.dirname(artifactDirectory) !== artifactsRoot) throw stageError("PUBLICATION_ERROR");
+  await assertExactDirectory(root, fileSystem);
+  await assertExactDirectory(artifactsRoot, fileSystem);
+  await assertExactDirectory(artifactDirectory, fileSystem);
+}
+
 async function validateArtifactRoot(outputRoot, fileSystem) {
   if (typeof outputRoot !== "string" || outputRoot.length === 0 || !path.isAbsolute(outputRoot)) {
     throw stageError("OPTION_ERROR");
   }
   try {
     const root = path.resolve(outputRoot);
-    const rootStats = await fileSystem.lstat(root);
-    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) throw stageError("CLEANUP_ERROR");
-    if (await fileSystem.realpath(root) !== root) throw stageError("CLEANUP_ERROR");
+    await assertExactDirectory(root, fileSystem, "CLEANUP_ERROR");
     const artifactsRoot = path.join(root, "artifacts");
     try {
       await fileSystem.mkdir(artifactsRoot);
@@ -500,19 +576,13 @@ async function validateArtifactRoot(outputRoot, fileSystem) {
       if (error?.code !== "EEXIST") throw error;
     }
     const artifactDirectory = path.join(artifactsRoot, "devnet-rehearsal");
-    const artifactsStats = await fileSystem.lstat(artifactsRoot);
-    if (!artifactsStats.isDirectory() || artifactsStats.isSymbolicLink()) {
-      throw stageError("CLEANUP_ERROR");
-    }
+    await assertExactDirectory(artifactsRoot, fileSystem, "CLEANUP_ERROR");
     try {
       await fileSystem.mkdir(artifactDirectory);
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
     }
-    for (const candidate of [artifactsRoot, artifactDirectory]) {
-      const stats = await fileSystem.lstat(candidate);
-      if (!stats.isDirectory() || stats.isSymbolicLink()) throw stageError("CLEANUP_ERROR");
-    }
+    await assertExactDirectory(artifactDirectory, fileSystem, "CLEANUP_ERROR");
     return { artifactDirectory, proofPath: path.join(artifactDirectory, "proof.json") };
   } catch (error) {
     throw publicStage(error, "CLEANUP_ERROR");
@@ -535,7 +605,14 @@ async function cleanupOwnedTemp(tempPath, fileSystem) {
   }
 }
 
-async function publishProof({ proof, artifactDirectory, proofPath, fileSystem, onPublicationWarning }) {
+async function publishProof({
+  proof,
+  outputRoot,
+  artifactDirectory,
+  proofPath,
+  fileSystem,
+  onPublicationWarning,
+}) {
   const tempSuffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const tempPath = path.join(artifactDirectory, `.proof-${tempSuffix}.tmp`);
   const bytes = `${JSON.stringify(proof, null, 2)}\n`;
@@ -543,33 +620,57 @@ async function publishProof({ proof, artifactDirectory, proofPath, fileSystem, o
   let committed = false;
   let linking = false;
   try {
+    await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
+    await assertLeafAbsent(proofPath, fileSystem);
     handle = await fileSystem.open(tempPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600);
     await handle.writeFile(bytes, "utf8");
     await handle.sync();
     await handle.close();
     handle = undefined;
+    await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
+    await assertExactFile(tempPath, fileSystem);
+    await assertLeafAbsent(proofPath, fileSystem);
     linking = true;
     await fileSystem.link(tempPath, proofPath);
     committed = true;
+    await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
+    await assertExactFile(tempPath, fileSystem);
+    await assertExactFile(proofPath, fileSystem);
   } catch (error) {
     try {
       if (handle) await handle.close();
-      await cleanupOwnedTemp(tempPath, fileSystem);
+      if (!committed) {
+        await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
+        await assertExactFile(tempPath, fileSystem);
+        await cleanupOwnedTemp(tempPath, fileSystem);
+      }
     } catch {
       // The public failure remains fixed and never includes dependency text.
     }
-    if (linking && error?.code === "EEXIST") throw stageError("PUBLICATION_CONFLICT");
+    if ((linking && error?.code === "EEXIST") || error?.message === "PUBLICATION_CONFLICT") {
+      throw stageError("PUBLICATION_CONFLICT");
+    }
     throw stageError("PUBLICATION_ERROR");
   }
+  let tempUnlinkFailed = false;
   try {
     await cleanupOwnedTemp(tempPath, fileSystem);
   } catch {
-    if (committed) {
-      try {
-        await onPublicationWarning("TEMP_UNLINK_FAILED");
-      } catch {
-        process.stderr.write("Devnet rehearsal warning: TEMP_UNLINK_FAILED\n");
-      }
+    tempUnlinkFailed = true;
+  }
+  try {
+    await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
+    await assertExactFile(proofPath, fileSystem);
+    if (tempUnlinkFailed) await assertExactFile(tempPath, fileSystem);
+    else await assertLeafAbsent(tempPath, fileSystem);
+  } catch {
+    throw stageError("PUBLICATION_ERROR");
+  }
+  if (committed && tempUnlinkFailed) {
+    try {
+      await onPublicationWarning("TEMP_UNLINK_FAILED");
+    } catch {
+      process.stderr.write("Devnet rehearsal warning: TEMP_UNLINK_FAILED\n");
     }
   }
 }
@@ -626,16 +727,18 @@ function validateRunnerOptions(options) {
   }
   if (!fileSystem || typeof fileSystem !== "object") throw stageError("OPTION_ERROR");
   for (const method of ["link", "lstat", "mkdir", "open", "realpath", "unlink"]) assertFunction(fileSystem[method]);
-  for (const value of [identityMaxAttempts, faucetMaxAttempts, fundingMaxAttempts, confirmationMaxAttempts]) {
-    assertPositiveSafeInteger(value);
-  }
-  for (const value of [identityDelayMs, faucetDelayMs, fundingDelayMs, confirmationDelayMs]) {
-    assertNonnegativeSafeInteger(value);
-  }
-  assertPositiveSafeInteger(identityMaxWaitMs);
-  assertPositiveSafeInteger(faucetMaxWaitMs);
+  assertPositiveSafeInteger(identityMaxAttempts, 3);
+  assertNonnegativeSafeInteger(identityDelayMs, 500);
+  assertPositiveSafeInteger(identityMaxWaitMs, 15_000);
+  assertPositiveSafeInteger(faucetMaxAttempts, 3);
+  assertNonnegativeSafeInteger(faucetDelayMs, 500);
+  assertPositiveSafeInteger(faucetMaxWaitMs, 30_000);
+  assertPositiveSafeInteger(fundingMaxAttempts, 120);
+  assertNonnegativeSafeInteger(fundingDelayMs, 5_000);
   assertPositiveSafeInteger(fundingMaxWaitMs, 600_000);
-  assertPositiveSafeInteger(confirmationMaxWaitMs);
+  assertPositiveSafeInteger(confirmationMaxAttempts, 120);
+  assertNonnegativeSafeInteger(confirmationDelayMs, 1_000);
+  assertPositiveSafeInteger(confirmationMaxWaitMs, 120_000);
 }
 
 export async function runDevnetRehearsal(options = {}) {
@@ -651,7 +754,7 @@ export async function runDevnetRehearsal(options = {}) {
     fetchEvidence: fetchDevnetRehearsalEvidence,
     checkedAt: () => new Date().toISOString(),
     monotonicNow: () => performance.now(),
-    sleepImpl: (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+    sleepImpl: abortableSleep,
     deadlineImpl: withDeadline,
     fileSystem: DEFAULT_FILE_SYSTEM,
     identityMaxAttempts: 3,
@@ -803,6 +906,7 @@ export async function runDevnetRehearsal(options = {}) {
 
   await publishProof({
     proof,
+    outputRoot: config.outputRoot,
     artifactDirectory,
     proofPath,
     fileSystem: config.fileSystem,
