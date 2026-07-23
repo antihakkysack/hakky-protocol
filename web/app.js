@@ -3,7 +3,7 @@ import { buildLaunchView } from "./lib/launch-view.js";
 export { buildLaunchView };
 
 const FAILURE_MESSAGE = "PROOF UNAVAILABLE: Do not trust contract addresses from replies or DMs.";
-const PRELAUNCH_MESSAGE = "PRE-LAUNCH: No official mint address exists yet — ignore impostors.";
+const PRELAUNCH_MESSAGE = "PRE-LAUNCH: No official mint address exists yet - ignore impostors.";
 const ELEMENT_SELECTORS = Object.freeze({
   status: "[data-launch-status]",
   actions: "[data-live-actions]",

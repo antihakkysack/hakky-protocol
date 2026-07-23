@@ -330,7 +330,7 @@ test("live followed by prelaunch clears every verified field and destination", a
 
   assert.equal(
     documentRef.elements.get("[data-launch-status]").textContent,
-    "PRE-LAUNCH: No official mint address exists yet — ignore impostors.",
+    "PRE-LAUNCH: No official mint address exists yet - ignore impostors.",
   );
   assertFailClosed(documentRef, { statusPattern: /no official mint address exists yet/i });
 });
