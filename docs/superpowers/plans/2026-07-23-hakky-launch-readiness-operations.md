@@ -339,7 +339,7 @@ Stage `package-lock.json` only if an intentionally reviewed dependency change is
 - Modify: `proof/README.md`
 
 **Interfaces:**
-- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()` and `evaluateHakkyLaunchlabSourceCoverage()`, finalized RPC account bytes, wallet simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
+- Consumes: exact base64 serialized unsigned `VersionedTransaction`, the proof plan's source-pinned `decodeLaunchlabCreationTransaction()`, `decodeCreateMetadataAccountV3()`, raw transaction resolver, bounded raw JSON-RPC client, and `evaluateHakkyLaunchlabSourceCoverage()`, finalized RPC account bytes, exact raw simulation result, exact `MetadataManifestV1`/`MetadataReadbackV1`, approved creator public key, a fresh finalized wallet-readiness receipt, an action-day official-origin receipt, and the canonical LaunchLab program ID `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`.
 - Produces: `verifyOfficialRaydiumOrigin({ uiUrl, fetchImpl, checkedAt }) -> officialOriginReceipt`; `fetchWalletReadiness({ connection, creatorAddress, requiredLamports, checkedAt }) -> walletReadinessReceipt`; `decodeUnsignedLaunchTransaction({ serialized, addressLookupTables }) -> normalizedPreview`; `fetchPreviewState({ connection, normalizedPreview }) -> finalizedState`; `evaluateLaunchPreview({ preview, state, simulation, metadataManifest, metadataReadback, officialOriginReceipt, walletReadinessReceipt, creator }) -> evaluation`; `buildApprovalEnvelope(evaluation) -> envelope`; ignored `artifacts/mainnet-session/official-origin.json`, `wallet-readiness.json`, `preview.json`, and `approval-envelope.json`.
 
 The origin receipt has exact keys `schemaVersion`, `checkedAt`, `uiUrl`, `uiOrigin`, `docsUrl`, `docsSha256`, `documentedProgramId`, `pinnedProgramId`, `checks`, `ok`. The verifier fetches `https://docs.raydium.io/introduction/what-is-raydium` and `https://docs.raydium.io/reference/program-addresses` with redirect-origin checks, requires the first to identify `raydium.io` as the official app and the second to identify the exact current LaunchLab program, requires the browser URL origin to be exactly `https://raydium.io`, and requires the documented ID to equal the pinned decoder ID. DNS success, search results, screenshots, cached receipts, `api-v3`, and lookalike/subdomain URLs are insufficient. The receipt expires after 30 minutes and must be regenerated immediately before preview approval; any fetch/parse/drift failure stops signing.
@@ -376,7 +376,7 @@ export const HAKKY_TARGET_RAW_VALUES = Object.freeze({
 });
 ```
 
-The current pinned-source result for this exact target is the frozen `{ ok: false, code: "source-coverage-unavailable", reason: "cpmm-burn-scale-lp-rights-unmapped" }`. Assert `evaluateLaunchPreview()` includes the exact failed `source-coverage-unavailable` check, returns `ok: false`, and `buildApprovalEnvelope()` refuses to produce an envelope. There is no passing approval-envelope fixture in this slice. For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be preserved in the non-approvable diagnostic evaluation. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, any nonzero/non-null metadata creator payment, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, and any creation debit above `1000000000`.
+The current pinned-source result for this exact target is the frozen `{ ok: false, code: "source-coverage-unavailable", reason: "cpmm-burn-scale-lp-rights-unmapped" }`. Assert `evaluateLaunchPreview()` includes the exact failed `source-coverage-unavailable` check, returns `ok: false`, and `buildApprovalEnvelope()` refuses to produce an envelope. There is no passing approval-envelope fixture in this slice. For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be preserved in the non-approvable diagnostic evaluation. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, any nonzero/non-null metadata creator payment, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, missing/null raw inner instructions, wrong outer index or stack height, missing/duplicate/extra/reordered Metaplex CPI accounts, `replaceRecentBlockhash: true`, simulation-byte drift, expired blockhash without full preview regeneration, and any creation debit above `1000000000`.
 
 - [ ] **Step 2: Run preview tests and verify RED**
 
@@ -407,17 +407,21 @@ export async function fetchPreviewState({ connection, normalizedPreview }) {
   return normalizeAndHashFinalizedAccounts({ addresses, result });
 }
 
-export async function simulatePreview({ connection, transaction, accountAddresses }) {
-  return connection.simulateTransaction(transaction, {
+export async function simulatePreview({ rpcClient, canonicalBase64, accountAddresses }) {
+  return rpcClient.call("simulateTransaction", [canonicalBase64, {
     sigVerify: false,
-    replaceRecentBlockhash: true,
+    replaceRecentBlockhash: false,
     commitment: "finalized",
+    encoding: "base64",
+    innerInstructions: true,
     accounts: { encoding: "base64", addresses: accountAddresses },
-  });
+  }]);
 }
 ```
 
-Define `normalizeAndHashFinalizedAccounts` in the same module, reject null/extra/out-of-order results, require mainnet genesis identity, exact account owners, and expected LaunchLab/Token/Metadata/System programs, and record the response slot for every normalized account. Reject any mock/connection whose captured call omits the exact options above. Store raw account hashes, sanitized simulation logs, compute units, returned post-account hashes, and fee calculation. Sanitize thrown errors so authenticated RPC URLs and raw wallet data never reach stdout.
+Use Proof Task 3's bounded raw client for simulation; no `Connection.simulateTransaction` or second transport is allowed. Require the simulated transaction bytes to re-encode to the exact supplied base64, `err === null`, and raw non-null `innerInstructions`. Under the same outer InitializeV2 index, require exactly one direct stack-height-2 CreateMetadataAccountV3 CPI, decode it with the shared pinned decoder, and require the exact 6/7-account HAKKY shape, manifest identity, and `isMutable: false`. Post-simulation accounts or logs cannot substitute for absent CPI evidence. If the blockhash is expired or any fresh unsigned transaction differs byte-for-byte, discard all preview evidence, obtain a fresh raw unsigned transaction from the official flow, and repeat origin, wallet-readiness, finalized-account, simulation, hash, and approval-envelope verification; never set `replaceRecentBlockhash: true`.
+
+Define `normalizeAndHashFinalizedAccounts` in the same module, reject null/extra/out-of-order results, require mainnet genesis identity, exact account owners, and expected LaunchLab/Token/Metadata/System programs, and record the response slot for every normalized account. Reject any mock/client whose captured call omits the exact options above. Store raw account hashes, sanitized simulation logs, compute units, returned post-account hashes, exact decoded metadata-CPI evidence, and fee calculation. Sanitize thrown errors so authenticated RPC URLs and raw wallet data never reach stdout.
 
 - [ ] **Step 5: Implement the immutable-economic-binding hard stop**
 

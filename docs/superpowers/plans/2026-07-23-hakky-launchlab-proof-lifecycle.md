@@ -6,7 +6,7 @@
 
 **Architecture:** JSON Schema is normative for all three canonical artifacts and the public launch record. Read-only RPC collectors produce finalized raw evidence; pure evaluators reconcile transaction bytes against same-or-later account bytes; promotion builders consume only validated, content-hashed artifacts and an exact publication timestamp. Public stage and proof availability are orthogonal: `status` records the lifecycle stage, while `proof.availability` is either `verified` or `unavailable`; the unavailable branch contains no mint, destinations, observed authorities, or other verified values.
 
-**Tech Stack:** Node.js 22 ESM, `node:test`, JSON Schema 2020-12 with `ajv@8.20.0`, `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, SHA-256 from `node:crypto`, official Raydium SDK source pinned to commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`.
+**Tech Stack:** Node.js 22 ESM, `node:test`, JSON Schema 2020-12 with `ajv@8.20.0`, `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, SHA-256 and Ed25519 verification from `node:crypto`, official Raydium SDK source pinned to commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`, and official Metaplex Token Metadata source pinned to annotated tag object `b5d72daf3dd7165b157db85984700269ad6fdebe` / dereferenced `mpl-token-metadata@v5.1.1` commit `a7ee5e17ed60feaafeaa5582a4f46d9317c1b412`.
 
 ## Global Constraints
 
@@ -17,6 +17,7 @@
 - All Solana observations use `finalized` commitment. Launch, mint, vault, metadata, pool, LP, and PlatformConfig account observations must be at the transaction slot or later.
 - Curve-live mint authority must equal the exact Raydium LaunchLab authority PDA. Graduated mint authority and freeze authority must be null.
 - The Raydium LaunchLab program ID is `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`; source-derived seeds, discriminators, layouts, and instruction meanings are pinned to official SDK commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`.
+- The Metaplex Token Metadata program ID is `metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s`; PDA seeds, `MetadataV1` Borsh layout/tails, null padding rules, and `CreateMetadataAccountV3` discriminator/data/accounts are pinned to official repository commit `a7ee5e17ed60feaafeaa5582a4f46d9317c1b412`. Post-state `isMutable: false` is insufficient by itself because the program permits a later true-to-false transition; the creation transaction's finalized direct Metaplex CPI must independently encode `isMutable: false` or mint-v2 remains unavailable.
 - Classic SPL Token, six decimals, `1000000000000` base units, `800000000000` curve units, `200000000000` liquidity units, zero vesting/team/creator-first-buy, wrapped SOL quote, `24000000000` lamport configured minimum, zero creator fee rights, and cumulative creator cost no greater than `1000000000` lamports are invariant.
 - `cpmm` accepts only `burn-and-earn` with creator/platform shares `0` bps and irreversible locked share `10000` bps. `amm-v4` accepts only literal LP burn evidence with zero creator/platform/recoverable LP units, null withdrawal authority, and an empty fee-right list.
 - Canonical artifacts are append-only. Promotion may atomically replace only `web/data/launch.json` and may move only `prelaunch -> curve-live -> graduated`, change proof availability from `verified` to `unavailable` without changing stage, or restore `unavailable -> verified` at the same or a later stage only after the stage-specific builder validates the complete canonical artifact set.
@@ -191,8 +192,8 @@
   | common fees | `protocolBuyFeeRateMillionths`, `protocolSellFeeRateMillionths`, `feeRateDenominator`, `creatorTradingFeeRateMillionths`, `creatorFeeKey`, `creatorFeeRights`, `snapshotImmutable` | canonical unsigned decimals; buy equals sell; denominator exactly `"1000000"` from the pinned SDK; creator rate `"0"`; key `null`; rights `false`; immutable snapshot `true` |
   | common cost | `metadataUploadLamports`, `creationDebitLamports`, `recoveryDebitLamports`, `graduationDebitLamports`, `cumulativeCreatorDebitLamports`, `capLamports`, `withinCap` | canonical unsigned decimals; exact four-term sum; pre-graduation uses graduation `"0"`; cap `1000000000`; boolean true only at or below cap |
   | mint-v2 `identities` | `mint`, `creator`, `metadataAccount`, `launchId`, `launchlabAuthority` | canonical public keys |
-  | mint-v2 `observation` | `genesisHash`, `creationSignature`, `creationSlot`, `creationTime`, `mintAccountSha256`, `metadataAccountSha256`, `finalizedSlot`, `finalizedAt`, `checkedAt`, `rpcHost` | exact mainnet genesis hash; canonical signature; raw mint/metadata digests; qualified finalized chronology; exact verification timestamp |
-  | mint-v2 `checks` | `mainnetGenesis`, `classicTokenProgram`, `exactSupply`, `launchlabAuthority`, `nullFreezeAuthority`, `zeroCreatorBalance`, `immutableMetadata`, `metadataDigestMatch`, `finalized` | booleans, all `true` when `ok: true` |
+  | mint-v2 `observation` | `genesisHash`, `creationSignature`, `creationSlot`, `creationTime`, `creationTransactionSha256`, `metadataCreateCpiSha256`, `creationExecutionSha256`, `mintAccountSha256`, `metadataAccountSha256`, `finalizedSlot`, `finalizedAt`, `checkedAt`, `rpcHost` | exact mainnet genesis hash; canonical signature; exact raw transaction/CPI/canonical-execution hashes; raw mint/metadata digests; qualified finalized chronology; exact verification timestamp |
+  | mint-v2 `checks` | `mainnetGenesis`, `creationTransaction`, `validSignatures`, `sourcePinnedAccountMetas`, `atomicImmutableMetadata`, `metadataAccountCreated`, `classicTokenProgram`, `exactSupply`, `launchlabAuthority`, `nullFreezeAuthority`, `zeroCreatorBalance`, `immutableMetadataPostState`, `metadataDigestMatch`, `finalized` | exact booleans, all `true` when `ok: true` |
   | launchlab-v2 `identities` | `mint`, `creator`, `launchId`, `configId`, `platformConfig`, `launchlabAuthority`, `baseVault`, `quoteVault`, `metadataAccount` | canonical public keys |
   | launchlab-v2 `transaction` | `signature`, `finalizedSlot`, `finalizedAt`, `instruction`, `instructionDiscriminatorHex`, `transactionSha256` | `initialize-v2`; `4399af27da102620`; finalized observation and hashes |
   | launchlab-v2 `programs` | `launchlab`, `token`, `metadata`, `system`, `associatedToken`, `quoteMint` | exact source-pinned/current launch-day public program identities; token is classic SPL |
@@ -439,84 +440,135 @@
 **Files:**
 
 - Create: `src/metaplex-metadata.mjs`
+- Create: `src/solana-transaction.mjs`
 - Modify: `src/solana-rpc.mjs`
 - Modify: `src/mint-proof.mjs`
 - Modify: `scripts/verify-token.mjs`
 - Modify: `src/proof-output.mjs`
+- Modify: `schemas/proof/mainnet-mint-v2.schema.json`
+- Modify: `src/schema-validation.mjs`
+- Create: `test-support/mint-v2-provenance-fixtures.mjs`
+- Modify: `test-support/launch-fixtures.mjs`
 - Modify: `test/mint-proof.test.mjs`
 - Create: `test/metaplex-metadata.test.mjs`
+- Create: `test/solana-transaction.test.mjs`
+- Modify: `test/proof-schemas.test.mjs`
+
+**Reviewed source pins:**
+
+- Raydium `raydium-sdk-V2@fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`, `src/raydium/launchpad/instrument.ts:130-234`: exact `initializeV2` data and 18/19 ordered account metas.
+- Metaplex tag object `b5d72daf3dd7165b157db85984700269ad6fdebe`, dereferenced `mpl-token-metadata@v5.1.1` commit `a7ee5e17ed60feaafeaa5582a4f46d9317c1b412`: `programs/token-metadata/program/src/lib.rs:25` (program ID); `clients/rust/src/generated/accounts/metadata.rs:19-82` (full order and PDA); `clients/rust/src/generated/types/key.rs:11-29` (`MetadataV1` ordinal 4); `state/data.rs:3-37`, `state/creator.rs:3-16`, `state/collection.rs:5-12,54-68`, `state/uses.rs:5-22`, generated `programmable_config.rs:12-16`, and `token_standard.rs:11-20` (nested Borsh types, Fungible ordinal 2); `state/metadata.rs:16-49,194-212` (607-byte allocation, bounds, fee flag, and allowed later true-to-false mutability); `utils/mod.rs:130-148` (NUL padding); `utils/metadata.rs:91-200,205-321` (V3 state, optional tails, padding and fee flag); generated `create_metadata_account_v3.rs:13-103` (discriminator 33, DataV2/isMutable/collectionDetails encoding, account order, and metas).
+- Solana official RPC `getTransaction` contract plus Agave `v3.0.10` commit `96c3a8519a3bac8c7e7dd49b6d6aefcfeba09d90`, `transaction-status-client-types/src/lib.rs:541-545,595-619,630-635`: finalized response has exact `slot`, nullable `blockTime`, `meta`, base64 transaction tuple, version, `innerInstructions[].index`, base58 instruction data, account indices, and serialized `stackHeight`. Missing/null data required below is an evidence blocker, never an inferred value. Use raw JSON-RPC because `@solana/web3.js@1.98.4` typed parsing at source commit `c26c13bf841821d9bbf83bb476c567fe29d13821` drops `stackHeight`; pin that same commit's `src/programs/address-lookup-table/state.ts:23-80` for the 56-byte ALT metadata prefix and 32-byte address array layout.
 
 **Interfaces:**
 
-- Consumes: `deriveLaunchlabAuthorityPda(...)`, mint v2 schema, and append-only publisher.
+- Consumes: source-pinned `decodeLaunchlabCreationTransaction(...)`, `deriveLaunchlabAuthorityPda()`, `SPL_TOKEN_SOURCE_PROVENANCE`, the Operations Task 2 manifest/readback validators and bounded remote verifier, the mint-v2 schema, and the append-only publisher.
 - Produces:
 
   ```js
-  fetchFinalizedAccountEvidence({ connection, address, minContextSlot = 0 })
+  parsePublicRpcUrl(rawUrl) -> { url, hostname }
+  createBoundedPublicRpcClient({ rawUrl, fetchImpl }) -> { hostname, call }
+  fetchFinalizedCreationTransaction({ rpcClient, signature })
+  fetchFinalizedLookupTables({ rpcClient, transactionMessage, minContextSlot })
+  resolveCreationTransaction({ transactionResponse, lookupTableAccounts, requestedSignature })
+  deriveMetadataPdas({ mint }) -> { metadata, edition, editionBump }
+  decodeCreateMetadataAccountV3({ instructionData, accountKeys })
+  decodeMetadataAccountV1({ accountBytes, expectedMint, expectedEditionBump })
+  fetchFinalizedMintAccounts({ rpcClient, mintAddress, metadataAddress, minContextSlot })
+  fetchFinalizedCreatorAccounts({ rpcClient, creatorAddress, mintAddress, minContextSlot })
   fetchMintEvidence({
-    connection,
+    rpcClient,
     mintAddress,
     creatorAddress,
     metadataAddress,
     creationSignature,
     metadataManifest,
     metadataReadback,
+    repositoryRoot,
     fetchImpl,
-    launchlabProgramId
+    now
   })
   evaluateMintEvidenceV2(evidence)
-  decodeMetadataAccount(accountBytes)
-  runMintVerifier({ argv, connection, fetchEvidence, publishProof, now })
+  runMintVerifier({ argv, createRpcClient, fetchEvidence, publishProof, repositoryRoot, now }) -> { proof, publication }
   ```
 
-- `metadataManifest` and `metadataReadback` are exactly `MetadataManifestV1` and `MetadataReadbackV1` from Operations Task 2; call their exported paired validator before any RPC collection.
-- `fetchFinalizedAccountEvidence` returns `{ address, owner, slot, blockTime, data, sha256 }` and always requests `finalized`.
+- `metadataManifest` and `metadataReadback` are exactly `MetadataManifestV1` and `MetadataReadbackV1` from Operations Task 2. Call `assertMetadataReadbackV1({ manifest, readback })` before connection construction or RPC. Rebuild canonical metadata bytes with `serializeMetadata(buildMetadata({ imageUri: manifest.image.uri }))`, read the fixed approved image from the trusted repository root, and call `verifyPublishedContent` for both identities using `expectedBytes`; require the normalized results to equal the supplied readback byte-for-byte and preserve exact `creatorPayment = { signature: null, debitLamports: "0" }`.
+- `parsePublicRpcUrl` accepts only HTTPS, no username/password/query/fragment, only empty or `/` path, and a public DNS hostname. Reject IP literals, localhost, reserved/test/example names, nondefault ports, and every provider-authenticated URL. The proof keeps only canonical lowercase `hostname`; the URL is never echoed or serialized. The production default is the unauthenticated public mainnet-beta endpoint. Any provider-authenticated endpoint needs a separate reviewed execution boundary.
+- `createBoundedPublicRpcClient` is the only production Solana transport; there is no separate default `Connection` fetch. Every genesis, transaction, status, lookup-table, owner-account, multi-account, slot, and block-time call goes through its frozen `call(method, params)` interface. Each call has one 15,000ms AbortController deadline and a 5,000,000-byte response cap, uses `redirect: "error"`, requires HTTP 200 plus JSON content, validates canonical decimal `Content-Length` when present, cancels/aborts oversized or rejected bodies, and accepts only an exact JSON-RPC 2.0 envelope whose numeric request `id` matches and which has exactly one of `result` or `error`. Unknown/malformed envelopes, redirects, hangs, size overflow, and RPC errors become fixed stage codes without response/provider text. Tests inject this boundary; no live RPC is run.
+- The raw transaction request is exactly JSON-RPC `getTransaction(signature, { commitment: "finalized", encoding: "base64", maxSupportedTransactionVersion: 0 })`. Require an exact transaction tuple `[canonicalBase64, "base64"]`; decode and re-encode it byte-for-byte. Return exact `slot`, non-null `blockTime`, `version`, and `meta`; require `meta.err === null` and non-null `meta.innerInstructions`. Separately call raw JSON-RPC `getSignatureStatuses` with exact params `[[signature], { "searchTransactionHistory": true }]`; require exact one-element non-null `value`, `err === null`, a status slot matching the transaction slot, and `confirmationStatus === "finalized"`. Reject a null historical lookup rather than retrying with weaker parameters.
+- `fetchFinalizedLookupTables` derives every table address only from the signed v0 message and fetches each raw account with `finalized` and `minContextSlot: C`; no caller-authored decoded ALT is accepted in production. Require matching requested address, Address Lookup Table program owner, response context at least `C`, exact source-pinned raw layout, valid activation/deactivation/extension fields, and every referenced writable/readonly index in signed-message order. It returns raw envelopes to the pure resolver.
+- `resolveCreationTransaction` supports legacy and version 0 only. It requires RPC `version` to equal the deserialized message version, deserializes the exact transaction bytes, rejects every unsupported version/short/trailing encoding, resolves the finalized raw lookup-table envelopes, and requires the resulting writable/readonly addresses to equal `meta.loadedAddresses` in exact order. Legacy responses must have no lookups and `meta.loadedAddresses` must be absent or the exact empty partitions; v0 requires the exact object even when both partitions are empty. Decode every signature to exactly 64 bytes, every public key to exactly 32 bytes, canonically re-encode both, require signature count exactly `numRequiredSignatures`, require the requested signature to equal signature zero, and verify every required Ed25519 signature against the serialized message with `node:crypto`.
+- Resolve message privileges from the static header and loaded-address partitions. Require exactly one outer LaunchLab `initializeV2`, call the pinned decoder, and bind its program ID, ordered keys, data, mint, creator, metadata account, launch ID, name, symbol, and URI to CLI, account, and manifest evidence. Message fee payer, decoded payer, and first static signer are identical. Payer and mint are signer+writable; creator is readonly+nonsigner unless it aliases payer; every one of the 18/19 source-pinned account metas must match, with only message-level privilege promotion caused by an explicitly accepted identical-key alias.
+- The ordered Raydium meta policy from `src/raydium/launchpad/instrument.ts:130-234` is exact: `payer` signer+writable; `creator`, `configId`, `platformId`, `authority`, `quoteMint`, both classic Token Program entries, Metadata program, System program, Rent sysvar, event authority, LaunchLab program, and optional platform-global-access readonly+nonsigner; `launchId`, `baseVault`, `quoteVault`, and `metadataAccount` writable+nonsigner; `mint` signer+writable. The complete equality policy is closed: allow only `creator === payer`; require the two classic Token Program positions to repeat the same fixed readonly Token Program ID; require every other semantic position, including optional platform-global-access, to be distinct from every other position. The repeated Token Program is not a privilege promotion. Reject every unlisted alias and add pairwise alias mutations for the complete position set.
+- The same outer-instruction index must have exactly one direct Metaplex inner instruction with program ID `metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s`, `stackHeight: 2`, discriminator `33`, and no trailing bytes. If `innerInstructions`, `stackHeight`, or that CPI is absent, mint-v2 is unavailable: a later immutable account is never substituted. Decode its exact `DataV2`, `isMutable`, and `collectionDetails`; require `isMutable: false`, exact HAKKY name/symbol/manifest URI, zero seller fee, null creators/collection/uses/collection-details, and exactly 6 or 7 ordered accounts with no remaining accounts: `metadata, mint, LaunchLab authority PDA, payer, updateAuthority, system program[, rent sysvar]`. Inner execution metadata does not expose the CPI's requested signer/writable bits, so the verifier must not claim or test them; transaction success proves only that sufficient privileges were available. Reconcile update authority and content with the finalized Metadata account. Reject every other Metaplex instruction anywhere in the transaction whose resolved account list touches this metadata PDA. Require metadata `preBalances[index] === 0` and a positive post-balance as corroborating creation evidence.
+- Preserve self-contained hashes in `observation`: `creationTransactionSha256` is SHA-256 of the exact decoded transaction wire bytes and `metadataCreateCpiSha256` is SHA-256 of the canonically base58-decoded CPI instruction bytes. Before selecting metadata balances, require `preBalances` and `postBalances` lengths to equal the complete resolved message-key count, every balance to be a nonnegative safe integer, and exactly one resolved key equal to the metadata PDA; require its pre-balance `0` and positive post-balance. Require `dataBase58` and every public key to decode/re-encode canonically. Build `creationExecutionSha256` from UTF-8 `JSON.stringify(exactOrderedObject)` with no whitespace or trailing newline. `exactOrderedObject` has keys in exact order `slot`, `outerInstructionIndex`, `innerInstructionIndex`, `stackHeight`, `programId`, `accountKeys`, `dataBase58`, `metadataPreBalance`, `metadataPostBalance`, `loadedAddresses`; indices/slot/height are nonnegative safe integers; both selected balances are canonical unsigned decimal strings; `loadedAddresses` has exact ordered keys `writable`, `readonly` with canonical public-key arrays in execution order. Evaluator tests recompute all three and reject byte/balance/order drift; schema tests enforce required lowercase SHA-256 shape and reject missing/extra digest fields. Do not reduce finalized execution evidence to an unexplained boolean.
+- `decodeMetadataAccountV1` is pure and pinned to Metaplex `Key::MetadataV1` plus the full Borsh account order: update authority, mint, padded name/symbol/URI, seller fee, creators, primary-sale flag, mutable flag, edition nonce, token standard, collection, uses, collection details, programmable config. It requires exactly 607 account bytes; verifies the decoded mint and `editionNonce = Some(expectedEditionBump)`; requires right-NUL padding only to 32/10/200 bytes, zero seller fee, null creators/collection/uses/collection details/programmable config, `primarySaleHappened: false`, `isMutable: false`, and `tokenStandard = Some(Fungible)`. For the narrow accepted shape, bytes `332..605` are zero and byte `606` is the Metaplex fee flag, accepted only as `0` or `1`. Reject unknown enum/option tags, interior NULs, truncation, wrong/missing edition bump, wrong token standard, unsupported nonzero padding, or any other length. `fetchFinalizedMintAccounts` independently verifies the raw envelope address, Metaplex program owner, metadata PDA derived from the expected mint, finalized context, and SHA-256 before calling the byte decoder; neither boundary claims fields unavailable in its input.
+- Finalized chronology is explicit. Let creation slot be `C`. Enumerate every classic Token Program account owned by the creator at one finalized context `T >= C`, using the program-owner query rather than a mint filter, then decode/filter the target mint locally. Batch mint and metadata at finalized context `U >= T` with `minContextSlot: T`. Resolve block time for the exact `C`, `T`, and `U` slots, reject nulls, and require `creationTime <= creatorBalance.finalizedAt <= observation.finalizedAt <= checkedAt`. `getBlockTime` has no commitment parameter; finality comes from the finalized response contexts.
+- Mint bytes must have the exact classic `MintLayout.span`, owner `Tokenkeg...`, fixed supply/decimals, `isInitialized === true`, LaunchLab authority PDA, and null freeze authority. Creator accounts must have exact classic `AccountLayout.span`, owner program, decoded owner/mint, initialized or frozen state, unique canonical addresses, raw SHA-256 hashes, and lexical address order. Empty target-mint results are valid only with the preserved finalized owner-query context. Reject Token-2022 owners/extensions and parsed-account substitutes.
 - `evaluateMintEvidenceV2` returns the exact mint-v2 root object and calls `assertSchema("mint-v2", proof)` before returning.
+- Mint-v2 `checks` expands to exact booleans `mainnetGenesis`, `creationTransaction`, `validSignatures`, `sourcePinnedAccountMetas`, `atomicImmutableMetadata`, `metadataAccountCreated`, `classicTokenProgram`, `exactSupply`, `launchlabAuthority`, `nullFreezeAuthority`, `zeroCreatorBalance`, `immutableMetadataPostState`, `metadataDigestMatch`, `finalized`; all 14 are required true.
 
-- [ ] **Step 1: Rewrite mint tests for curve-stage reality**
+- [ ] **Step 1: Add source provenance and transaction fixtures**
 
-  Replace the null mint-authority success fixture with the derived LaunchLab PDA. Add failing tests for a creator authority, wrong PDA, null curve authority, non-null freeze authority, wrong supply/decimals/program, any creator balance, missing creator token account context, observation slot before initialization, mutable metadata, digest mismatch, and non-finalized RPC calls. Keep existing wrong-owner/mint/program account rejection and append-only publication tests.
+  Create a dedicated provenance-bearing fixture module; never import schema-shape-only `test-support/launch-fixtures.mjs`. Commit public bytes only: fixed MetadataV1 account bytes, fixed CreateMetadataAccountV3 CPI bytes, one fully signed legacy creation transaction, one fully signed v0 transaction, raw lookup-table account bytes, exact RPC metadata, and the expected decoded identities/privileges. Do not commit private/secret keys or code that regenerates them.
 
-- [ ] **Step 2: Add failing metadata decoder tests**
+- [ ] **Step 2: Write RED transaction and Metaplex decoder tests**
 
-  Test exact name, symbol, URI, update authority, `isMutable`, account digest, metadata JSON digest, and image digest extraction from fixed bytes. Test truncated bytes, unexpected key variant, mutable metadata, and URI/hash mismatch rejection.
+  Test legacy/v0 parsing, lookup resolution, signature verification, signature-zero binding, fee payer, full initializeV2 key order/message privileges, exact one direct metadata CPI, exact 6/7 CPI account arity with no remaining accounts, CPI `isMutable: false`, CPI/account reconciliation, and all supported MetadataV1 fields. Mutate every discriminator/option/enum, outer account order/message privilege, inner CPI account count/order/identity/data, signature/count, lookup address/owner/context/layout/index/order, transaction tuple/base64 tag/alphabet/padding, RPC/message version, `meta.loadedAddresses` absence/shape/order, inner group/index/stack height, `isMutable`, auxiliary metadata field, padding/fee flag, owner/PDA/mint/edition bump/token standard, and content field one at a time; require a named fail-closed error. Do not invent inner signer/writable mutation tests because finalized inner execution records do not contain those bits.
 
-- [ ] **Step 3: Run tests and verify RED**
+- [ ] **Step 3: Rewrite mint evaluator/collector/CLI tests for curve-stage reality**
+
+  Replace the null mint-authority success fixture with the derived LaunchLab PDA. Add failing cases for creator/wrong/null authority, non-null freeze authority, wrong supply/decimals/program, `isInitialized: false`, any creator balance, missing owner-query context, mint-filter shortcut, parsed accounts, duplicate/unsorted/wrong owner/mint/state/token-program accounts, observation/chronology drift, mutable-at-creation, mutable post-state, manifest/readback mismatch, remote byte mismatch, and non-finalized RPC. Assert the raw status request is exactly `getSignatureStatuses` with params `[[signature], { "searchTransactionHistory": true }]`, and reject null, non-finalized, errored, wrong-slot, shortened, or expanded status arrays. Add strict safe-RPC URL and raw CLI parsing cases plus hanging/redirect/oversized/malformed JSON-RPC envelope/id/result-error tests across every RPC method family. Remove `--out`; the only target is the canonical path. Update `test-support/launch-fixtures.mjs` to the exact 14-check contract and mutate each check to false, missing, and extra in schema tests.
+
+- [ ] **Step 4: Run tests and verify RED**
 
   ```powershell
-  rtk node --test test/metaplex-metadata.test.mjs test/mint-proof.test.mjs
+  rtk node --test test/solana-transaction.test.mjs test/metaplex-metadata.test.mjs test/mint-proof.test.mjs test/proof-schemas.test.mjs
   ```
 
-  Expected: FAIL because v2 evaluation, finalized context, metadata decoding, and the new verifier interface are absent.
+  Expected: FAIL because safe transaction resolution, the pinned Metaplex decoder, atomic CPI binding, exhaustive finalized collection, and the expanded mint-v2 checks are absent.
 
-- [ ] **Step 4: Implement finalized RPC collection**
+- [ ] **Step 5: Implement transaction and Metaplex decoding**
 
-  Fetch the finalized creation transaction first and derive `minContextSlot` from its slot. Change all mint, creator-token-account, metadata, and block-time reads to `finalized`. Preserve response context slots, hash exact account bytes before decoding, and reject mixed observations whose slot or block time cannot be established. Fetch the content-addressed metadata JSON and image named by the on-chain account and require byte equality with the validated manifest/readback pair. Require the Operations Task 2 action-workflow invariant and exact `creatorPayment = { signature: null, debitLamports: "0" }`; no nonzero creator-wallet metadata-payment branch is representable in this iteration. Mint-v2 has no `cost`; LaunchLab-v2 Task 4 consumes the same fixed-zero pair in its common cost object. Never serialize the RPC URL; retain only the public hostname after credential/query validation.
+  Implement only the exact source-pinned contracts above. Keep transaction decoding pure. No decoder may call RPC, infer a missing ALT, trust explorer/API labels, accept parsed instructions, or recover absent inner instructions from logs. Preserve raw transaction/account hashes internally for reconciliation.
 
-- [ ] **Step 5: Implement metadata and mint evaluation**
+- [ ] **Step 6: Implement finalized raw RPC collection and metadata readback binding**
 
-  Decode only the Metaplex fields required by the schema. Sum every initialized or frozen classic token account for the exact creator and mint. Derive the authority PDA internally from the fixed program ID. Produce the exact schema objects `network`, `identities`, `supply`, `authorities`, `creatorBalance`, `metadata`, `observation`, ordered `checks`, and `ok`.
+  Follow the `C -> T -> U` algorithm exactly. Validate manifest/readback and local approved bytes before any RPC. Use only `createBoundedPublicRpcClient`, finalized commitment, raw base64 data, and explicit `minContextSlot`; no default `Connection`, second transport, `confirmed`, `jsonParsed`, mint-filter owner query, Token-2022, or unbounded fetch is allowed. Call `verifyPublishedContent` rather than implementing a weaker duplicate fetcher.
 
-- [ ] **Step 6: Upgrade the verifier CLI**
+- [ ] **Step 7: Implement mint evaluation and the fixed CLI**
 
-  Keep required `--mint`, `--creator`, and `--out`; add required public `--metadata-account`, `--creation-transaction`, `--metadata-manifest`, and `--metadata-readback`. Force the canonical output name `proof/mainnet-mint.json` when publishing. Construct the v2 artifact only after mainnet genesis verification and publish only when every check passes. Preserve sanitized failures and exclusive append-only publication.
+  Required public flags are exactly `--mint`, `--creator`, `--metadata-account`, `--creation-transaction`, `--metadata-manifest`, and `--metadata-readback`; the two metadata path values must be raw-normalized exact `artifacts/metadata/manifest.json` and `artifacts/metadata/readback.json`, pass the producer's repository confinement/reparse checks, and accept no aliases. Optional `--rpc` must pass the safe public URL policy. Reject duplicate, equals-form, positional, case-drift, unknown, missing, or non-array arguments before filesystem/network activity. Construct the proof only after full mainnet identity/evidence verification.
 
-- [ ] **Step 7: Run focused tests and verify GREEN**
+  Publication target is always the raw normalized repository path `proof/mainnet-mint.json`; there is no `--out`. Validate the complete proof schema before filesystem mutation. Reject lexical aliases, traversal, symlink/junction/reparse ancestors, an existing destination, and an untrusted/non-exclusive workspace. Publish with the exclusive temp/open-write-fsync-close-hard-link-cleanup contract; preserve `EEXIST` and never retry after a committed cleanup warning. `runMintVerifier` returns exact `{ proof, publication }`; only `proof` is schema-validated, serialized to the artifact, and printed as proof JSON. Publication receipts/warnings remain only in the return envelope, with committed cleanup warnings rendered as fixed stderr text; tests require no `publication`, warning, or temporary path in proof/stdout. The residual lstat-to-open race is accepted only for the documented trusted exclusively controlled workspace; otherwise stop.
+
+- [ ] **Step 8: Run focused and cross-consumer tests and verify GREEN**
 
   ```powershell
-  rtk node --test test/metaplex-metadata.test.mjs test/mint-proof.test.mjs
+  rtk node --test test/solana-transaction.test.mjs test/metaplex-metadata.test.mjs test/mint-proof.test.mjs test/raydium-launchlab.test.mjs test/metadata-integrity.test.mjs test/proof-schemas.test.mjs test/devnet-rehearsal.test.mjs
+  rtk node --check src/solana-transaction.mjs
+  rtk node --check src/metaplex-metadata.mjs
+  rtk node --check src/solana-rpc.mjs
+  rtk node --check src/mint-proof.mjs
+  rtk node --check scripts/verify-token.mjs
   ```
 
-  Expected: PASS with no network calls.
+  Expected: PASS with injected bytes/RPC/fetch/filesystem only and no network call. Operations Task 1 must land before this task, or backward-compatible mint exports must remain until it does; the repository may not contain an intermediate broken devnet rehearsal import.
 
-- [ ] **Step 8: Refactor shared hashing and canonical-decimal helpers**
-
-  Move only reusable byte hashing and bigint-to-canonical-decimal conversion into private exports from `src/solana-rpc.mjs`. Re-run the focused tests.
-
-- [ ] **Step 9: Commit the mint proof slice**
+- [ ] **Step 9: Run repository verification**
 
   ```powershell
-  rtk git add src/metaplex-metadata.mjs src/solana-rpc.mjs src/mint-proof.mjs src/proof-output.mjs scripts/verify-token.mjs test/metaplex-metadata.test.mjs test/mint-proof.test.mjs
+  rtk npm test
+  rtk npm run check:repo
+  rtk git diff --check
+  ```
+
+  Expected: all tests pass; there is no canonical `proof/mainnet-mint.json`, metadata upload, wallet action, RPC call, or public mutation from the test run.
+
+- [ ] **Step 10: Commit the mint proof slice**
+
+  ```powershell
+  rtk git add src/metaplex-metadata.mjs src/solana-transaction.mjs src/solana-rpc.mjs src/mint-proof.mjs src/proof-output.mjs scripts/verify-token.mjs schemas/proof/mainnet-mint-v2.schema.json src/schema-validation.mjs test-support/mint-v2-provenance-fixtures.mjs test-support/launch-fixtures.mjs test/solana-transaction.test.mjs test/metaplex-metadata.test.mjs test/mint-proof.test.mjs test/proof-schemas.test.mjs
   rtk git commit -m "proof: verify finalized curve mint state"
   ```
 

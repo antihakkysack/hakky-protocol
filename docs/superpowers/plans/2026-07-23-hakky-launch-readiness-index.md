@@ -45,13 +45,24 @@
 
   Produces the manifest interface required by mint-v2, LaunchLab-v2, and unsigned preview verification. Upload remains outside implementation and separately gated.
 
-- [ ] **Wave 1: Proof Task 3, Public Task 1, and Operations Task 1**
+- [x] **Wave 1 prerequisite: align mainnet and content identities**
 
-  These have disjoint production files after the three foundations. Dispatch separate implementation agents, but allow only one shared-worktree writer at a time; parallelize their specification reviews instead.
+  This serialized amendment landed as `28c777d98b1bdb507fc07fcc7166d63696bc1988`. The exact mainnet-beta genesis literal is `5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d`. The four lifecycle schemas accept only the Foundation 3 canonical raw CIDv1 sha2-256 IPFS identity or canonical Arweave identity, and Node semantic validation reuses `validateContentAddressedUri` instead of defining a second URI policy.
 
-  - Proof Task 3: finalized mint-v2 plus immutable metadata binding.
-  - Public Task 1: pure lifecycle view adapter.
-  - Operations Task 1: independent externally funded devnet rehearsal.
+  The executable prerequisite contract is:
+
+  - Modify exactly `src/solana-rpc.mjs`, `schemas/proof/mainnet-mint-v2.schema.json`, `schemas/proof/mainnet-launchlab-v2.schema.json`, `schemas/proof/mainnet-graduation-v1.schema.json`, `schemas/web/launch-v2.schema.json`, `src/schema-validation.mjs`, `test-support/launch-fixtures.mjs`, `test/launch-policy.test.mjs`, `test/mint-proof.test.mjs`, `test/proof-schemas.test.mjs`, and generated `web/lib/launch-schema.generated.js`.
+  - RED: add exact full-genesis equality plus canonical IPFS/Arweave acceptance and malformed/noncanonical mutation cases, then run `rtk node --test test/proof-schemas.test.mjs test/mint-proof.test.mjs test/launch-policy.test.mjs`; require failures against the truncated genesis and broad CID pattern.
+  - GREEN: correct the literal, narrow all four schemas, reuse Foundation 3 semantic validation, and regenerate the browser validator with `rtk npm run schemas`.
+  - Verify with `rtk node --test test/proof-schemas.test.mjs test/mint-proof.test.mjs test/launch-policy.test.mjs test/metadata-integrity.test.mjs`, `rtk node scripts/render-launch-schema-validator.mjs --check`, `rtk npm run check:repo`, and `rtk git diff --check`.
+
+- [ ] **Wave 1: Operations Task 1, Proof Task 3, then Public Task 1**
+
+  Their primary production files are disjoint after the three foundations, but their interfaces are ordered. Dispatch separate review agents, allow only one shared-worktree writer at a time, and implement in this exact order:
+
+  - Operations Task 1: independent externally funded devnet rehearsal; remove its legacy imports from the mint collector/evaluator before those exports change.
+  - Proof Task 3: finalized mint-v2 plus creation-transaction and atomic immutable-metadata binding; it may then update the mint schema and provenance fixtures without breaking the rehearsal.
+  - Public Task 1: pure lifecycle view adapter against the final Wave 1 schema/fixture contract.
 
 - [ ] **Wave 2: Proof Tasks 4 and 5**
 
