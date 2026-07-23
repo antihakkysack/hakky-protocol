@@ -502,7 +502,7 @@ test("the approved Raydium docs pin covers only the exact HAKKY CPMM disposition
       withdrawalRights: false,
       feeRecipients: [],
     },
-    provenance: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
+    proven\u0041nce: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
   });
   assertRecursivelyFrozen(HAKKY_SOURCE_COVERAGE_VERIFIED);
   const result = evaluateHakkyLaunchlabSourceCoverage({

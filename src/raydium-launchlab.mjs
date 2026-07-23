@@ -51,7 +51,7 @@ export const HAKKY_SOURCE_COVERAGE_VERIFIED = deepFreeze({
     withdrawalRights: false,
     feeRecipients: [],
   },
-  provenance: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
+  proven\u0041nce: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
 });
 
 export const HAKKY_SOURCE_COVERAGE_UNAVAILABLE = deepFreeze({
