@@ -1,0 +1,11 @@
+[workspace]
+members = ["programs/hakky-market"]
+resolver = "2"
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = "z"
+overflow-checks = true
+panic = "abort"
+strip = true

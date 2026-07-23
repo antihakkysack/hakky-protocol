@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 **/node_modules/
+target/
 
 # Local environment and secrets
 .env
@@ -9,6 +10,7 @@ node_modules/
 
 # Generated and transient evidence
 artifacts/
+artifacts/devnet/private/
 .superpowers/
 .worktrees/
 

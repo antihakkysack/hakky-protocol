@@ -1,0 +1,25 @@
+[package]
+name = "hakky-market"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "hakky_market"
+
+[features]
+default = []
+no-entrypoint = []
+
+[dependencies]
+mpl-token-metadata = "=5.1.1"
+solana-program = "=3.0.0"
+spl-token-interface = "=3.0.0"
+
+[dev-dependencies]
+proptest = "=1.11.0"
+solana-program-test = "=4.1.2"
+solana-sdk = "=4.0.1"
+spl-token = { version = "=9.0.0", features = ["no-entrypoint"] }
+tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }
