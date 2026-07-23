@@ -6,9 +6,11 @@ import {
   mkdtemp,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -93,6 +95,17 @@ function isolatedModuleUrl(root) {
   return pathToFileURL(
     path.join(root, "scripts", "generate-devnet-release-config.mjs"),
   ).href;
+}
+
+async function lstatIfExistsForTest(candidate) {
+  try {
+    return await lstat(candidate);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 test("renders only public compile-time release values", () => {
@@ -274,6 +287,161 @@ test("no-overwrite publication preserves a destination created after staging", a
     ),
     [],
   );
+});
+
+test("post-validation staging replacement cannot receive secret bytes", async (t) => {
+  const root = await isolatedRepository(t);
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  const publicConfigPath = path.join(
+    devnetDirectory,
+    "public-release-config.json",
+  );
+  const rustConfigPath = path.join(
+    root,
+    "programs",
+    "hakky-market",
+    "src",
+    "release_config.rs",
+  );
+  const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await mkdir(devnetDirectory, { recursive: true });
+  await writeFile(publicConfigPath, "existing public config\n", "utf8");
+  await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+  await writeFile(path.join(outside, "sentinel.txt"), "outside unchanged\n");
+
+  let hookCalled = false;
+  let stagingDirectory;
+  let movedStagingDirectory;
+  let replacementCreated = false;
+  await assert.rejects(
+    generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async postValidationHook(context) {
+        hookCalled = true;
+        stagingDirectory = context.stagingDirectory;
+        movedStagingDirectory = `${stagingDirectory}.moved`;
+        try {
+          await rename(stagingDirectory, movedStagingDirectory);
+          await symlink(
+            outside,
+            stagingDirectory,
+            process.platform === "win32" ? "junction" : "dir",
+          );
+          replacementCreated = true;
+        } catch (error) {
+          throw new Error("staging replacement attempt blocked", {
+            cause: error,
+          });
+        }
+      },
+    }),
+    /staging identity changed|staging replacement attempt blocked/i,
+  );
+
+  assert.equal(hookCalled, true);
+  assert.deepEqual(await readdir(outside), ["sentinel.txt"]);
+  assert.equal(await readFile(publicConfigPath, "utf8"), "existing public config\n");
+  assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+  assert.equal(await lstatIfExistsForTest(path.join(outside, "private")), null);
+  if (replacementCreated) {
+    assert.equal((await lstat(stagingDirectory)).isSymbolicLink(), true);
+    assert.deepEqual(await readdir(movedStagingDirectory), []);
+    await unlink(stagingDirectory);
+    await rm(movedStagingDirectory, { recursive: true, force: true });
+  } else {
+    assert.deepEqual(
+      (await readdir(devnetDirectory)).filter((entry) =>
+        entry.startsWith(".private-stage-"),
+      ),
+      [],
+    );
+  }
+});
+
+test("post-validation ancestor replacement cannot redirect staging", async (t) => {
+  const root = await isolatedRepository(t);
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  const publicConfigPath = path.join(
+    devnetDirectory,
+    "public-release-config.json",
+  );
+  const rustConfigPath = path.join(
+    root,
+    "programs",
+    "hakky-market",
+    "src",
+    "release_config.rs",
+  );
+  const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await mkdir(devnetDirectory, { recursive: true });
+  await writeFile(publicConfigPath, "existing public config\n", "utf8");
+  await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+  await writeFile(path.join(outside, "sentinel.txt"), "outside unchanged\n");
+
+  let hookCalled = false;
+  let movedDevnetDirectory;
+  let replacementCreated = false;
+  await assert.rejects(
+    generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async postValidationHook(context) {
+        hookCalled = true;
+        movedDevnetDirectory = `${context.devnetDirectory}.moved`;
+        try {
+          await rename(context.devnetDirectory, movedDevnetDirectory);
+          await symlink(
+            outside,
+            context.devnetDirectory,
+            process.platform === "win32" ? "junction" : "dir",
+          );
+          replacementCreated = true;
+        } catch (error) {
+          throw new Error("ancestor replacement attempt blocked", {
+            cause: error,
+          });
+        }
+      },
+    }),
+    /staging identity changed|ancestor replacement attempt blocked/i,
+  );
+
+  assert.equal(hookCalled, true);
+  assert.deepEqual(await readdir(outside), ["sentinel.txt"]);
+  assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+  assert.equal(await lstatIfExistsForTest(path.join(outside, "private")), null);
+  if (replacementCreated) {
+    assert.equal((await lstat(devnetDirectory)).isSymbolicLink(), true);
+    assert.equal(
+      await readFile(
+        path.join(movedDevnetDirectory, "public-release-config.json"),
+        "utf8",
+      ),
+      "existing public config\n",
+    );
+    const stagingNames = (await readdir(movedDevnetDirectory)).filter((entry) =>
+      entry.startsWith(".private-stage-"),
+    );
+    assert.equal(stagingNames.length, 1);
+    assert.deepEqual(
+      await readdir(path.join(movedDevnetDirectory, stagingNames[0])),
+      [],
+    );
+    await unlink(devnetDirectory);
+    await rm(movedDevnetDirectory, { recursive: true, force: true });
+  } else {
+    assert.equal(
+      await readFile(publicConfigPath, "utf8"),
+      "existing public config\n",
+    );
+    assert.deepEqual(
+      (await readdir(devnetDirectory)).filter((entry) =>
+        entry.startsWith(".private-stage-"),
+      ),
+      [],
+    );
+  }
 });
 
 test("rejects redirected secret ancestors and destinations", async (t) => {
