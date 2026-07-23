@@ -70,7 +70,11 @@ paths below:
    `npm run metadata:verify -- --manifest artifacts/metadata/manifest.json --out artifacts/metadata/readback.json`.
    Verification issues bounded HTTPS `GET` requests only, requires exact remote
    size and SHA-256 equality for both objects, and fixes `creatorPayment` to
-   `{ "signature": null, "debitLamports": "0" }`.
+   `{ "signature": null, "debitLamports": "0" }`. One 15-second abort deadline
+   covers the complete request/redirect/body operation. Response bodies are
+   streamed through the approved 74,230-byte maximum and cancelled on the first
+   byte beyond the exact expected length; a non-streaming fallback is allowed
+   only after an exact trustworthy `Content-Length` bounds it.
 
 Exact-byte replays are idempotent; a divergent existing artifact fails without
 replacement. The ignored metadata manifest and readback are inputs to later
@@ -78,6 +82,16 @@ proof and transaction gates, not launch approval. The creation transaction must
 use the exact verified metadata URI and create it atomically with
 `isMutable: false`; otherwise stop before signing. Post-creation metadata
 finalization is prohibited.
+
+Run these local commands only while the repository workspace is trusted and
+exclusively controlled. Publication accepts the repository root plus one fixed
+relative artifact path and repeats symlink/junction/reparse confinement before
+temporary creation, before hard-link commit, and after commit. This is
+defense-in-depth, not a race-free sandbox against a privileged concurrent local
+process because Node does not expose portable handle-relative `openat`/link
+operations. If exclusive control is not true for the command duration, stop.
+Permanent tests require the five leaves to remain ignored and untracked; they do
+not require them to remain absent after a separately approved provider flow.
 
 ## Mainnet proof record
 

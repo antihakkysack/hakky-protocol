@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseExactCliOptions } from "../src/exact-cli-options.mjs";
 import {
   IMAGE_SOURCE_PATH,
   METADATA_DIRECTORY,
@@ -11,31 +12,27 @@ import {
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const USAGE = `Usage: npm run metadata:prepare -- --image ${IMAGE_SOURCE_PATH} --image-uri <content-addressed-uri> --out ${METADATA_DIRECTORY}`;
 
-function parseNamedOptions(argv, names) {
-  if (!Array.isArray(argv) || argv.length !== names.length * 2) throw new Error(USAGE);
-  const parsed = {};
-  for (let index = 0; index < argv.length; index += 2) {
-    const name = argv[index];
-    const value = argv[index + 1];
-    if (!names.includes(name) || Object.hasOwn(parsed, name) || typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
-      throw new Error(USAGE);
-    }
-    parsed[name] = value;
-  }
-  if (names.some((name) => !Object.hasOwn(parsed, name))) throw new Error(USAGE);
-  return parsed;
-}
-
 export function parsePrepareOptions(argv) {
-  const parsed = parseNamedOptions(argv, ["--image", "--image-uri", "--out"]);
-  if (parsed["--image"] !== IMAGE_SOURCE_PATH) throw new Error(`--image must be the fixed path ${IMAGE_SOURCE_PATH}`);
-  if (parsed["--out"] !== METADATA_DIRECTORY) throw new Error(`--out must be the fixed path ${METADATA_DIRECTORY}`);
-  validateContentAddressedUri(parsed["--image-uri"]);
-  return {
-    imagePath: parsed["--image"],
-    imageUri: parsed["--image-uri"],
-    outDirectory: parsed["--out"],
-  };
+  return parseExactCliOptions(argv, {
+    usage: USAGE,
+    definitions: [
+      {
+        flag: "--image",
+        key: "imagePath",
+        validate(value) {
+          if (value !== IMAGE_SOURCE_PATH) throw new Error(`--image must be the fixed path ${IMAGE_SOURCE_PATH}`);
+        },
+      },
+      { flag: "--image-uri", key: "imageUri", validate: validateContentAddressedUri },
+      {
+        flag: "--out",
+        key: "outDirectory",
+        validate(value) {
+          if (value !== METADATA_DIRECTORY) throw new Error(`--out must be the fixed path ${METADATA_DIRECTORY}`);
+        },
+      },
+    ],
+  });
 }
 
 export async function runPrepare({
@@ -43,14 +40,19 @@ export async function runPrepare({
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   publisherDependencies,
   onCommit,
+  onWarning,
 } = {}) {
   const options = parsePrepareOptions(argv);
-  return prepareMetadataBundle({ repositoryRoot, ...options, publisherDependencies, onCommit });
+  return prepareMetadataBundle({ repositoryRoot, ...options, publisherDependencies, onCommit, onWarning });
 }
 
 export async function main({ stdout = process.stdout, stderr = process.stderr, runImpl = runPrepare } = {}) {
   try {
-    const draft = await runImpl();
+    const draft = await runImpl({
+      onWarning(warning) {
+        stderr.write(`${warning.message} Temporary path: ${warning.temporaryPath}\n`);
+      },
+    });
     stdout.write(serializeMetadataDraft(draft));
     return 0;
   } catch (error) {

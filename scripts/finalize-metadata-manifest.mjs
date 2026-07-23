@@ -1,14 +1,14 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseExactCliOptions } from "../src/exact-cli-options.mjs";
 import {
   METADATA_DRAFT_PATH,
   METADATA_MANIFEST_PATH,
   assertLocalMetadataArtifacts,
   assertMetadataDraftV1,
   finalizeMetadataManifest,
-  publishArtifactBytes,
+  publishRepositoryArtifact,
   readCanonicalArtifact,
-  resolveRepositoryPath,
   serializeMetadataDraft,
   serializeMetadataManifest,
   validateContentAddressedUri,
@@ -17,37 +17,34 @@ import {
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const USAGE = `Usage: npm run metadata:finalize -- --draft-manifest ${METADATA_DRAFT_PATH} --metadata-uri <content-addressed-uri> --out ${METADATA_MANIFEST_PATH}`;
 
-function parseNamedOptions(argv, names) {
-  if (!Array.isArray(argv) || argv.length !== names.length * 2) throw new Error(USAGE);
-  const parsed = {};
-  for (let index = 0; index < argv.length; index += 2) {
-    const name = argv[index];
-    const value = argv[index + 1];
-    if (!names.includes(name) || Object.hasOwn(parsed, name) || typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
-      throw new Error(USAGE);
-    }
-    parsed[name] = value;
-  }
-  if (names.some((name) => !Object.hasOwn(parsed, name))) throw new Error(USAGE);
-  return parsed;
-}
-
 export function parseFinalizeOptions(argv) {
-  const parsed = parseNamedOptions(argv, ["--draft-manifest", "--metadata-uri", "--out"]);
-  if (parsed["--draft-manifest"] !== METADATA_DRAFT_PATH) throw new Error(`--draft-manifest must be the fixed path ${METADATA_DRAFT_PATH}`);
-  if (parsed["--out"] !== METADATA_MANIFEST_PATH) throw new Error(`--out must be the fixed path ${METADATA_MANIFEST_PATH}`);
-  validateContentAddressedUri(parsed["--metadata-uri"]);
-  return {
-    draftManifestPath: parsed["--draft-manifest"],
-    metadataUri: parsed["--metadata-uri"],
-    outputPath: parsed["--out"],
-  };
+  return parseExactCliOptions(argv, {
+    usage: USAGE,
+    definitions: [
+      {
+        flag: "--draft-manifest",
+        key: "draftManifestPath",
+        validate(value) {
+          if (value !== METADATA_DRAFT_PATH) throw new Error(`--draft-manifest must be the fixed path ${METADATA_DRAFT_PATH}`);
+        },
+      },
+      { flag: "--metadata-uri", key: "metadataUri", validate: validateContentAddressedUri },
+      {
+        flag: "--out",
+        key: "outputPath",
+        validate(value) {
+          if (value !== METADATA_MANIFEST_PATH) throw new Error(`--out must be the fixed path ${METADATA_MANIFEST_PATH}`);
+        },
+      },
+    ],
+  });
 }
 
 export async function runFinalize({
   argv = process.argv.slice(2),
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   publisherDependencies,
+  onWarning,
 } = {}) {
   const options = parseFinalizeOptions(argv);
   const { value: draft } = await readCanonicalArtifact(
@@ -58,14 +55,23 @@ export async function runFinalize({
   );
   await assertLocalMetadataArtifacts({ repositoryRoot, draft });
   const manifest = finalizeMetadataManifest({ draft, metadataUri: options.metadataUri });
-  const outputPath = await resolveRepositoryPath(repositoryRoot, options.outputPath);
-  await publishArtifactBytes(outputPath, serializeMetadataManifest(manifest), publisherDependencies);
+  await publishRepositoryArtifact({
+    repositoryRoot,
+    relativePath: options.outputPath,
+    bytes: serializeMetadataManifest(manifest),
+    publisherDependencies,
+    onWarning,
+  });
   return manifest;
 }
 
 export async function main({ stdout = process.stdout, stderr = process.stderr, runImpl = runFinalize } = {}) {
   try {
-    const manifest = await runImpl();
+    const manifest = await runImpl({
+      onWarning(warning) {
+        stderr.write(`${warning.message} Temporary path: ${warning.temporaryPath}\n`);
+      },
+    });
     stdout.write(serializeMetadataManifest(manifest));
     return 0;
   } catch (error) {

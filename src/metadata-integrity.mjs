@@ -20,6 +20,8 @@ export const METADATA_JSON_PATH = "artifacts/metadata/token.json";
 export const METADATA_DRAFT_PATH = "artifacts/metadata/draft-manifest.json";
 export const METADATA_MANIFEST_PATH = "artifacts/metadata/manifest.json";
 export const METADATA_READBACK_PATH = "artifacts/metadata/readback.json";
+export const REMOTE_VERIFICATION_TIMEOUT_MS = 15_000;
+export const MAX_REMOTE_CONTENT_BYTES = APPROVED_IMAGE_BYTE_LENGTH;
 
 const METADATA_NAME = "Hakky Protocol";
 const METADATA_SYMBOL = "HAKKY";
@@ -234,6 +236,9 @@ function canonicalManifestMetadata(metadata) {
 }
 
 export function serializeMetadataDraft(draft) {
+  assertExactKeys(draft, ["schemaVersion", "image", "metadata"], "metadata draft serializer input");
+  assertExactKeys(draft.image, ["sourcePath", "uri", "byteLength", "sha256"], "metadata draft image serializer input");
+  assertExactKeys(draft.metadata, ["sourcePath", "byteLength", "sha256", "name", "symbol", "imageUri"], "metadata draft metadata serializer input");
   return canonicalJson({
     schemaVersion: draft.schemaVersion,
     image: canonicalImageObject(draft.image),
@@ -242,6 +247,9 @@ export function serializeMetadataDraft(draft) {
 }
 
 export function serializeMetadataManifest(manifest) {
+  assertExactKeys(manifest, ["schemaVersion", "image", "metadata"], "metadata manifest serializer input");
+  assertExactKeys(manifest.image, ["sourcePath", "uri", "byteLength", "sha256"], "metadata manifest image serializer input");
+  assertExactKeys(manifest.metadata, ["sourcePath", "uri", "byteLength", "sha256", "name", "symbol", "imageUri"], "metadata manifest metadata serializer input");
   return canonicalJson({
     schemaVersion: manifest.schemaVersion,
     image: canonicalImageObject(manifest.image),
@@ -259,6 +267,10 @@ function canonicalReadbackContent(content) {
 }
 
 export function serializeMetadataReadback(readback) {
+  assertExactKeys(readback, ["schemaVersion", "image", "metadata", "creatorPayment", "verifiedAt", "ok"], "metadata readback serializer input");
+  assertExactKeys(readback.image, ["uri", "resolvedUrl", "byteLength", "sha256"], "metadata readback image serializer input");
+  assertExactKeys(readback.metadata, ["uri", "resolvedUrl", "byteLength", "sha256"], "metadata readback metadata serializer input");
+  assertExactKeys(readback.creatorPayment, ["signature", "debitLamports"], "metadata readback creatorPayment serializer input");
   return canonicalJson({
     schemaVersion: readback.schemaVersion,
     image: canonicalReadbackContent(readback.image),
@@ -375,6 +387,85 @@ export function assertMetadataReadbackV1({ manifest, readback }) {
   return readback;
 }
 
+function parseContentLengthHeader(result, expectedByteLength) {
+  const rawContentLength = result?.headers?.get?.("content-length");
+  if (rawContentLength === null || rawContentLength === undefined) return null;
+  if (typeof rawContentLength !== "string" || !/^(?:0|[1-9]\d*)$/u.test(rawContentLength)) {
+    fail("Remote Content-Length must be one canonical nonnegative decimal integer");
+  }
+  const parsed = BigInt(rawContentLength);
+  if (parsed > BigInt(MAX_REMOTE_CONTENT_BYTES)) {
+    fail(`Remote Content-Length exceeds the ${MAX_REMOTE_CONTENT_BYTES}-byte verification cap`);
+  }
+  if (parsed !== BigInt(expectedByteLength)) {
+    fail("Remote Content-Length does not match the expected byte length");
+  }
+  return Number(parsed);
+}
+
+function awaitWithAbort(promise, signal) {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function readBoundedResponseBody(result, { expectedByteLength, signal, hasTrustedContentLength }) {
+  const reader = result?.body?.getReader?.();
+  if (reader) {
+    const chunks = [];
+    let total = 0;
+    let shouldCancel = false;
+    try {
+      while (true) {
+        const { done, value } = await awaitWithAbort(reader.read(), signal);
+        if (done) break;
+        if (!(value instanceof Uint8Array)) fail("Remote response stream emitted a non-byte chunk");
+        const chunk = Buffer.from(value);
+        total += chunk.byteLength;
+        if (total > expectedByteLength || total > MAX_REMOTE_CONTENT_BYTES) {
+          shouldCancel = true;
+          await awaitWithAbort(reader.cancel("Remote body exceeded its exact byte bound"), signal);
+          fail("Remote response body exceeds the exact expected byte length");
+        }
+        chunks.push(chunk);
+      }
+    } catch (error) {
+      if (!shouldCancel) {
+        try {
+          await awaitWithAbort(reader.cancel(error), signal);
+        } catch {
+          // Preserve the primary verification failure.
+        }
+      }
+      throw error;
+    } finally {
+      try {
+        reader.releaseLock?.();
+      } catch {
+        // The primary verification outcome governs cleanup-only lock failures.
+      }
+    }
+    return Buffer.concat(chunks, total);
+  }
+  if (!hasTrustedContentLength) {
+    fail("A non-streaming response requires an exact trustworthy Content-Length before bounded body read");
+  }
+  if (typeof result?.arrayBuffer !== "function") fail("Remote response does not expose a readable byte body");
+  return Buffer.from(await awaitWithAbort(result.arrayBuffer(), signal));
+}
+
 export async function verifyPublishedContent({
   expectedBytes,
   expectedByteLength,
@@ -382,6 +473,7 @@ export async function verifyPublishedContent({
   expectedUri,
   fetchImpl = globalThis.fetch,
   maxRedirects = 3,
+  timeoutMs = REMOTE_VERIFICATION_TIMEOUT_MS,
 }) {
   let exactBytes;
   if (expectedBytes !== undefined) {
@@ -390,6 +482,9 @@ export async function verifyPublishedContent({
     expectedSha256 = sha256Hex(exactBytes);
   }
   assertSafeByteLength(expectedByteLength, "expected byteLength");
+  if (expectedByteLength > MAX_REMOTE_CONTENT_BYTES) {
+    fail(`Expected content exceeds the ${MAX_REMOTE_CONTENT_BYTES}-byte verification cap`);
+  }
   assertDigest(expectedSha256, "expected sha256");
   validateContentAddressedUri(expectedUri);
   assertUriDigest(expectedUri, expectedSha256, "published content");
@@ -397,40 +492,62 @@ export async function verifyPublishedContent({
   if (!Number.isSafeInteger(maxRedirects) || maxRedirects < 0 || maxRedirects > 3) {
     fail("maxRedirects must be a safe integer from 0 through 3");
   }
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
+    fail("timeoutMs must be a safe integer from 1 through 60000");
+  }
 
+  const controller = new AbortController();
+  const timeoutError = new Error(`Remote verification timed out after ${timeoutMs}ms`);
+  timeoutError.name = "TimeoutError";
+  const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
   let currentUrl = resolvedContentUrl(expectedUri);
   const visited = new Set();
-  for (let redirectCount = 0; ; redirectCount += 1) {
-    assertProviderUrl(currentUrl, expectedUri);
-    if (visited.has(currentUrl)) fail("Redirect loop detected");
-    visited.add(currentUrl);
-    const result = await fetchImpl(currentUrl, { method: "GET", redirect: "manual" });
-    const status = Number.isInteger(result?.status) ? result.status : (result?.ok ? 200 : 0);
-    if (status >= 300 && status < 400) {
-      if (redirectCount >= maxRedirects) fail(`Remote verification exceeded ${maxRedirects} redirects`);
-      const location = result?.headers?.get?.("location");
-      if (!location) fail("Redirect response omitted Location");
-      const nextUrl = new URL(location, currentUrl).href;
-      assertProviderUrl(nextUrl, expectedUri);
-      if (visited.has(nextUrl)) fail("Redirect loop detected");
-      currentUrl = nextUrl;
-      continue;
+  try {
+    for (let redirectCount = 0; ; redirectCount += 1) {
+      assertProviderUrl(currentUrl, expectedUri);
+      if (visited.has(currentUrl)) fail("Redirect loop detected");
+      visited.add(currentUrl);
+      const result = await awaitWithAbort(
+        fetchImpl(currentUrl, { method: "GET", redirect: "manual", signal: controller.signal }),
+        controller.signal,
+      );
+      const status = Number.isInteger(result?.status) ? result.status : (result?.ok ? 200 : 0);
+      if (status >= 300 && status < 400) {
+        if (redirectCount >= maxRedirects) fail(`Remote verification exceeded ${maxRedirects} redirects`);
+        const location = result?.headers?.get?.("location");
+        if (!location) fail("Redirect response omitted Location");
+        const nextUrl = new URL(location, currentUrl).href;
+        assertProviderUrl(nextUrl, expectedUri);
+        if (visited.has(nextUrl)) fail("Redirect loop detected");
+        currentUrl = nextUrl;
+        continue;
+      }
+      if (!(status >= 200 && status < 300) || result?.ok === false) fail(`Remote verification failed with HTTP ${status}`);
+      const responseUrl = result?.url || currentUrl;
+      assertProviderUrl(responseUrl, expectedUri);
+      if (responseUrl !== currentUrl) fail("Remote response resolved URL changed content identity");
+      const contentLength = parseContentLengthHeader(result, expectedByteLength);
+      const observed = await readBoundedResponseBody(result, {
+        expectedByteLength,
+        signal: controller.signal,
+        hasTrustedContentLength: contentLength !== null,
+      });
+      if (observed.byteLength !== expectedByteLength) fail("Published content byte length does not match expected bytes");
+      const observedSha256 = sha256Hex(observed);
+      if (observedSha256 !== expectedSha256) fail("Published content digest does not match expected bytes");
+      if (exactBytes && !observed.equals(exactBytes)) fail("Published content bytes are not exactly equal");
+      return {
+        uri: expectedUri,
+        resolvedUrl: currentUrl,
+        byteLength: observed.byteLength,
+        sha256: observedSha256,
+      };
     }
-    if (!(status >= 200 && status < 300) || result?.ok === false) fail(`Remote verification failed with HTTP ${status}`);
-    const responseUrl = result?.url || currentUrl;
-    assertProviderUrl(responseUrl, expectedUri);
-    if (responseUrl !== currentUrl) fail("Remote response resolved URL changed content identity");
-    const observed = Buffer.from(await result.arrayBuffer());
-    if (observed.byteLength !== expectedByteLength) fail("Published content byte length does not match expected bytes");
-    const observedSha256 = sha256Hex(observed);
-    if (observedSha256 !== expectedSha256) fail("Published content digest does not match expected bytes");
-    if (exactBytes && !observed.equals(exactBytes)) fail("Published content bytes are not exactly equal");
-    return {
-      uri: expectedUri,
-      resolvedUrl: currentUrl,
-      byteLength: observed.byteLength,
-      sha256: observedSha256,
-    };
+  } catch (error) {
+    if (controller.signal.aborted && controller.signal.reason === timeoutError) throw timeoutError;
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -498,19 +615,61 @@ export async function resolveRepositoryPath(repositoryRoot, relativePath) {
   return candidate;
 }
 
-export async function publishArtifactBytes(outputPath, bytes, {
-  linkImpl = link,
-  mkdirImpl = mkdir,
-  openImpl = open,
-  randomUUIDImpl = randomUUID,
-  readFileImpl = readFile,
-  unlinkImpl = unlink,
-} = {}) {
+const METADATA_ARTIFACT_PATHS = new Set([
+  METADATA_IMAGE_PATH,
+  METADATA_JSON_PATH,
+  METADATA_DRAFT_PATH,
+  METADATA_MANIFEST_PATH,
+  METADATA_READBACK_PATH,
+]);
+
+export async function publishRepositoryArtifact({
+  repositoryRoot,
+  relativePath,
+  bytes,
+  publisherDependencies = {},
+  boundaryHooks = {},
+  onWarning = () => {},
+}) {
+  if (!METADATA_ARTIFACT_PATHS.has(relativePath)) {
+    fail("Publication path must be one exact fixed metadata artifact path");
+  }
+  const {
+    linkImpl = link,
+    mkdirImpl = mkdir,
+    openImpl = open,
+    randomUUIDImpl = randomUUID,
+    readFileImpl = readFile,
+    unlinkImpl = unlink,
+  } = publisherDependencies;
+  for (const [name, hook] of Object.entries(boundaryHooks)) {
+    if (!["afterInitialValidation", "beforeCommit", "afterCommit"].includes(name) || typeof hook !== "function") {
+      fail("Publication boundaryHooks contain an unsupported hook");
+    }
+  }
+  if (typeof onWarning !== "function") fail("onWarning must be a function");
+
   const exactBytes = Buffer.from(bytes);
-  const directory = path.dirname(outputPath);
-  await mkdirImpl(directory, { recursive: true });
+  const directoryRelativePath = path.posix.dirname(relativePath);
+  const initialOutputPath = await resolveRepositoryPath(repositoryRoot, relativePath);
+  const initialDirectoryPath = await resolveRepositoryPath(repositoryRoot, directoryRelativePath);
+  await mkdirImpl(initialDirectoryPath, { recursive: true });
+  await resolveRepositoryPath(repositoryRoot, directoryRelativePath);
+  await boundaryHooks.afterInitialValidation?.({
+    repositoryRoot,
+    relativePath,
+    outputPath: initialOutputPath,
+    directoryPath: initialDirectoryPath,
+  });
+
+  // Revalidate at the old validate-then-publish seam immediately before any
+  // existing-file read or exclusive temporary-file creation.
+  let outputPath = await resolveRepositoryPath(repositoryRoot, relativePath);
+  let directoryPath = await resolveRepositoryPath(repositoryRoot, directoryRelativePath);
+  if (path.dirname(outputPath) !== directoryPath) fail("Publication output is not confined to its verified repository directory");
   try {
     const existing = await readFileImpl(outputPath);
+    await resolveRepositoryPath(repositoryRoot, relativePath);
     if (Buffer.from(existing).equals(exactBytes)) {
       return { published: true, idempotent: true, outputPath, warnings: [] };
     }
@@ -519,12 +678,18 @@ export async function publishArtifactBytes(outputPath, bytes, {
     if (error?.code !== "ENOENT") throw error;
   }
 
-  const temporaryPath = path.join(directory, `.${path.basename(outputPath)}.${randomUUIDImpl()}.tmp`);
+  const temporaryName = `.${path.posix.basename(relativePath)}.${randomUUIDImpl()}.tmp`;
+  const temporaryRelativePath = path.posix.join(directoryRelativePath, temporaryName);
+  let temporaryPath = await resolveRepositoryPath(repositoryRoot, temporaryRelativePath);
+  directoryPath = await resolveRepositoryPath(repositoryRoot, directoryRelativePath);
+  if (path.dirname(temporaryPath) !== directoryPath) fail("Publication temporary path is not repository-confined");
+
   let handle;
   let ownsTemporaryPath = false;
   let operationError;
   let published = false;
   let idempotent = false;
+  let postCommitVerified = false;
   try {
     handle = await openImpl(temporaryPath, "wx", 0o600);
     ownsTemporaryPath = true;
@@ -532,16 +697,35 @@ export async function publishArtifactBytes(outputPath, bytes, {
     await handle.sync();
     await handle.close();
     handle = undefined;
+
+    await boundaryHooks.beforeCommit?.({ repositoryRoot, relativePath, outputPath, temporaryPath });
+    outputPath = await resolveRepositoryPath(repositoryRoot, relativePath);
+    temporaryPath = await resolveRepositoryPath(repositoryRoot, temporaryRelativePath);
+    directoryPath = await resolveRepositoryPath(repositoryRoot, directoryRelativePath);
+    if (path.dirname(outputPath) !== directoryPath || path.dirname(temporaryPath) !== directoryPath) {
+      fail("Publication paths changed confinement before hard-link commit");
+    }
     try {
       await linkImpl(temporaryPath, outputPath);
       published = true;
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
+      outputPath = await resolveRepositoryPath(repositoryRoot, relativePath);
       const existing = await readFileImpl(outputPath);
+      await resolveRepositoryPath(repositoryRoot, relativePath);
       if (!Buffer.from(existing).equals(exactBytes)) throw new Error("Existing artifact has different bytes and will not be replaced");
       published = true;
       idempotent = true;
     }
+
+    await boundaryHooks.afterCommit?.({ repositoryRoot, relativePath, outputPath, temporaryPath });
+    outputPath = await resolveRepositoryPath(repositoryRoot, relativePath);
+    temporaryPath = await resolveRepositoryPath(repositoryRoot, temporaryRelativePath);
+    directoryPath = await resolveRepositoryPath(repositoryRoot, directoryRelativePath);
+    if (path.dirname(outputPath) !== directoryPath || path.dirname(temporaryPath) !== directoryPath) {
+      fail("Publication paths changed confinement after hard-link commit");
+    }
+    postCommitVerified = true;
   } catch (error) {
     operationError = error;
   }
@@ -555,8 +739,9 @@ export async function publishArtifactBytes(outputPath, bytes, {
   }
 
   let unlinkError;
-  if (ownsTemporaryPath) {
+  if (ownsTemporaryPath && (postCommitVerified || !published)) {
     try {
+      temporaryPath = await resolveRepositoryPath(repositoryRoot, temporaryRelativePath);
       await unlinkImpl(temporaryPath);
     } catch (error) {
       if (error?.code !== "ENOENT") unlinkError = error;
@@ -569,6 +754,7 @@ export async function publishArtifactBytes(outputPath, bytes, {
     message: "Artifact is published. Temporary cleanup failed. Do not retry publication; remove only the owned temporary file.",
     temporaryPath,
   }] : [];
+  for (const warning of warnings) onWarning(warning);
   return { published: true, idempotent, outputPath, warnings };
 }
 
@@ -590,6 +776,7 @@ export async function prepareMetadataBundle({
   outDirectory,
   publisherDependencies,
   onCommit = () => {},
+  onWarning = () => {},
 }) {
   assertFixedPreparePaths(imagePath, outDirectory);
   validateContentAddressedUri(imageUri);
@@ -597,9 +784,6 @@ export async function prepareMetadataBundle({
   const metadataDirectoryPath = await resolveRepositoryPath(repositoryRoot, METADATA_DIRECTORY);
   await mkdir(metadataDirectoryPath, { recursive: true });
   await resolveRepositoryPath(repositoryRoot, METADATA_DIRECTORY);
-  const imageOutputPath = await resolveRepositoryPath(repositoryRoot, METADATA_IMAGE_PATH);
-  const jsonOutputPath = await resolveRepositoryPath(repositoryRoot, METADATA_JSON_PATH);
-  const draftOutputPath = await resolveRepositoryPath(repositoryRoot, METADATA_DRAFT_PATH);
   const imageBytes = await readFile(sourcePath);
   assertApprovedImage(imageBytes);
   assertUriDigest(imageUri, APPROVED_IMAGE_SHA256, "image");
@@ -623,19 +807,33 @@ export async function prepareMetadataBundle({
   };
   assertMetadataDraftV1(draft);
 
-  for (const [relativePath, outputPath, bytes] of [
-    [METADATA_IMAGE_PATH, imageOutputPath, imageBytes],
-    [METADATA_JSON_PATH, jsonOutputPath, metadataBytes],
+  for (const [relativePath, bytes] of [
+    [METADATA_IMAGE_PATH, imageBytes],
+    [METADATA_JSON_PATH, metadataBytes],
   ]) {
-    await publishArtifactBytes(outputPath, bytes, publisherDependencies);
+    await publishRepositoryArtifact({
+      repositoryRoot,
+      relativePath,
+      bytes,
+      publisherDependencies,
+      onWarning,
+    });
     onCommit(relativePath);
   }
+  const imageOutputPath = await resolveRepositoryPath(repositoryRoot, METADATA_IMAGE_PATH);
+  const jsonOutputPath = await resolveRepositoryPath(repositoryRoot, METADATA_JSON_PATH);
   const committedImage = await readFile(imageOutputPath);
   const committedMetadata = await readFile(jsonOutputPath);
   if (!committedImage.equals(imageBytes) || !committedMetadata.equals(metadataBytes)) {
     fail("Committed metadata inputs changed before draft publication");
   }
-  await publishArtifactBytes(draftOutputPath, serializeMetadataDraft(draft), publisherDependencies);
+  await publishRepositoryArtifact({
+    repositoryRoot,
+    relativePath: METADATA_DRAFT_PATH,
+    bytes: serializeMetadataDraft(draft),
+    publisherDependencies,
+    onWarning,
+  });
   onCommit(METADATA_DRAFT_PATH);
   return draft;
 }

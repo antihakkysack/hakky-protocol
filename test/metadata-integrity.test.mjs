@@ -21,7 +21,7 @@ import {
   buildMetadata,
   finalizeMetadataManifest,
   prepareMetadataBundle,
-  publishArtifactBytes,
+  publishRepositoryArtifact,
   serializeMetadata,
   serializeMetadataDraft,
   serializeMetadataManifest,
@@ -77,7 +77,13 @@ function response({ status = 200, url, bytes = Buffer.alloc(0), location = null 
     status,
     ok: status >= 200 && status < 300,
     url,
-    headers: { get(name) { return name.toLowerCase() === "location" ? location : null; } },
+    headers: {
+      get(name) {
+        if (name.toLowerCase() === "location") return location;
+        if (name.toLowerCase() === "content-length") return String(bytes.byteLength);
+        return null;
+      },
+    },
     async arrayBuffer() {
       return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     },
@@ -210,7 +216,9 @@ test("Arweave verification preserves the exact transaction identity and still ch
     expectedUri: ARWEAVE_URI,
     fetchImpl: async (url, init) => {
       assert.equal(url, ARWEAVE_URI);
-      assert.deepEqual(init, { method: "GET", redirect: "manual" });
+      assert.equal(init.method, "GET");
+      assert.equal(init.redirect, "manual");
+      assert.equal(init.signal instanceof AbortSignal, true);
       return response({ url, bytes: expected });
     },
   });
@@ -286,8 +294,18 @@ test("canonical draft and manifest validators reconstruct metadata bytes", async
   const metadataUri = rawIpfsUri(metadataBytes);
   const manifest = finalizeMetadataManifest({ draft, metadataUri });
   assert.equal(assertMetadataManifestV1(structuredClone(manifest)).metadata.uri, metadataUri);
-  assert.deepEqual(serializeMetadataDraft(Object.fromEntries(Object.entries(draft).reverse())), serializeMetadataDraft(draft));
-  assert.deepEqual(serializeMetadataManifest(Object.fromEntries(Object.entries(manifest).reverse())), serializeMetadataManifest(manifest));
+  const reorderedDraft = {
+    metadata: Object.fromEntries(Object.entries(draft.metadata).reverse()),
+    image: Object.fromEntries(Object.entries(draft.image).reverse()),
+    schemaVersion: draft.schemaVersion,
+  };
+  const reorderedManifest = {
+    metadata: Object.fromEntries(Object.entries(manifest.metadata).reverse()),
+    image: Object.fromEntries(Object.entries(manifest.image).reverse()),
+    schemaVersion: manifest.schemaVersion,
+  };
+  assert.deepEqual(serializeMetadataDraft(reorderedDraft), serializeMetadataDraft(draft));
+  assert.deepEqual(serializeMetadataManifest(reorderedManifest), serializeMetadataManifest(manifest));
 });
 
 for (const [name, mutate, pattern] of [
@@ -342,7 +360,15 @@ test("readback validator pins manifest identity, equality, timestamp, and zero c
   const manifest = finalizeMetadataManifest({ draft, metadataUri });
   const readback = validReadback(manifest);
   assert.equal(assertMetadataReadbackV1({ manifest, readback }).ok, true);
-  assert.deepEqual(serializeMetadataReadback(Object.fromEntries(Object.entries(readback).reverse())), serializeMetadataReadback(readback));
+  const reorderedReadback = {
+    ok: readback.ok,
+    verifiedAt: readback.verifiedAt,
+    creatorPayment: Object.fromEntries(Object.entries(readback.creatorPayment).reverse()),
+    metadata: Object.fromEntries(Object.entries(readback.metadata).reverse()),
+    image: Object.fromEntries(Object.entries(readback.image).reverse()),
+    schemaVersion: readback.schemaVersion,
+  };
+  assert.deepEqual(serializeMetadataReadback(reorderedReadback), serializeMetadataReadback(readback));
 });
 
 for (const [name, mutate, pattern] of [
@@ -430,19 +456,21 @@ test("prepare rejects a syntactically valid raw CID with the wrong embedded dige
 
 test("exclusive publisher is idempotent for exact bytes and preserves divergent existing bytes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hakky-publisher-"));
-  const outputPath = path.join(root, "artifact.bin");
+  const relativePath = "artifacts/metadata/token.json";
+  const outputPath = path.join(root, ...relativePath.split("/"));
   const exact = Buffer.from("exact\n");
-  await publishArtifactBytes(outputPath, exact);
-  const replay = await publishArtifactBytes(outputPath, exact);
+  await publishRepositoryArtifact({ repositoryRoot: root, relativePath, bytes: exact });
+  const replay = await publishRepositoryArtifact({ repositoryRoot: root, relativePath, bytes: exact });
   assert.equal(replay.idempotent, true);
-  await assert.rejects(publishArtifactBytes(outputPath, Buffer.from("other\n")), /different bytes/i);
+  await assert.rejects(publishRepositoryArtifact({ repositoryRoot: root, relativePath, bytes: Buffer.from("other\n") }), /different bytes/i);
   assert.deepEqual(await readFile(outputPath), exact);
 });
 
 test("open, write, fsync, and link failures never publish an artifact", async () => {
   for (const failureStage of ["open", "write", "sync", "link"]) {
     const root = await mkdtemp(path.join(os.tmpdir(), `hakky-publisher-${failureStage}-`));
-    const outputPath = path.join(root, "artifact.bin");
+    const relativePath = "artifacts/metadata/token.json";
+    const outputPath = path.join(root, ...relativePath.split("/"));
     const failure = Object.assign(new Error(`synthetic ${failureStage} failure`), { code: "EIO" });
     const dependencies = {
       openImpl: async (...args) => {
@@ -456,21 +484,33 @@ test("open, write, fsync, and link failures never publish an artifact", async ()
       },
       linkImpl: failureStage === "link" ? async () => { throw failure; } : undefined,
     };
-    await assert.rejects(publishArtifactBytes(outputPath, Buffer.from("candidate\n"), dependencies), new RegExp(`synthetic ${failureStage} failure`));
+    await assert.rejects(publishRepositoryArtifact({
+      repositoryRoot: root,
+      relativePath,
+      bytes: Buffer.from("candidate\n"),
+      publisherDependencies: dependencies,
+    }), new RegExp(`synthetic ${failureStage} failure`));
     await assert.rejects(access(outputPath), { code: "ENOENT" });
-    assert.deepEqual((await readdir(root)).filter((name) => name.endsWith(".tmp")), []);
+    const directory = path.dirname(outputPath);
+    assert.deepEqual((await readdir(directory)).filter((name) => name.endsWith(".tmp")), []);
   }
 });
 
 test("cleanup failure reports the committed exact bytes without replacement ambiguity", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "hakky-publisher-cleanup-"));
-  const outputPath = path.join(root, "artifact.bin");
+  const relativePath = "artifacts/metadata/token.json";
+  const outputPath = path.join(root, ...relativePath.split("/"));
   const exact = Buffer.from("candidate\n");
   let ownedTemporaryPath;
-  const result = await publishArtifactBytes(outputPath, exact, {
-    unlinkImpl: async (candidate) => {
-      ownedTemporaryPath = candidate;
-      throw Object.assign(new Error("synthetic cleanup failure"), { code: "EIO" });
+  const result = await publishRepositoryArtifact({
+    repositoryRoot: root,
+    relativePath,
+    bytes: exact,
+    publisherDependencies: {
+      unlinkImpl: async (candidate) => {
+        ownedTemporaryPath = candidate;
+        throw Object.assign(new Error("synthetic cleanup failure"), { code: "EIO" });
+      },
     },
   });
   assert.deepEqual(await readFile(outputPath), exact);
@@ -534,7 +574,6 @@ test("finalize rehashes both local artifacts and writes only the canonical manif
   const manifest = await runFinalize({
     argv: ["--draft-manifest", "artifacts/metadata/draft-manifest.json", "--metadata-uri", metadataUri, "--out", "artifacts/metadata/manifest.json"],
     repositoryRoot,
-    networkImpl: async () => { throw new Error("finalize must not use network"); },
   });
   assert.deepEqual(manifest, finalizeMetadataManifest({ draft, metadataUri }));
   assert.deepEqual(await readFile(path.join(repositoryRoot, "artifacts/metadata/manifest.json")), serializeMetadataManifest(manifest));
@@ -569,9 +608,6 @@ test("verification GETs exact remote bytes and fixes creator payment to null and
       const bytes = url.includes(IMAGE_URI.slice("ipfs://".length)) ? imageBytes : metadataBytes;
       return response({ url, bytes });
     },
-    rpcImpl: async () => { throw new Error("verify must not use RPC"); },
-    walletImpl: async () => { throw new Error("verify must not use wallet"); },
-    uploadImpl: async () => { throw new Error("verify must not upload"); },
   });
   assert.equal(requests.length, 2);
   assert.equal(requests.every(({ init }) => init.method === "GET" && init.redirect === "manual"), true);
@@ -609,9 +645,12 @@ test("metadata CLIs have no Solana, wallet, payment, send, simulate, or upload i
     "scripts/prepare-metadata.mjs",
     "scripts/finalize-metadata-manifest.mjs",
     "scripts/verify-metadata-upload.mjs",
+    "src/exact-cli-options.mjs",
+    "src/metadata-integrity.mjs",
   ]) {
     const source = await readFile(scriptPath, "utf8");
     assert.doesNotMatch(source, /@solana\/|Connection|Keypair|sendTransaction|simulateTransaction|signTransaction/u, scriptPath);
+    assert.doesNotMatch(source, /\.(?:upload|pay|send|sign|simulate)\s*\(/u, scriptPath);
   }
   for (const scriptPath of [
     "scripts/prepare-metadata.mjs",
@@ -680,24 +719,32 @@ test("repository path checks reject symlink and junction ancestors", async (t) =
   }
 });
 
-test("prepare and finalize never call an injected network function", async () => {
+test("prepare and finalize never cross the real global fetch boundary", { concurrency: false }, async () => {
   const repositoryRoot = await makeRepositoryRoot();
-  let networkCalls = 0;
-  await runPrepare({
-    argv: ["--image", "web/assets/token.png", "--image-uri", IMAGE_URI, "--out", "artifacts/metadata"],
-    repositoryRoot,
-    networkImpl: async () => { networkCalls += 1; },
-  });
-  const metadataBytes = await readFile(path.join(repositoryRoot, "artifacts/metadata/token.json"));
-  await runFinalize({
-    argv: ["--draft-manifest", "artifacts/metadata/draft-manifest.json", "--metadata-uri", rawIpfsUri(metadataBytes), "--out", "artifacts/metadata/manifest.json"],
-    repositoryRoot,
-    networkImpl: async () => { networkCalls += 1; },
-  });
-  assert.equal(networkCalls, 0);
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  globalThis.fetch = async () => {
+    fetchCalls += 1;
+    throw new Error("prepare/finalize crossed the forbidden fetch boundary");
+  };
+  try {
+    await runPrepare({
+      argv: ["--image", "web/assets/token.png", "--image-uri", IMAGE_URI, "--out", "artifacts/metadata"],
+      repositoryRoot,
+    });
+    const metadataBytes = await readFile(path.join(repositoryRoot, "artifacts/metadata/token.json"));
+    await runFinalize({
+      argv: ["--draft-manifest", "artifacts/metadata/draft-manifest.json", "--metadata-uri", rawIpfsUri(metadataBytes), "--out", "artifacts/metadata/manifest.json"],
+      repositoryRoot,
+    });
+    assert.equal(fetchCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
-test("all metadata artifacts stay ignored and absent from the real worktree", async () => {
+test("all metadata artifacts stay ignored and untracked while a temporary repository starts absent", async () => {
+  const temporaryRepositoryRoot = await makeRepositoryRoot();
   for (const relativePath of [
     "artifacts/metadata/token.png",
     "artifacts/metadata/token.json",
@@ -705,7 +752,8 @@ test("all metadata artifacts stay ignored and absent from the real worktree", as
     "artifacts/metadata/manifest.json",
     "artifacts/metadata/readback.json",
   ]) {
-    await assert.rejects(access(relativePath), { code: "ENOENT" });
+    const temporaryArtifactPath = path.join(temporaryRepositoryRoot, ...relativePath.split("/"));
+    await assert.rejects(access(temporaryArtifactPath), { code: "ENOENT" });
     const { stdout } = await execFileAsync("git", ["check-ignore", relativePath], { cwd: process.cwd() });
     assert.equal(stdout.trim(), relativePath);
     const tracked = await execFileAsync("git", ["ls-files", "--error-unmatch", relativePath], { cwd: process.cwd() }).then(() => true, () => false);

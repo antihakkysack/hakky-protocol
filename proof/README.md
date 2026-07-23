@@ -74,7 +74,10 @@ rehashes both local leaves, recomputes the full canonical metadata bytes, and
 writes `manifest.json` without uploading. `metadata:verify` performs only
 bounded manual-redirect HTTPS `GET` requests and writes `readback.json` only
 after both remote byte lengths and SHA-256 digests exactly match the validated
-manifest.
+manifest. One overall 15-second `AbortController` deadline covers fetch,
+redirect, and body reads. Native bodies are streamed through the 74,230-byte
+maximum and cancelled on overflow; `arrayBuffer()` is permitted only when an
+exact trustworthy `Content-Length` proves the body is bounded first.
 
 All five leaves under `artifacts/metadata/` are ignored and fixed-path. Writers
 are no-clobber and exact-byte idempotent. A raw IPFS CID must embed the digest of
@@ -83,6 +86,16 @@ transaction ID is treated as an exact content identity and remote equality is
 still mandatory. Same-provider redirects may not change hostname, canonical
 path, or content identity. The readback creator-payment record is always the
 contract constant `{ "signature": null, "debitLamports": "0" }`.
+
+Artifact publication accepts only the verified repository root plus one fixed
+relative metadata path and repeats `lstat`/`realpath` confinement immediately
+before temporary creation, before the hard-link commit, and after commit. The
+workspace must be trusted and exclusively controlled for the command duration.
+This does not claim race-free sandboxing against a privileged concurrent local
+process because Node lacks portable handle-relative `openat`/link operations;
+stop if exclusive control is false. Permanent tests assert the five leaves stay
+ignored and untracked, while current absence is a one-time controller check
+before the separately approved provider workflow.
 
 Image and metadata uploads remain separately approved browser/provider actions.
 The selected flow must not connect a Solana wallet or request SOL, token, or

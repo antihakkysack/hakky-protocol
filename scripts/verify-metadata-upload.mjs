@@ -1,12 +1,12 @@
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { parseExactCliOptions } from "../src/exact-cli-options.mjs";
 import {
   METADATA_MANIFEST_PATH,
   METADATA_READBACK_PATH,
   assertMetadataManifestV1,
-  publishArtifactBytes,
+  publishRepositoryArtifact,
   readCanonicalArtifact,
-  resolveRepositoryPath,
   serializeMetadataManifest,
   serializeMetadataReadback,
   verifyPublishedMetadata,
@@ -15,26 +15,26 @@ import {
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const USAGE = `Usage: npm run metadata:verify -- --manifest ${METADATA_MANIFEST_PATH} --out ${METADATA_READBACK_PATH}`;
 
-function parseNamedOptions(argv, names) {
-  if (!Array.isArray(argv) || argv.length !== names.length * 2) throw new Error(USAGE);
-  const parsed = {};
-  for (let index = 0; index < argv.length; index += 2) {
-    const name = argv[index];
-    const value = argv[index + 1];
-    if (!names.includes(name) || Object.hasOwn(parsed, name) || typeof value !== "string" || value.length === 0 || value.startsWith("--")) {
-      throw new Error(USAGE);
-    }
-    parsed[name] = value;
-  }
-  if (names.some((name) => !Object.hasOwn(parsed, name))) throw new Error(USAGE);
-  return parsed;
-}
-
 export function parseVerifyOptions(argv) {
-  const parsed = parseNamedOptions(argv, ["--manifest", "--out"]);
-  if (parsed["--manifest"] !== METADATA_MANIFEST_PATH) throw new Error(`--manifest must be the fixed path ${METADATA_MANIFEST_PATH}`);
-  if (parsed["--out"] !== METADATA_READBACK_PATH) throw new Error(`--out must be the fixed path ${METADATA_READBACK_PATH}`);
-  return { manifestPath: parsed["--manifest"], outputPath: parsed["--out"] };
+  return parseExactCliOptions(argv, {
+    usage: USAGE,
+    definitions: [
+      {
+        flag: "--manifest",
+        key: "manifestPath",
+        validate(value) {
+          if (value !== METADATA_MANIFEST_PATH) throw new Error(`--manifest must be the fixed path ${METADATA_MANIFEST_PATH}`);
+        },
+      },
+      {
+        flag: "--out",
+        key: "outputPath",
+        validate(value) {
+          if (value !== METADATA_READBACK_PATH) throw new Error(`--out must be the fixed path ${METADATA_READBACK_PATH}`);
+        },
+      },
+    ],
+  });
 }
 
 export async function runVerify({
@@ -43,6 +43,7 @@ export async function runVerify({
   fetchImpl = globalThis.fetch,
   now = () => new Date(),
   publisherDependencies,
+  onWarning,
 } = {}) {
   const options = parseVerifyOptions(argv);
   const { value: manifest } = await readCanonicalArtifact(
@@ -52,14 +53,23 @@ export async function runVerify({
     assertMetadataManifestV1,
   );
   const readback = await verifyPublishedMetadata({ manifest, fetchImpl, now });
-  const outputPath = await resolveRepositoryPath(repositoryRoot, options.outputPath);
-  await publishArtifactBytes(outputPath, serializeMetadataReadback(readback), publisherDependencies);
+  await publishRepositoryArtifact({
+    repositoryRoot,
+    relativePath: options.outputPath,
+    bytes: serializeMetadataReadback(readback),
+    publisherDependencies,
+    onWarning,
+  });
   return readback;
 }
 
 export async function main({ stdout = process.stdout, stderr = process.stderr, runImpl = runVerify } = {}) {
   try {
-    const readback = await runImpl();
+    const readback = await runImpl({
+      onWarning(warning) {
+        stderr.write(`${warning.message} Temporary path: ${warning.temporaryPath}\n`);
+      },
+    });
     stdout.write(serializeMetadataReadback(readback));
     return 0;
   } catch (error) {
