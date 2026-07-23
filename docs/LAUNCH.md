@@ -116,18 +116,21 @@ and require `ok: true`. Live publication is fail-closed: the site checker reads
 both files, rejects unknown fields, and cross-checks the exact mint, creator,
 launch address and signature, supply, decimals, authorities, zero creator
 balance, metadata URI/image/links/immutability, 80/20/0 allocation, disabled
-creator fees, burned LP, 24 SOL target, SOL quote, and creator spend no greater
-than 1.00 SOL.
+creator fees, configured migration policy, 24 SOL target, SOL quote, and
+creator spend no greater than 1.00 SOL. LP irreversibility is not claimed until
+the separate graduation artifact proves the final disposition.
 
 The mint proof timestamp must not be later than the LaunchLab proof timestamp.
-The web record stores both exact artifact timestamps and a final promotion
-timestamp ordered after them. Canonical destinations are the Solscan token
+The web record stores the exact artifact observations. The operator supplies a
+publication timestamp ordered after them as a command gate; it is not
+serialized as an observed fact. Canonical destinations are the Solscan token
 route, Solscan transaction route, and Raydium LaunchLab token route; credentials,
 non-default ports, fragments, alternate routes, and extra query parameters are
 rejected.
 
-After both canonical artifacts are complete, generate the exact live record
-with `npm run build:live-record -- --verified-at <exact-ISO-8601-UTC-timestamp>`.
+After both canonical artifacts are complete, generate the exact curve-live
+record with
+`npm run build:curve-live-record -- --published-at <exact-ISO-8601-UTC-timestamp>`.
 The command accepts no mint, launch, URL, allocation, metadata, or spend
 override: it copies those values from the validated artifacts and writes
 `web/data/launch.json` only after the complete cross-check passes.

@@ -2,8 +2,8 @@ import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
-  loadCanonicalProofsForLaunch,
-  validateCanonicalProofBinding,
+  loadCurveProofArtifacts,
+  validateCurveProofBinding,
 } from "../src/canonical-proof.mjs";
 import { validateLaunchRecord } from "../web/lib/launch-policy.js";
 
@@ -57,6 +57,7 @@ const atRoot = (root, relativePath) => path.join(root, ...relativePath.split("/"
 export async function checkSite({ root = PROJECT_ROOT } = {}) {
   const html = await readFile(atRoot(root, "web/index.html"), "utf8");
   const script = await readFile(atRoot(root, "web/app.js"), "utf8");
+  const launchView = await readFile(atRoot(root, "web/lib/launch-view.js"), "utf8");
   const launch = JSON.parse(await readFile(atRoot(root, "web/data/launch.json"), "utf8"));
   const missing = [
     ...REQUIRED_HTML.filter((value) => !html.toLowerCase().includes(value.toLowerCase())),
@@ -66,7 +67,10 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
   const safetyIssues = [];
   const canonicalIssues = [];
 
-  if (!script.includes("validateLaunchRecord")) safetyIssues.push("app.js must validate the launch record");
+  if (!script.includes('from "./lib/launch-view.js"')
+    || !launchView.includes("validateLaunchRecord")) {
+    safetyIssues.push("app.js lifecycle adapter must validate the launch record");
+  }
   if (!script.includes("PROOF UNAVAILABLE: Do not trust contract addresses from replies or DMs.")) {
     safetyIssues.push("app.js must retain the proof-unavailable warning");
   }
@@ -83,15 +87,29 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
     safetyIssues.push("prelaunch source must not contain mint proof or destinations");
   }
 
-  let canonicalProofs = { mintProof: null, launchlabProof: null };
+  let canonicalProofs = {
+    mintArtifact: null,
+    launchlabArtifact: null,
+    graduationArtifact: null,
+  };
   try {
-    canonicalProofs = await loadCanonicalProofsForLaunch(launch, { root });
-    if (launch.status === "live") {
-      canonicalIssues.push(...validateCanonicalProofBinding(
-        launch,
-        canonicalProofs.mintProof,
-        canonicalProofs.launchlabProof,
-      ));
+    if (launch.proof?.availability === "verified" && launch.status === "curve-live") {
+      canonicalProofs = {
+        ...canonicalProofs,
+        ...await loadCurveProofArtifacts({ root }),
+      };
+      canonicalIssues.push(...validateCurveProofBinding({
+        record: launch,
+        mintArtifact: canonicalProofs.mintArtifact,
+        launchlabArtifact: canonicalProofs.launchlabArtifact,
+      }));
+    } else if (launch.proof?.availability === "verified" && launch.status === "graduated") {
+      canonicalIssues.push("graduated canonical binding is not implemented");
+    } else if (launch.proof?.availability === "unavailable") {
+      if (launch.token?.mint !== null
+        || Object.keys(launch.proof).sort().join(",") !== "availability,stage") {
+        canonicalIssues.push("unavailable launch record must expose only stage and availability");
+      }
     }
   } catch (error) {
     canonicalIssues.push(error instanceof Error ? error.message : String(error));

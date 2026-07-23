@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { buildUnavailableRecord } from "../src/canonical-proof.mjs";
+import { publishUnavailableRecord } from "../src/record-output.mjs";
+import {
+  buildUnavailableRecordFile,
+  parseArguments,
+} from "../scripts/build-unavailable-record.mjs";
 import {
   createCurveLiveRecordV2,
   createPrelaunchRecordV2,
@@ -225,5 +238,170 @@ test("unavailable builder rejects regressions, jumps, and irrelevant receipt cha
       stageReceipt: graduatedReceipt(),
     }),
     /unavailable-/,
+  );
+});
+
+test("publishes both content-addressed receipts before atomically replacing public state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-unavailable-output-"));
+  const targetPath = path.join(root, "web", "data", "launch.json");
+  const artifactsRoot = path.join(root, "artifacts");
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  const sourceBytes = Buffer.from(`${JSON.stringify(createPrelaunchRecordV2(), null, 2)}\n`);
+  await writeFile(targetPath, sourceBytes);
+  const stageReceipt = curveReceipt();
+  const { record, continuityReceipt } = buildUnavailableRecord({
+    sourceRecord: createPrelaunchRecordV2(),
+    stageReceipt,
+  });
+
+  const result = await publishUnavailableRecord({
+    targetPath,
+    record,
+    stageReceipt,
+    continuityReceipt,
+    artifactsRoot,
+  });
+  assert.equal(result.committed, true);
+  assert.deepEqual(result.warnings, []);
+  assert.equal(
+    await readFile(result.stageReceiptPath, "utf8"),
+    `${JSON.stringify(stageReceipt, null, 2)}\n`,
+  );
+  assert.equal(
+    await readFile(result.continuityReceiptPath, "utf8"),
+    `${JSON.stringify(continuityReceipt, null, 2)}\n`,
+  );
+  assert.deepEqual(JSON.parse(await readFile(targetPath, "utf8")), record);
+});
+
+test("receipt validation, write, and append-only conflicts never attempt the public rename", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-unavailable-failure-"));
+  const targetPath = path.join(root, "web", "data", "launch.json");
+  const artifactsRoot = path.join(root, "artifacts");
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  const sourceBytes = Buffer.from(`${JSON.stringify(createPrelaunchRecordV2(), null, 2)}\n`);
+  await writeFile(targetPath, sourceBytes);
+  const stageReceipt = curveReceipt();
+  const { record, continuityReceipt } = buildUnavailableRecord({
+    sourceRecord: createPrelaunchRecordV2(),
+    stageReceipt,
+  });
+  let publicAttempts = 0;
+  const publicPublisher = async () => {
+    publicAttempts += 1;
+    throw new Error("must not publish");
+  };
+
+  const tamperedContinuity = structuredClone(continuityReceipt);
+  tamperedContinuity.publicRecordSha256 = "0".repeat(64);
+  await assert.rejects(
+    publishUnavailableRecord({
+      targetPath,
+      record,
+      stageReceipt,
+      continuityReceipt: tamperedContinuity,
+      artifactsRoot,
+      publishLaunchRecordImpl: publicPublisher,
+    }),
+    /unavailable-publication-invalid/,
+  );
+  assert.equal(publicAttempts, 0);
+
+  await assert.rejects(
+    publishUnavailableRecord({
+      targetPath,
+      record,
+      stageReceipt,
+      continuityReceipt,
+      artifactsRoot,
+      publishLaunchRecordImpl: publicPublisher,
+      fileSystem: {
+        open: async () => {
+          throw new Error("injected receipt write failure");
+        },
+      },
+    }),
+    /receipt-publication/,
+  );
+  assert.equal(publicAttempts, 0);
+  assert.deepEqual(await readFile(targetPath), sourceBytes);
+
+  const stagePath = path.join(
+    artifactsRoot,
+    "launch",
+    "stage-receipts",
+    `${continuityReceipt.stageReceiptSha256}.json`,
+  );
+  await mkdir(path.dirname(stagePath), { recursive: true });
+  await writeFile(stagePath, "conflicting bytes\n");
+  await assert.rejects(
+    publishUnavailableRecord({
+      targetPath,
+      record,
+      stageReceipt,
+      continuityReceipt,
+      artifactsRoot,
+      publishLaunchRecordImpl: publicPublisher,
+    }),
+    /receipt-publication/,
+  );
+  assert.equal(publicAttempts, 0);
+  assert.deepEqual(await readFile(targetPath), sourceBytes);
+});
+
+test("operator command promotes both stages from ignored evidence and discovers prior continuity", async () => {
+  assert.deepEqual(parseArguments([]), { stageEvidence: null });
+  assert.deepEqual(parseArguments(["--stage-evidence", "artifacts/stage.json"]), {
+    stageEvidence: "artifacts/stage.json",
+  });
+  for (const argv of [
+    ["--stage-evidence"],
+    ["--other", "artifacts/stage.json"],
+    ["--stage-evidence", "artifacts/stage.json", "--extra"],
+  ]) {
+    assert.throws(() => parseArguments(argv), /Usage:/);
+  }
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-unavailable-command-"));
+  const targetPath = path.join(root, "web", "data", "launch.json");
+  const evidenceDirectory = path.join(root, "artifacts", "launch", "stage-observations");
+  await mkdir(path.dirname(targetPath), { recursive: true });
+  await mkdir(evidenceDirectory, { recursive: true });
+  await writeFile(
+    targetPath,
+    `${JSON.stringify(createPrelaunchRecordV2(), null, 2)}\n`,
+  );
+  const curveEvidencePath = path.join(evidenceDirectory, "curve.json");
+  await writeFile(curveEvidencePath, `${JSON.stringify(curveReceipt(), null, 2)}\n`);
+  const curve = await buildUnavailableRecordFile({
+    root,
+    stageEvidence: path.relative(root, curveEvidencePath),
+  });
+  assert.equal(curve.record.status, "curve-live");
+  assert.equal(curve.publication.committed, true);
+
+  const noOp = await buildUnavailableRecordFile({ root });
+  assert.equal(noOp.publication.idempotent, true);
+  assert.deepEqual(noOp.record, curve.record);
+
+  const graduationEvidencePath = path.join(evidenceDirectory, "graduated.json");
+  await writeFile(
+    graduationEvidencePath,
+    `${JSON.stringify(graduatedReceipt(), null, 2)}\n`,
+  );
+  const graduated = await buildUnavailableRecordFile({
+    root,
+    stageEvidence: path.relative(root, graduationEvidencePath),
+  });
+  assert.equal(graduated.record.status, "graduated");
+  assert.equal(graduated.publication.committed, true);
+  assert.deepEqual(JSON.parse(await readFile(targetPath, "utf8")), graduated.record);
+
+  await assert.rejects(
+    buildUnavailableRecordFile({
+      root,
+      stageEvidence: path.join(root, "outside.json"),
+    }),
+    /unavailable-stage-evidence-path/,
   );
 });

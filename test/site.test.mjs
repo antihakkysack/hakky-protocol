@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildLaunchView, renderLaunchState } from "../web/app.js";
-import { createValidLiveRecord } from "../test-support/launch-fixtures.mjs";
+import { createCurveLiveRecordV2 } from "../test-support/launch-fixtures.mjs";
+
+const createValidLiveRecord = () => createCurveLiveRecordV2();
 
 const html = await readFile("web/index.html", "utf8");
 const record = JSON.parse(await readFile("web/data/launch.json", "utf8"));
@@ -156,7 +158,10 @@ function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {})
   assert.match(element("[data-launch-status]").textContent, statusPattern);
   assert.equal(element("[data-mint]").textContent, "Not published");
   assert.equal(element("[data-supply]").textContent, "Required: 1,000,000");
-  assert.equal(element("[data-mint-authority]").textContent, "Required: null");
+  assert.equal(
+    element("[data-mint-authority]").textContent,
+    "Required: LaunchLab PDA on curve; null after graduation",
+  );
   assert.equal(element("[data-freeze-authority]").textContent, "Required: null");
   assert.equal(element("[data-team-allocation]").textContent, "Required: 0%");
   assert.equal(element("[data-decimals]").textContent, "Required: 6");
@@ -164,7 +169,7 @@ function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {})
   assert.equal(element("[data-creator-balance]").textContent, "Required: 0 HAKKY");
   assert.equal(element("[data-allocation]").textContent, "Required: 80% / 20% / 0%");
   assert.equal(element("[data-creator-fee]").textContent, "Required: off");
-  assert.equal(element("[data-lp-policy]").textContent, "Required: burned");
+  assert.equal(element("[data-lp-policy]").textContent, "Required: irreversible at graduation");
   assert.equal(element("[data-creator-spend]").textContent, "Required: <= 1.00 SOL");
   assert.equal(element("[data-verification-time]").textContent, "Not verified");
   assert.equal(element("[data-launch-transaction]").textContent, "Not published");
@@ -260,10 +265,10 @@ test("homepage keeps exact account destinations and complete live proof structur
 
 test("prelaunch view never exposes buy links", () => {
   const view = buildLaunchView(record);
-  assert.equal(view.live, false);
+  assert.equal(view.verified, false);
   assert.equal(view.mint, null);
-  assert.equal(view.solscanUrl, null);
-  assert.equal(view.raydiumUrl, null);
+  assert.equal(view.destinations.solscanMint, null);
+  assert.equal(view.destinations.raydiumLaunchlab, null);
 });
 
 test("valid live record renders exact verified evidence and official destinations", async () => {
@@ -273,30 +278,48 @@ test("valid live record renders exact verified evidence and official destination
   await renderLaunchState(documentRef, responseFor(live));
 
   const element = (selector) => documentRef.elements.get(selector);
-  assert.equal(element("[data-launch-status]").textContent, "LIVE: Verify the exact mint before interacting.");
-  assert.equal(element("[data-mint]").textContent, live.proof.mint);
+  assert.equal(element("[data-launch-status]").textContent, "CURVE LIVE - PROGRAM AUTHORITY ACTIVE");
+  assert.equal(element("[data-mint]").textContent, live.token.mint);
   assert.equal(element("[data-supply]").textContent, "1,000,000 (verified)");
-  assert.equal(element("[data-mint-authority]").textContent, "null (verified)");
+  assert.equal(
+    element("[data-mint-authority]").textContent,
+    `${live.proof.authorities.mintAuthority} (LaunchLab PDA, verified)`,
+  );
   assert.equal(element("[data-freeze-authority]").textContent, "null (verified)");
   assert.equal(element("[data-team-allocation]").textContent, "0% (verified)");
   assert.equal(element("[data-metadata]").textContent, "immutable (verified)");
   assert.equal(element("[data-decimals]").textContent, "6 (verified)");
-  assert.equal(element("[data-creator]").textContent, live.proof.creator);
+  assert.equal(element("[data-creator]").textContent, live.proof.creatorBalance.owner);
   assert.equal(element("[data-creator-balance]").textContent, "0 HAKKY (verified)");
   assert.equal(element("[data-allocation]").textContent, "80% curve / 20% liquidity / 0% team (verified)");
   assert.equal(element("[data-creator-fee]").textContent, "off (verified)");
-  assert.equal(element("[data-lp-policy]").textContent, "burned (verified)");
-  assert.equal(element("[data-creator-spend]").textContent, "0.25 SOL / 1.00 SOL cap (verified)");
-  assert.equal(element("[data-verification-time]").textContent, live.proof.verifiedAt);
-  assert.equal(element("[data-launch-transaction]").textContent, live.proof.launchTransaction);
+  assert.equal(
+    element("[data-lp-policy]").textContent,
+    "Pending graduation (irreversibility not yet observable)",
+  );
+  assert.equal(element("[data-creator-spend]").textContent, "0.000003 SOL / 1 SOL cap (verified)");
+  assert.equal(element("[data-verification-time]").textContent, live.proof.observation.checkedAt);
+  assert.equal(
+    element("[data-launch-transaction]").textContent,
+    live.proof.transactions.creation.signature,
+  );
   assert.equal(
     element("[data-launch-transaction]").getAttribute("href"),
-    live.proof.solscanTransactionUrl,
+    live.proof.links.solscanCreationTransaction,
   );
-  assert.equal(element("[data-solscan]").getAttribute("href"), live.proof.solscanUrl);
-  assert.equal(element("[data-raydium]").getAttribute("href"), live.proof.raydiumUrl);
+  assert.equal(element("[data-solscan]").getAttribute("href"), live.proof.links.solscanMint);
+  assert.equal(element("[data-raydium]").getAttribute("href"), live.proof.links.raydiumLaunchlab);
   assert.equal(element("[data-live-actions]").hidden, false);
   assertQualifierCopy(documentRef, { live: true });
+});
+
+test("known unavailable lifecycle state never reveals a mint or destination", async () => {
+  const documentRef = createDocument();
+  await renderLaunchState(
+    documentRef,
+    responseFor(createCurveLiveRecordV2({ availability: "unavailable" })),
+  );
+  assertFailClosed(documentRef, { statusPattern: /^VERIFICATION UNAVAILABLE$/ });
 });
 
 test("live followed by prelaunch clears every verified field and destination", async () => {

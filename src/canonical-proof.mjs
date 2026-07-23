@@ -601,6 +601,34 @@ function buildContinuityReceipt(record, stageReceipt) {
   };
 }
 
+export function validateUnavailablePublication({
+  record,
+  stageReceipt,
+  continuityReceipt,
+}) {
+  const issues = validateLaunchRecord(record).map((issue) => `record ${issue}`);
+  if (!["curve-live", "graduated"].includes(record?.status)
+    || record?.proof?.availability !== "unavailable") {
+    issues.push("record is not unavailable lifecycle state");
+  }
+  try {
+    validateStageReceipt(stageReceipt, record?.status);
+  } catch {
+    issues.push("stage receipt is invalid");
+  }
+  if (issues.length) return issues;
+  try {
+    exactUnavailableKeys(continuityReceipt, CONTINUITY_RECEIPT_FIELDS, "continuity-shape");
+  } catch {
+    return ["continuity receipt shape is invalid"];
+  }
+  const expected = buildContinuityReceipt(record, stageReceipt);
+  if (!isDeepStrictEqual(continuityReceipt, expected)) {
+    issues.push("continuity receipt does not bind record and stage receipt");
+  }
+  return issues;
+}
+
 function validatePriorUnavailableContinuity({
   sourceRecord,
   sourceStageReceipt,

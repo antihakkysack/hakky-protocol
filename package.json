@@ -12,7 +12,8 @@
   "license": "MIT",
   "scripts": {
     "assets": "node scripts/render-assets.mjs",
-    "build:live-record": "node scripts/build-live-record.mjs",
+    "build:curve-live-record": "node scripts/build-curve-live-record.mjs",
+    "build:unavailable-record": "node scripts/build-unavailable-record.mjs",
     "check": "npm run test && npm run check:repo && npm run check:site",
     "check:repo": "node scripts/check-repo.mjs",
     "check:site": "node scripts/check-site.mjs",

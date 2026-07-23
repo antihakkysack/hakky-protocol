@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
+  readFile,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -13,6 +14,10 @@ import {
   loadCurveProofArtifacts,
   validateCurveProofBinding,
 } from "../src/canonical-proof.mjs";
+import {
+  buildCurveLiveRecordFile,
+  parseArguments,
+} from "../scripts/build-curve-live-record.mjs";
 import {
   createCanonicalLaunchlabProofV2,
   createCanonicalMintProofV2,
@@ -139,4 +144,48 @@ test("fails closed on unsupported source, extra input, bad publication time, or 
   record.proof.links.solscanMint += "?drift=1";
   assert.ok(validateCurveProofBinding({ record, ...artifacts })
     .some((issue) => issue.includes("links")));
+});
+
+test("operator command is exact and file promotion preserves the source until validation passes", async () => {
+  assert.deepEqual(parseArguments(["--published-at", PUBLISHED_AT]), {
+    publishedAt: PUBLISHED_AT,
+  });
+  for (const argv of [
+    [],
+    ["--published-at"],
+    ["--published-at", PUBLISHED_AT, "--extra"],
+    ["--verified-at", PUBLISHED_AT],
+  ]) {
+    assert.throws(() => parseArguments(argv), /Usage:/);
+  }
+
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-curve-record-"));
+  await mkdir(path.join(root, "web", "data"), { recursive: true });
+  await mkdir(path.join(root, "proof"));
+  const launchPath = path.join(root, "web", "data", "launch.json");
+  const sourceBytes = canonicalBytes(createPrelaunchRecordV2());
+  await writeFile(launchPath, sourceBytes);
+  await writeFile(
+    path.join(root, "proof", "mainnet-mint.json"),
+    canonicalBytes(createCanonicalMintProofV2()),
+  );
+  const invalidLaunchlab = createCanonicalLaunchlabProofV2();
+  invalidLaunchlab.ok = false;
+  await writeFile(
+    path.join(root, "proof", "mainnet-launchlab.json"),
+    canonicalBytes(invalidLaunchlab),
+  );
+  await assert.rejects(
+    buildCurveLiveRecordFile({ root, publishedAt: PUBLISHED_AT }),
+    /canonical-artifact-schema-invalid/,
+  );
+  assert.deepEqual(await readFile(launchPath), sourceBytes);
+
+  await writeFile(
+    path.join(root, "proof", "mainnet-launchlab.json"),
+    canonicalBytes(createCanonicalLaunchlabProofV2()),
+  );
+  const record = await buildCurveLiveRecordFile({ root, publishedAt: PUBLISHED_AT });
+  assert.deepEqual(JSON.parse(await readFile(launchPath, "utf8")), record);
+  assert.deepEqual(validateLaunchRecord(record), []);
 });

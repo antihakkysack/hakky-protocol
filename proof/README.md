@@ -107,13 +107,20 @@ publication, or any other action.
 
 The LaunchLab artifact includes the exact metadata image, website, X link, and
 canonical Solscan transaction URL in addition to the fields in `docs/LAUNCH.md`.
-For a live website, both artifacts must exist with `ok: true`, match the web
-record exactly, and satisfy mint-check time <= LaunchLab-check time <= final
-web-verification time. Prelaunch keeps `token.mint` and `proof` null and does not
-require either canonical file.
+For a verified curve-live website, both artifacts must exist with `ok: true`,
+match the web record exactly, and satisfy mint-check time <= LaunchLab-check
+time <= the operator's publication time. The publication time is a command
+gate, not a public fact. Prelaunch keeps `token.mint` and `proof` null and does
+not require either canonical file. A known lifecycle stage whose canonical
+proof cannot be completed uses the exact identity-free
+`availability: "unavailable"` branch and retained ignored continuity receipts.
 
 Do not copy proof fields into the web record manually. Once both artifacts are
 valid, use
-`npm run build:live-record -- --verified-at <exact-ISO-8601-UTC-timestamp>` so
-the supported live schema is generated and cross-checked before
-`web/data/launch.json` is written.
+`npm run build:curve-live-record -- --published-at <exact-ISO-8601-UTC-timestamp>`
+so the supported curve-live schema is generated and cross-checked before
+`web/data/launch.json` is atomically replaced. For an independently observed
+stage whose canonical proof is unavailable, use
+`npm run build:unavailable-record -- --stage-evidence <ignored-json-path>`;
+the command publishes both content-addressed ignored receipts before replacing
+the identity-free public record.

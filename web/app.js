@@ -1,4 +1,6 @@
-import { validateLaunchRecord } from "./lib/launch-policy.js";
+import { buildLaunchView } from "./lib/launch-view.js";
+
+export { buildLaunchView };
 
 const FAILURE_MESSAGE = "PROOF UNAVAILABLE: Do not trust contract addresses from replies or DMs.";
 const PRELAUNCH_MESSAGE = "PRE-LAUNCH: No official mint address exists yet — ignore impostors.";
@@ -36,7 +38,7 @@ const ELEMENT_SELECTORS = Object.freeze({
 const SAFE_TEXT = Object.freeze({
   mint: "Not published",
   supply: "Required: 1,000,000",
-  mintAuthority: "Required: null",
+  mintAuthority: "Required: LaunchLab PDA on curve; null after graduation",
   freezeAuthority: "Required: null",
   teamAllocation: "Required: 0%",
   metadata: "Required: immutable",
@@ -45,7 +47,7 @@ const SAFE_TEXT = Object.freeze({
   creatorBalance: "Required: 0 HAKKY",
   allocation: "Required: 80% / 20% / 0%",
   creatorFee: "Required: off",
-  lpPolicy: "Required: burned",
+  lpPolicy: "Required: irreversible at graduation",
   creatorSpend: "Required: <= 1.00 SOL",
   verificationTime: "Not verified",
   launchTransaction: "Not published",
@@ -83,40 +85,41 @@ const QUALIFIER_ARIA = Object.freeze({
   }),
 });
 
-export function buildLaunchView(record) {
-  const issues = validateLaunchRecord(record);
-  if (issues.length) throw new Error(`Invalid launch record: ${issues.join("; ")}`);
+function formatInteger(value) {
+  return BigInt(value).toLocaleString("en-US");
+}
 
-  if (record.status === "prelaunch") {
-    return {
-      live: false,
-      mint: null,
-      solscanUrl: null,
-      solscanTransactionUrl: null,
-      raydiumUrl: null,
-    };
-  }
+function formatLamports(value) {
+  const lamports = BigInt(value);
+  const whole = lamports / 1_000_000_000n;
+  const fraction = (lamports % 1_000_000_000n).toString().padStart(9, "0").replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole.toString();
+}
 
+function verifiedText(view) {
+  const proof = view.proof;
+  const authority = proof.authorities.mintAuthority === null
+    ? "null (verified)"
+    : `${proof.authorities.mintAuthority} (LaunchLab PDA, verified)`;
+  const lpPolicy = view.state === "graduated"
+    ? `${proof.lpDisposition.kind} (verified irreversible)`
+    : "Pending graduation (irreversibility not yet observable)";
   return {
-    live: true,
-    mint: record.proof.mint,
-    solscanUrl: record.proof.solscanUrl,
-    solscanTransactionUrl: record.proof.solscanTransactionUrl,
-    raydiumUrl: record.proof.raydiumUrl,
-    creator: record.proof.creator,
-    launchTransaction: record.proof.launchTransaction,
-    supply: "1,000,000 (verified)",
-    decimals: `${record.proof.decimals} (verified)`,
-    mintAuthority: "null (verified)",
+    mint: view.mint,
+    supply: `${formatInteger(proof.supply.uiAmount)} (verified)`,
+    decimals: `${proof.supply.decimals} (verified)`,
+    mintAuthority: authority,
     freezeAuthority: "null (verified)",
-    teamAllocation: "0% (verified)",
-    creatorBalance: "0 HAKKY (verified)",
-    allocation: "80% curve / 20% liquidity / 0% team (verified)",
-    creatorFee: "off (verified)",
-    lpPolicy: "burned (verified)",
-    creatorSpend: `${record.proof.creatorSpendSol} SOL / 1.00 SOL cap (verified)`,
-    verificationTime: record.proof.verifiedAt,
-    metadata: "immutable (verified)",
+    teamAllocation: `${proof.allocations.teamBps / 100}% (verified)`,
+    metadata: proof.metadata.isMutable ? "mutable" : "immutable (verified)",
+    creator: proof.creatorBalance.owner,
+    creatorBalance: `${formatInteger(proof.creatorBalance.totalAmountBaseUnits)} HAKKY (verified)`,
+    allocation: `${proof.allocations.publicCurveBps / 100}% curve / ${proof.allocations.liquidityBps / 100}% liquidity / ${proof.allocations.teamBps / 100}% team (verified)`,
+    creatorFee: proof.fees.creatorFeeRights ? "on" : "off (verified)",
+    lpPolicy,
+    creatorSpend: `${formatLamports(proof.cost.cumulativeCreatorDebitLamports)} SOL / ${formatLamports(proof.cost.capLamports)} SOL cap (verified)`,
+    verificationTime: proof.observation.checkedAt,
+    launchTransaction: proof.transactions.creation.signature,
   };
 }
 
@@ -181,31 +184,35 @@ export async function renderLaunchState(documentRef = document, fetchImpl = fetc
     const view = buildLaunchView(await response.json());
     const elements = collectLaunchElements(documentRef);
 
-    if (!view.live) {
-      elements.status.textContent = PRELAUNCH_MESSAGE;
+    if (!view.verified) {
+      elements.status.textContent = view.state === "prelaunch" ? PRELAUNCH_MESSAGE : view.heading;
       return;
     }
 
-    elements.status.textContent = "LIVE: Verify the exact mint before interacting.";
-    elements.mint.textContent = view.mint;
-    elements.supply.textContent = view.supply;
-    elements.mintAuthority.textContent = view.mintAuthority;
-    elements.freezeAuthority.textContent = view.freezeAuthority;
-    elements.teamAllocation.textContent = view.teamAllocation;
-    elements.metadata.textContent = view.metadata;
-    elements.decimals.textContent = view.decimals;
-    elements.creator.textContent = view.creator;
-    elements.creatorBalance.textContent = view.creatorBalance;
-    elements.allocation.textContent = view.allocation;
-    elements.creatorFee.textContent = view.creatorFee;
-    elements.lpPolicy.textContent = view.lpPolicy;
-    elements.creatorSpend.textContent = view.creatorSpend;
-    elements.verificationTime.textContent = view.verificationTime;
-    elements.launchTransaction.textContent = view.launchTransaction;
+    const text = verifiedText(view);
+    elements.status.textContent = view.heading;
+    elements.mint.textContent = text.mint;
+    elements.supply.textContent = text.supply;
+    elements.mintAuthority.textContent = text.mintAuthority;
+    elements.freezeAuthority.textContent = text.freezeAuthority;
+    elements.teamAllocation.textContent = text.teamAllocation;
+    elements.metadata.textContent = text.metadata;
+    elements.decimals.textContent = text.decimals;
+    elements.creator.textContent = text.creator;
+    elements.creatorBalance.textContent = text.creatorBalance;
+    elements.allocation.textContent = text.allocation;
+    elements.creatorFee.textContent = text.creatorFee;
+    elements.lpPolicy.textContent = text.lpPolicy;
+    elements.creatorSpend.textContent = text.creatorSpend;
+    elements.verificationTime.textContent = text.verificationTime;
+    elements.launchTransaction.textContent = text.launchTransaction;
     setQualifierState(elements, "live");
-    elements.launchTransaction.setAttribute("href", view.solscanTransactionUrl);
-    elements.solscan.setAttribute("href", view.solscanUrl);
-    elements.raydium.setAttribute("href", view.raydiumUrl);
+    elements.launchTransaction.setAttribute("href", view.destinations.solscanCreationTransaction);
+    elements.solscan.setAttribute("href", view.destinations.solscanMint);
+    elements.raydium.setAttribute(
+      "href",
+      view.destinations.raydiumPool ?? view.destinations.raydiumLaunchlab,
+    );
     elements.actions.hidden = false;
   } catch (error) {
     setFailClosedState(documentRef);
