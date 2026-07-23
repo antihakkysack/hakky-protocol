@@ -373,9 +373,26 @@ test("operator command promotes both stages from ignored evidence and discovers 
   );
   const curveEvidencePath = path.join(evidenceDirectory, "curve.json");
   await writeFile(curveEvidencePath, `${JSON.stringify(curveReceipt(), null, 2)}\n`);
+  await assert.rejects(
+    buildUnavailableRecordFile({
+      root,
+      stageEvidence: path.relative(root, curveEvidencePath),
+      verifyStageImpl: async () => {
+        const mismatch = curveReceipt();
+        mismatch.finalizedSlot += 1;
+        return mismatch;
+      },
+    }),
+    /unavailable-stage-evidence-mismatch/,
+  );
+  assert.deepEqual(
+    JSON.parse(await readFile(targetPath, "utf8")),
+    createPrelaunchRecordV2(),
+  );
   const curve = await buildUnavailableRecordFile({
     root,
     stageEvidence: path.relative(root, curveEvidencePath),
+    verifyStageImpl: async () => curveReceipt(),
   });
   assert.equal(curve.record.status, "curve-live");
   assert.equal(curve.publication.committed, true);
@@ -392,6 +409,7 @@ test("operator command promotes both stages from ignored evidence and discovers 
   const graduated = await buildUnavailableRecordFile({
     root,
     stageEvidence: path.relative(root, graduationEvidencePath),
+    verifyStageImpl: async () => graduatedReceipt(),
   });
   assert.equal(graduated.record.status, "graduated");
   assert.equal(graduated.publication.committed, true);

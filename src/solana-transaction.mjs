@@ -242,6 +242,79 @@ function exactExecutionHash({
   return { ordered, sha256: sha256Hex(Buffer.from(JSON.stringify(ordered), "utf8")) };
 }
 
+export function resolveFinalizedTransactionInstructions({
+  transactionResponse,
+  lookupTableAccounts = [],
+  requestedSignature,
+}) {
+  if (!transactionResponse || typeof transactionResponse !== "object") fail("transaction-response");
+  const { slot, blockTime, version, meta } = transactionResponse;
+  if (!Number.isSafeInteger(slot) || slot < 0
+    || !Number.isSafeInteger(blockTime) || blockTime < 0) fail("transaction-observation");
+  if (!meta || meta.err !== null) fail("transaction-meta");
+  if (!Array.isArray(transactionResponse.transaction) || transactionResponse.transaction.length !== 2
+    || transactionResponse.transaction[1] !== "base64") fail("transaction-tuple");
+  const wireBytes = exactBase64(transactionResponse.transaction[0], "transaction");
+  let transaction;
+  try {
+    transaction = VersionedTransaction.deserialize(wireBytes);
+  } catch {
+    fail("transaction-wire");
+  }
+  if (!Buffer.from(transaction.serialize()).equals(wireBytes)) fail("transaction-wire-trailing");
+  const message = transaction.message;
+  const resolvedVersion = message.version === "legacy" ? "legacy" : message.version;
+  if (resolvedVersion !== version || (resolvedVersion !== "legacy" && resolvedVersion !== 0)) {
+    fail("transaction-version");
+  }
+  decodeBase58(requestedSignature, { length: 64, code: "transaction-requested-signature" });
+  const messageBytes = Buffer.from(message.serialize());
+  verifyRequiredSignatures(transaction, messageBytes, requestedSignature);
+
+  const staticKeys = message.staticAccountKeys;
+  let accountKeysFromLookups;
+  if (resolvedVersion === 0) {
+    accountKeysFromLookups = resolveLookupAddresses(message, lookupTableAccounts, slot);
+  } else if (lookupTableAccounts.length !== 0 || (message.addressTableLookups?.length ?? 0) !== 0) {
+    fail("legacy-lookup");
+  }
+  const loaded = normalizeLoadedAddresses(meta.loadedAddresses, resolvedVersion === 0);
+  const resolvedLoaded = {
+    writable: (accountKeysFromLookups?.writable ?? []).map((key) => key.toBase58()),
+    readonly: (accountKeysFromLookups?.readonly ?? []).map((key) => key.toBase58()),
+  };
+  if (JSON.stringify(loaded) !== JSON.stringify(resolvedLoaded)) fail("transaction-loaded-addresses");
+  const allKeys = [
+    ...staticKeys.map((key) => key.toBase58()),
+    ...resolvedLoaded.writable,
+    ...resolvedLoaded.readonly,
+  ];
+  const instructions = message.compiledInstructions.map((instruction) => {
+    if (!Number.isSafeInteger(instruction.programIdIndex)
+      || instruction.programIdIndex < 0 || instruction.programIdIndex >= allKeys.length
+      || !instruction.accountKeyIndexes
+      || [...instruction.accountKeyIndexes].some((index) => !Number.isSafeInteger(index)
+        || index < 0 || index >= allKeys.length)) fail("transaction-outer-index");
+    return Object.freeze({
+      programId: allKeys[instruction.programIdIndex],
+      accountKeys: Object.freeze(
+        [...instruction.accountKeyIndexes].map((index) => allKeys[index]),
+      ),
+      data: Buffer.from(instruction.data),
+    });
+  });
+  return Object.freeze({
+    slot,
+    blockTime,
+    version: resolvedVersion,
+    requestedSignature,
+    wireBytes,
+    messageBytes,
+    accountKeys: Object.freeze(allKeys),
+    instructions: Object.freeze(instructions),
+  });
+}
+
 export function resolveCreationTransaction({
   transactionResponse,
   lookupTableAccounts = [],

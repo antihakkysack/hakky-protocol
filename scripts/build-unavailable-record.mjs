@@ -1,9 +1,15 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildUnavailableRecord } from "../src/canonical-proof.mjs";
 import { publishUnavailableRecord } from "../src/record-output.mjs";
+import {
+  createBoundedPublicRpcClient,
+  DEFAULT_PUBLIC_MAINNET_RPC,
+} from "../src/solana-rpc.mjs";
+import { verifyObservedLifecycleStage } from "../src/stage-observation.mjs";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const atRoot = (root, relativePath) => path.join(root, ...relativePath.split("/"));
@@ -54,6 +60,8 @@ export async function buildUnavailableRecordFile({
   stageEvidence = null,
   readFileImpl = readFile,
   publishUnavailableRecordImpl = publishUnavailableRecord,
+  connection = createBoundedPublicRpcClient({ rawUrl: DEFAULT_PUBLIC_MAINNET_RPC }),
+  verifyStageImpl = verifyObservedLifecycleStage,
 } = {}) {
   const resolvedRoot = path.resolve(root);
   const artifactsRoot = atRoot(resolvedRoot, "artifacts");
@@ -95,6 +103,22 @@ export async function buildUnavailableRecordFile({
       "source-stage-evidence",
       readFileImpl,
     );
+  }
+  const creationSignature = stageReceipt.stage === "curve-live"
+    ? stageReceipt.signature
+    : sourceRecord.proof?.availability === "verified"
+      ? sourceRecord.proof.transactions.creation.signature
+      : sourceStageReceipt?.signature;
+  const observedReceipt = await verifyStageImpl({
+    connection,
+    candidateStage: stageReceipt.stage,
+    creationSignature,
+    graduationSignature: stageReceipt.stage === "graduated" ? stageReceipt.signature : null,
+    expectedMint: stageReceipt.mint,
+    expectedLaunchId: stageReceipt.launchId,
+  });
+  if (!isDeepStrictEqual(observedReceipt, stageReceipt)) {
+    throw new Error("unavailable-stage-evidence-mismatch");
   }
   const { record, continuityReceipt } = buildUnavailableRecord({
     sourceRecord,
