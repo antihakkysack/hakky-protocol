@@ -10,6 +10,11 @@ export const MAINNET_SESSION_PATHS = Object.freeze({
   preview: "artifacts/mainnet-session/preview.json",
   approvalEnvelope: "artifacts/mainnet-session/approval-envelope.json",
   sessionReceipt: "artifacts/mainnet-session/session-receipt.json",
+  statusEvent: "artifacts/mainnet-session/status-event.json",
+  recoveryLookupTables: "artifacts/mainnet-session/recovery-lookup-tables.json",
+  recoverySimulation: "artifacts/mainnet-session/recovery-simulation.json",
+  recoveryFeeQuote: "artifacts/mainnet-session/recovery-fee-quote.json",
+  recoveryTransaction: "artifacts/mainnet-session/recovery-transaction.base64",
   recoveryEnvelope: "artifacts/mainnet-session/recovery-envelope.json",
 });
 
@@ -89,4 +94,3 @@ export async function writeMainnetSessionJson({
   if (result?.committed !== true) fail("write");
   return Object.freeze({ outputPath, warning: result.warning ?? null });
 }
-

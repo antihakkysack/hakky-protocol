@@ -139,6 +139,38 @@ with `source-coverage-unavailable` and writes neither `preview.json` nor
 requires a separate reviewed source pin and tests that map every creator,
 platform, irreversible, withdrawal, and fee right for the selected migration.
 
+## Public session and recovery evidence
+
+`npm run session:receipt` supports only `init`, `record-status`, and
+`build-recovery`. The ignored `session-receipt.json` binds the creator, mint,
+launch ID, preview transaction hash, hashed metadata evidence, zero metadata
+payment baseline, one-SOL cap, and a monotonic public event history. It never
+stores a seed, keypair, wallet dump, authenticated URL, or private credential.
+
+Every operation begins at `prepared`. A wallet rejection before submission may
+be recorded as `visible-failed`. Once a canonical signature exists, a UI or RPC
+failure is only `visible-pending`; it cannot become terminal until finalized
+readback proves success or failure. Signatures, operation identity, purpose,
+sequence, timestamps, and cumulative creator debits cannot regress or drift.
+There is no `approve`, `sign`, `send`, or `retry` subcommand.
+
+The recovery decoder registry is intentionally empty. `build-recovery` always
+stops with `recovery-operation-unsupported` and writes no envelope. A later
+recovery must first add one source-reviewed operation-specific decoder and
+fixtures, then obtain fresh action-time approval for its exact transaction hash,
+signers, transfers, and maximum additional debit. Never synthesize or submit a
+replacement transaction from the receipt.
+
+Legal acceptance, wallet connection, each metadata upload, any metadata
+payment, the creation signature and exact maximum debit, every recovery or
+graduation signature and spend, push, pull-request create/update, merge and its
+automatic Pages deployment, GitHub metadata/domain save, and each X
+save/post/pin are distinct action-time approval boundaries. A creation approval
+covers signature plus debit only when it expressly names both for the exact
+transaction. A merge approval covers automatic Pages only when it expressly
+names both effects for the exact commit. Evidence never carries approval
+forward.
+
 ## Mainnet proof record
 
 The proof must record the network and RPC identity, classic token program, mint,

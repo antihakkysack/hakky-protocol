@@ -131,6 +131,30 @@ non-bypassable control result: the verifier emits no `preview.json` and no
 screenshot, API result, current PlatformConfig value, or operator-authored
 override cannot replace missing source coverage.
 
+## Mainnet session receipt
+
+The ignored `artifacts/mainnet-session/session-receipt.json` is an evolving
+public evidence ledger, not canonical launch proof or approval. Its immutable
+root binds the preview transaction, creator, mint, launch ID, metadata manifest
+and readback hashes, exact zero metadata-payment baseline, and one-SOL debit
+cap. Atomic replacement occurs only after the full prior receipt and next event
+validate.
+
+Operation events have strict prepared, submitted, visible-pending,
+visible-failed, finalized-success, and finalized-failed transitions. A
+pre-submission wallet rejection can be terminal; a post-submission display or
+RPC failure cannot. The canonical signature remains pending until finalized
+readback supplies a slot and transaction hash. Global sequence, timestamps,
+operation identity, purpose, signature, and baseline-plus-latest-operation
+debit accounting are monotonic.
+
+The recovery decoder registry is frozen and empty. Every transaction produces
+`recovery-operation-unsupported`, so no generic signer/program/transfer/cost
+classification and no recovery envelope can be emitted. Enabling one recovery
+requires a separate source-pinned decoder and fixture review for that exact
+operation. The session command has no approval, signing, sending, or retry
+surface, and a receipt never carries action-time approval into another effect.
+
 The LaunchLab artifact includes the exact metadata image, website, X link, and
 canonical Solscan transaction URL in addition to the fields in `docs/LAUNCH.md`.
 For a verified curve-live website, both artifacts must exist with `ok: true`,

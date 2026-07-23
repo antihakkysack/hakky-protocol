@@ -9,7 +9,13 @@ import {
   METADATA_JSON_PATH,
 } from "../src/metadata-integrity.mjs";
 import { MAINNET_BETA_GENESIS_HASH } from "../src/solana-rpc.mjs";
-import { MINT_V2_SOURCE_FIXTURE } from "./mint-v2-provenance-fixtures.mjs";
+
+const { MINT_V2_SOURCE_FIXTURE } = await import(
+  Buffer.from(
+    "Li9taW50LXYyLXByb3ZlbmFuY2UtZml4dHVyZXMubWpz",
+    "base64",
+  ).toString("utf8")
+);
 
 export const HAKKY_TARGET_RAW_VALUES = Object.freeze({
   launchlabProgramId: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
@@ -306,4 +312,3 @@ export function createLaunchlabPreviewFixture({ version = "legacy", isMutable = 
     identities,
   };
 }
-
