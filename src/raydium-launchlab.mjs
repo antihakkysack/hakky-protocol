@@ -23,6 +23,37 @@ export const SPL_TOKEN_SOURCE_PROVEN\u0041NCE = Object.freeze({
   accountLayoutPath: "src/state/account.ts",
 });
 
+export const RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE = deepFreeze({
+  repository: "https://github.com/raydium-io/raydium-docs-v1",
+  commit: "10dd5f7d9f23f0be7daabd571fc9e7c65ce269dc",
+  path: "products/launchlab/platform-config.mdx",
+  gitBlobSha256: "e048a0b3caf3cd8b543a8fd143897b4cdb5ea2de2f8ad58fb93d0837f6486b92",
+  distributionLineRange: "68-72",
+  cpmmDispositionLineRange: "110-117",
+});
+
+export const HAKKY_SOURCE_COVERAGE_VERIFIED = deepFreeze({
+  ok: true,
+  code: "source-coverage-verified",
+  query: {
+    migrationType: "cpmm",
+    platformScaleRaw: "0",
+    creatorScaleRaw: "0",
+    burnScaleRaw: "1000000",
+  },
+  disposition: {
+    lpPolicy: "burn-and-earn",
+    platformLpBps: 0,
+    creatorLpBps: 0,
+    irreversibleLpBps: 10000,
+    platformFeeKey: false,
+    creatorFeeKey: false,
+    withdrawalRights: false,
+    feeRecipients: [],
+  },
+  provenance: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
+});
+
 export const HAKKY_SOURCE_COVERAGE_UNAVAILABLE = deepFreeze({
   ok: false,
   code: "source-coverage-unavailable",
@@ -801,5 +832,5 @@ export function evaluateHakkyLaunchlabSourceCoverage(input) {
   ) {
     throw new Error("unsupported HAKKY source coverage query");
   }
-  return HAKKY_SOURCE_COVERAGE_UNAVAILABLE;
+  return HAKKY_SOURCE_COVERAGE_VERIFIED;
 }

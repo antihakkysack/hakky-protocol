@@ -3,9 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
+  HAKKY_SOURCE_COVERAGE_VERIFIED,
   RAYDIUM_IDL_SOURCE_PROVEN\u0041NCE,
   RAYDIUM_LAUNCHLAB_PROGRAM_ID,
+  RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
   RAYDIUM_SOURCE_PROVEN\u0041NCE,
   SPL_TOKEN_SOURCE_PROVEN\u0041NCE,
   decodeGraduationAccounts,
@@ -472,21 +473,46 @@ test("graduation accounts decode CPMM and AMM-v4 raw pools without semantic conc
   }
 });
 
-test("the exact HAKKY query is fail-closed and no coverage override exists", () => {
-  assert.deepEqual(HAKKY_SOURCE_COVERAGE_UNAVAILABLE, {
-    ok: false,
-    code: "source-coverage-unavailable",
-    reason: "cpmm-burn-scale-lp-rights-unmapped",
+test("the approved Raydium docs pin covers only the exact HAKKY CPMM disposition", () => {
+  assert.deepEqual(RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE, {
+    repository: "https://github.com/raydium-io/raydium-docs-v1",
+    commit: "10dd5f7d9f23f0be7daabd571fc9e7c65ce269dc",
+    path: "products/launchlab/platform-config.mdx",
+    gitBlobSha256: "e048a0b3caf3cd8b543a8fd143897b4cdb5ea2de2f8ad58fb93d0837f6486b92",
+    distributionLineRange: "68-72",
+    cpmmDispositionLineRange: "110-117",
   });
-  assertRecursivelyFrozen(HAKKY_SOURCE_COVERAGE_UNAVAILABLE);
+  assertRecursivelyFrozen(RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE);
+  assert.deepEqual(HAKKY_SOURCE_COVERAGE_VERIFIED, {
+    ok: true,
+    code: "source-coverage-verified",
+    query: {
+      migrationType: "cpmm",
+      platformScaleRaw: "0",
+      creatorScaleRaw: "0",
+      burnScaleRaw: "1000000",
+    },
+    disposition: {
+      lpPolicy: "burn-and-earn",
+      platformLpBps: 0,
+      creatorLpBps: 0,
+      irreversibleLpBps: 10000,
+      platformFeeKey: false,
+      creatorFeeKey: false,
+      withdrawalRights: false,
+      feeRecipients: [],
+    },
+    provenance: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
+  });
+  assertRecursivelyFrozen(HAKKY_SOURCE_COVERAGE_VERIFIED);
   const result = evaluateHakkyLaunchlabSourceCoverage({
     migrationType: "cpmm",
     platformScaleRaw: 0n,
     creatorScaleRaw: 0n,
     burnScaleRaw: 1_000_000n,
   });
-  assert.equal(result, HAKKY_SOURCE_COVERAGE_UNAVAILABLE);
-  assert.equal(result.ok, false);
+  assert.equal(result, HAKKY_SOURCE_COVERAGE_VERIFIED);
+  assert.equal(result.ok, true);
   for (const unsupported of [
     { migrationType: "amm-v4", platformScaleRaw: 0n, creatorScaleRaw: 0n, burnScaleRaw: 1_000_000n },
     { migrationType: "cpmm", platformScaleRaw: 1n, creatorScaleRaw: 0n, burnScaleRaw: 999_999n },
