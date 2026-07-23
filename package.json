@@ -25,6 +25,9 @@
     "schemas": "node scripts/render-launch-schema-validator.mjs",
     "test": "node --test",
     "verify:launchlab": "node scripts/verify-launchlab.mjs",
+    "verify:launch-preview": "node scripts/verify-launchlab-preview.mjs",
+    "verify:raydium-origin": "node scripts/verify-raydium-origin.mjs",
+    "verify:wallet-readiness": "node scripts/verify-wallet-readiness.mjs",
     "verify:token": "node scripts/verify-token.mjs"
   },
   "dependencies": {

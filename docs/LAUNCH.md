@@ -103,6 +103,42 @@ operations. If exclusive control is not true for the command duration, stop.
 Permanent tests require the five leaves to remain ignored and untracked; they do
 not require them to remain absent after a separately approved provider flow.
 
+## Unsigned LaunchLab transaction gate
+
+The official Raydium UI must expose the exact serialized unsigned transaction
+before any wallet signing prompt is accepted. If the UI or wallet cannot expose
+those raw bytes, stop. A screenshot, copied form values, API response, or
+transaction rebuilt with an SDK is not a substitute.
+
+On the action day, read the selected wallet's visible public key and require
+byte-for-byte equality with the approved creator. Then run these public-only,
+fixed-path commands:
+
+```powershell
+$env:HAKKY_CREATOR = Read-Host "Approved creator public key"
+$env:HAKKY_RAYDIUM_URL = Read-Host "Current official Raydium LaunchLab browser URL"
+npm run verify:raydium-origin -- --ui-url $env:HAKKY_RAYDIUM_URL --out artifacts/mainnet-session/official-origin.json
+npm run verify:wallet-readiness -- --creator $env:HAKKY_CREATOR --metadata-readback artifacts/metadata/readback.json --out artifacts/mainnet-session/wallet-readiness.json
+npm run verify:launch-preview -- --transaction artifacts/mainnet-session/unsigned-transaction.base64 --creator $env:HAKKY_CREATOR --metadata-manifest artifacts/metadata/manifest.json --metadata-readback artifacts/metadata/readback.json --official-origin artifacts/mainnet-session/official-origin.json --wallet-readiness artifacts/mainnet-session/wallet-readiness.json --out artifacts/mainnet-session/preview.json
+```
+
+The origin receipt expires after 30 minutes and accepts only the exact
+`https://raydium.io` origin backed by the current official documentation. The
+wallet receipt expires after five minutes, requires finalized mainnet identity,
+and fixes the minimum visible balance at 1 SOL. The preview resolves finalized
+address-lookup tables, decodes the exact unsigned bytes, reads finalized
+pre-state, simulates without blockhash replacement, proves the direct immutable
+Metaplex metadata CPI, and recomputes the one-SOL cumulative creator-debit cap.
+These commands accept no seed, keypair, program, fee, policy, approval, signing,
+or send override.
+
+At the currently pinned Raydium source revision, the exact approved CPMM
+Burn & Earn rights layout is not source-covered. The preview therefore exits
+with `source-coverage-unavailable` and writes neither `preview.json` nor
+`approval-envelope.json`. Do not sign while this stop is present. Removing it
+requires a separate reviewed source pin and tests that map every creator,
+platform, irreversible, withdrawal, and fee right for the selected migration.
+
 ## Mainnet proof record
 
 The proof must record the network and RPC identity, classic token program, mint,

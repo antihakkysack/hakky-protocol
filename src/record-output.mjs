@@ -23,16 +23,17 @@ async function removeOwnedTemporaryFile(temporaryPath, unlinkImpl) {
   }
 }
 
-export async function publishLaunchRecord(targetPath, record, {
+export async function writeBytesAtomic(targetPath, bytes, {
   openImpl = open,
   renameImpl = rename,
   unlinkImpl = unlink,
   randomUUIDImpl = randomUUID,
 } = {}) {
-  const issues = validateLaunchRecord(record);
-  if (issues.length) throw new Error(`launch-record-invalid: ${issues.join("; ")}`);
-
-  const bytes = canonicalLaunchBytes(record);
+  if (typeof targetPath !== "string" || !path.isAbsolute(targetPath)
+    || !(bytes instanceof Uint8Array) || bytes.byteLength === 0) {
+    throw new Error("atomic-write-invalid");
+  }
+  const exactBytes = Buffer.from(bytes);
   const temporaryPath = path.join(
     path.dirname(targetPath),
     `.${path.basename(targetPath)}.${process.pid}.${randomUUIDImpl()}.tmp`,
@@ -42,13 +43,13 @@ export async function publishLaunchRecord(targetPath, record, {
   try {
     handle = await openImpl(temporaryPath, "wx", 0o600);
     ownsTemporaryPath = true;
-    await handle.writeFile(bytes);
+    await handle.writeFile(exactBytes);
     await handle.sync();
     await handle.close();
     handle = undefined;
     await renameImpl(temporaryPath, targetPath);
     ownsTemporaryPath = false;
-    return { committed: true, warning: null, bytes };
+    return { committed: true, warning: null, bytes: exactBytes };
   } catch (error) {
     if (handle !== undefined) {
       try {
@@ -69,6 +70,12 @@ export async function publishLaunchRecord(targetPath, record, {
     }
     throw error;
   }
+}
+
+export async function publishLaunchRecord(targetPath, record, dependencies = {}) {
+  const issues = validateLaunchRecord(record);
+  if (issues.length) throw new Error(`launch-record-invalid: ${issues.join("; ")}`);
+  return writeBytesAtomic(targetPath, canonicalLaunchBytes(record), dependencies);
 }
 
 function receiptError() {

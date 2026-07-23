@@ -1,7 +1,20 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import {
+  parseWalletOptions,
+  runWalletVerifier,
+} from "../scripts/verify-wallet-readiness.mjs";
+import {
+  serializeMetadataManifest,
+  serializeMetadataReadback,
+} from "../src/metadata-integrity.mjs";
+import { MAINNET_SESSION_PATHS } from "../src/mainnet-session-artifact.mjs";
 import { MAINNET_BETA_GENESIS_HASH } from "../src/solana-rpc.mjs";
 import { fetchWalletReadiness } from "../src/wallet-readiness.mjs";
+import { createLaunchlabPreviewFixture } from "../test-support/launchlab-preview-fixtures.mjs";
 
 const CREATOR = "11111111111111111111111111111111";
 const CHECKED_AT = "2026-07-23T01:00:00.000Z";
@@ -111,5 +124,46 @@ test("wrong chain, malformed balance, unsafe identity, or extra input fails clos
     },
   ]) {
     await assert.rejects(fetchWalletReadiness(input), /^Error: wallet-readiness-/);
+  }
+});
+
+test("the wallet CLI validates immutable metadata, exact paths, and the fixed one-SOL bound", async () => {
+  const fixture = createLaunchlabPreviewFixture();
+  const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-wallet-cli-"));
+  try {
+    await mkdir(path.join(repositoryRoot, "artifacts", "metadata"), { recursive: true });
+    await writeFile(
+      path.join(repositoryRoot, "artifacts", "metadata", "manifest.json"),
+      serializeMetadataManifest(fixture.metadataManifest),
+    );
+    await writeFile(
+      path.join(repositoryRoot, "artifacts", "metadata", "readback.json"),
+      serializeMetadataReadback(fixture.metadataReadback),
+    );
+    const writes = [];
+    const client = rpcClient({ value: 2_000_000_000 });
+    const receipt = await runWalletVerifier({
+      argv: [
+        "--creator", fixture.creator,
+        "--metadata-readback", "artifacts/metadata/readback.json",
+        "--out", MAINNET_SESSION_PATHS.walletReadiness,
+      ],
+      repositoryRoot,
+      createRpcClient: () => client,
+      now: () => new Date(CHECKED_AT),
+      writeImpl: async (input) => { writes.push(input); },
+    });
+    assert.equal(receipt.requiredLamports, "1000000000");
+    assert.equal(receipt.creator, fixture.creator);
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0].relativePath, MAINNET_SESSION_PATHS.walletReadiness);
+    assert.throws(() => parseWalletOptions([
+      "--creator", fixture.creator,
+      "--metadata-readback", "artifacts/metadata/readback.json",
+      "--out", MAINNET_SESSION_PATHS.walletReadiness,
+      "--required-lamports", "1",
+    ]), /Usage:/u);
+  } finally {
+    await rm(repositoryRoot, { recursive: true, force: true });
   }
 });

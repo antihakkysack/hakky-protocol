@@ -105,6 +105,32 @@ metadata URI and set `isMutable: false` atomically. A manifest or readback is
 evidence only and never carries approval into wallet connection, signing, spend,
 publication, or any other action.
 
+## Unsigned LaunchLab preview evidence
+
+The ignored `artifacts/mainnet-session/official-origin.json` and
+`wallet-readiness.json` receipts are fresh public evidence, not approval. The
+origin verifier accepts only `https://raydium.io`, binds the official
+documentation bytes and documented LaunchLab program ID, and expires after 30
+minutes. Wallet readiness binds the exact visible creator address, finalized
+mainnet genesis, finalized balance and slot, fixed one-SOL requirement, and
+lowercase public RPC hostname; it expires after five minutes.
+
+The preview consumes the exact raw unsigned transaction from the official flow.
+If those bytes cannot be obtained before signing, stop; never use a screenshot
+or SDK recreation. It resolves finalized lookup-table bytes, rejects any
+signature or transaction drift, preserves every program/signer/account meta,
+reads the exact finalized pre-state, and simulates with
+`replaceRecentBlockhash: false`. The same outer InitializeV2 instruction must
+contain exactly one direct stack-height-2 CreateMetadataAccountV3 CPI matching
+the hashed manifest/readback with `isMutable: false`.
+
+The exact HAKKY CPMM query currently returns
+`source-coverage-unavailable` / `cpmm-burn-scale-lp-rights-unmapped`. This is a
+non-bypassable control result: the verifier emits no `preview.json` and no
+`approval-envelope.json`, and signing remains prohibited. A UI setting,
+screenshot, API result, current PlatformConfig value, or operator-authored
+override cannot replace missing source coverage.
+
 The LaunchLab artifact includes the exact metadata image, website, X link, and
 canonical Solscan transaction URL in addition to the fields in `docs/LAUNCH.md`.
 For a verified curve-live website, both artifacts must exist with `ok: true`,

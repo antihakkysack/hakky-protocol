@@ -677,7 +677,7 @@ function decodePlatformCurveItem(buffer, offset, label) {
   };
 }
 
-function decodePlatformConfigAccount(account) {
+export function decodePlatformConfigAccount(account) {
   requireIdentity(account.owner, PROGRAMS.launchlab, "PlatformConfig account owner");
   if (account.data.length < 944) throw new RangeError("PlatformConfig account is too short");
   exactDiscriminator(account.data, DISCRIMINATORS.platformConfig, "PlatformConfig account");

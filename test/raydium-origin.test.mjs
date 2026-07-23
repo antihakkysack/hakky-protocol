@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  parseOriginOptions,
+  runOriginVerifier,
+} from "../scripts/verify-raydium-origin.mjs";
+import {
   RAYDIUM_LAUNCHLAB_PROGRAM_ID,
 } from "../src/raydium-launchlab.mjs";
+import { MAINNET_SESSION_PATHS } from "../src/mainnet-session-artifact.mjs";
 import { verifyOfficialRaydiumOrigin } from "../src/raydium-origin.mjs";
 
 const CHECKED_AT = "2026-07-23T01:00:00.000Z";
@@ -121,4 +126,30 @@ test("rejects lookalikes, authenticated URLs, documentation drift, and cross-ori
   ]) {
     await assert.rejects(verifyOfficialRaydiumOrigin(input), /^Error: raydium-origin-/);
   }
+});
+
+test("the origin CLI has only the exact public URL and fixed output controls", async () => {
+  const source = officialFetch();
+  const writes = [];
+  const receipt = await runOriginVerifier({
+    argv: [
+      "--ui-url", "https://raydium.io/launchpad/",
+      "--out", MAINNET_SESSION_PATHS.officialOrigin,
+    ],
+    repositoryRoot: process.cwd(),
+    fetchImpl: source.fetch,
+    now: () => new Date(CHECKED_AT),
+    writeImpl: async (input) => { writes.push(input); },
+  });
+  assert.equal(receipt.ok, true);
+  assert.deepEqual(writes, [{
+    repositoryRoot: process.cwd(),
+    relativePath: MAINNET_SESSION_PATHS.officialOrigin,
+    value: receipt,
+  }]);
+  assert.throws(() => parseOriginOptions([
+    "--ui-url", "https://raydium.io/",
+    "--out", MAINNET_SESSION_PATHS.officialOrigin,
+    "--program", RAYDIUM_LAUNCHLAB_PROGRAM_ID,
+  ]), /Usage:/u);
 });
