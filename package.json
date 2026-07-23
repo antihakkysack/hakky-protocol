@@ -23,6 +23,7 @@
     "rehearsal:devnet": "node scripts/rehearse-devnet.mjs",
     "schemas": "node scripts/render-launch-schema-validator.mjs",
     "test": "node --test",
+    "verify:launchlab": "node scripts/verify-launchlab.mjs",
     "verify:token": "node scripts/verify-token.mjs"
   },
   "dependencies": {
