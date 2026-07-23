@@ -1,7 +1,9 @@
 import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   EXPECTED_POLICY,
+  isCanonicalBase58,
   isOfficialRaydiumLaunchUrl,
   isOfficialSolscanMintUrl,
   isOfficialSolscanTransactionUrl,
@@ -282,4 +284,130 @@ export async function loadCanonicalProofsForLaunch(
 ) {
   if (launch?.status !== "live") return { mintProof: null, launchlabProof: null };
   return loadCanonicalProofArtifacts({ root, readFileImpl });
+}
+
+const STAGE_RECEIPT_FIELDS = Object.freeze([
+  "schemaVersion",
+  "network",
+  "stage",
+  "mint",
+  "launchId",
+  "signature",
+  "finalizedSlot",
+  "finalizedAt",
+  "launchlabProgramId",
+  "checks",
+  "ok",
+]);
+const CURVE_RECEIPT_CHECKS = Object.freeze([
+  "mainnetGenesis",
+  "officialProgram",
+  "transactionFinalized",
+  "stageInstructionDecoded",
+  "launchAccountMatches",
+]);
+const LAUNCHLAB_PROGRAM_ID = "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj";
+
+function unavailableFail(code) {
+  throw new Error(`unavailable-${code}`);
+}
+
+function exactUnavailableKeys(value, expected, code) {
+  if (!isObject(value)
+    || Object.keys(value).sort().join(",") !== [...expected].sort().join(",")) {
+    unavailableFail(code);
+  }
+}
+
+function canonicalBytes(value) {
+  return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function validateCurveStageReceipt(receipt) {
+  exactUnavailableKeys(receipt, STAGE_RECEIPT_FIELDS, "stage-receipt-shape");
+  exactUnavailableKeys(receipt.checks, CURVE_RECEIPT_CHECKS, "stage-receipt-checks");
+  if (receipt.schemaVersion !== "observed-stage-v1"
+    || receipt.network !== "mainnet-beta"
+    || receipt.stage !== "curve-live"
+    || receipt.launchlabProgramId !== LAUNCHLAB_PROGRAM_ID
+    || receipt.ok !== true
+    || !Number.isSafeInteger(receipt.finalizedSlot)
+    || receipt.finalizedSlot < 0
+    || !isExactIsoTimestamp(receipt.finalizedAt)
+    || !isCanonicalBase58(receipt.mint, 32)
+    || !isCanonicalBase58(receipt.launchId, 32)
+    || !isCanonicalBase58(receipt.signature, 64)
+    || CURVE_RECEIPT_CHECKS.some((field) => receipt.checks[field] !== true)) {
+    unavailableFail("stage-receipt");
+  }
+}
+
+export function buildUnavailableRecord(input) {
+  if (!isObject(input)
+    || !Object.hasOwn(input, "sourceRecord")
+    || Object.keys(input).some((field) => ![
+      "sourceRecord",
+      "stageReceipt",
+      "sourceStageReceipt",
+      "sourceContinuityReceipt",
+    ].includes(field))) unavailableFail("arguments");
+  const {
+    sourceRecord,
+    stageReceipt = null,
+    sourceStageReceipt = null,
+    sourceContinuityReceipt = null,
+  } = input;
+  const sourceIssues = validateLaunchRecord(sourceRecord);
+  if (sourceIssues.length) unavailableFail("source-record");
+
+  if (sourceRecord.status === "curve-live"
+    && sourceRecord.proof?.availability === "unavailable"
+    && stageReceipt === null
+    && sourceStageReceipt === null
+    && sourceContinuityReceipt === null) {
+    return {
+      record: structuredClone(sourceRecord),
+      continuityReceipt: null,
+    };
+  }
+  if (sourceRecord.status !== "prelaunch"
+    || sourceRecord.proof !== null
+    || sourceStageReceipt !== null
+    || sourceContinuityReceipt !== null) unavailableFail("transition");
+  validateCurveStageReceipt(stageReceipt);
+
+  const record = {
+    schemaVersion: sourceRecord.schemaVersion,
+    status: "curve-live",
+    network: sourceRecord.network,
+    project: structuredClone(sourceRecord.project),
+    token: {
+      ...structuredClone(sourceRecord.token),
+      mint: null,
+    },
+    launch: structuredClone(sourceRecord.launch),
+    proof: {
+      stage: "curve-live",
+      availability: "unavailable",
+    },
+  };
+  const issues = validateLaunchRecord(record);
+  if (issues.length) unavailableFail("record");
+  const continuityReceipt = {
+    schemaVersion: "unavailable-continuity-v1",
+    network: "mainnet-beta",
+    stage: "curve-live",
+    mint: stageReceipt.mint,
+    launchId: stageReceipt.launchId,
+    publicRecordSha256: sha256(canonicalBytes(record)),
+    stageReceiptSha256: sha256(canonicalBytes(stageReceipt)),
+    finalizedSlot: stageReceipt.finalizedSlot,
+    finalizedAt: stageReceipt.finalizedAt,
+    ok: true,
+  };
+  return { record, continuityReceipt };
 }

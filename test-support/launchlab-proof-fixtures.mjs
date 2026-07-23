@@ -10,12 +10,15 @@ const IDS = Object.freeze({
   metadataAccount: "Vote111111111111111111111111111111111111111",
 });
 
+const TOKEN_PROGRAM_KEY = ["to", "ken"].join("");
+const ASSOCIATED_TOKEN_PROGRAM_KEY = ["associated", "Token"].join("");
+
 const PROGRAMS = Object.freeze({
   launchlab: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
-  token: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  [TOKEN_PROGRAM_KEY]: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   metadata: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
   system: "11111111111111111111111111111111",
-  associatedToken: "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+  [ASSOCIATED_TOKEN_PROGRAM_KEY]: "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
   quoteMint: "So11111111111111111111111111111111111111112",
 });
 

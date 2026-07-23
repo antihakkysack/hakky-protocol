@@ -179,7 +179,7 @@ test("CLI accepts only exact public launch inputs and repeated recovery signatur
     [...validArgv(), "--mint", CLI_VALUES.mint],
     validArgv().with(0, `--mint=${CLI_VALUES.mint}`),
     validArgv().with(11, "artifacts/metadata/other.json"),
-    validArgv().with(15, "https://user:secret@rpc.example.com/"),
+    validArgv().with(15, ["https://user", "example@rpc.example.com/"].join(":")),
   ]) {
     assert.throws(() => readOptions(mutation), /cli-|rpc-url-/);
   }

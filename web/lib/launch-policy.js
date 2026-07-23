@@ -107,7 +107,7 @@ function encodeBase58(bytes) {
   return "1".repeat(zeroes) + encoded;
 }
 
-function isCanonicalBase58(value, decodedLength) {
+export function isCanonicalBase58(value, decodedLength) {
   const decoded = decodeBase58(value);
   return decoded !== null && decoded.length === decodedLength && encodeBase58(decoded) === value;
 }
