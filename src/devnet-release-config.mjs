@@ -153,6 +153,7 @@ if ($isDirectory) {
   $acl = [System.Security.AccessControl.FileSecurity]::new()
 }
 $acl.SetAccessRuleProtection($true, $false)
+$acl.SetOwner($currentSid)
 foreach ($sid in $allowedSids) {
   if ($isDirectory) {
     $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -174,6 +175,9 @@ foreach ($sid in $allowedSids) {
 Set-Acl -LiteralPath $privatePath -AclObject $acl
 
 $applied = Get-Acl -LiteralPath $privatePath
+$appliedOwner = $applied.GetOwner(
+  [System.Security.Principal.SecurityIdentifier]
+)
 $expected = @($allowedSids | ForEach-Object { $_.Value } | Sort-Object)
 $actual = @($applied.Access | ForEach-Object {
   $_.IdentityReference.Translate(
@@ -181,6 +185,7 @@ $actual = @($applied.Access | ForEach-Object {
   ).Value
 } | Sort-Object)
 if (
+  $appliedOwner.Value -ne $currentSid.Value -or
   -not $applied.AreAccessRulesProtected -or
   $actual.Count -ne $expected.Count -or
   (Compare-Object -ReferenceObject $expected -DifferenceObject $actual)
@@ -279,7 +284,7 @@ function withDeadline(promise, message) {
   return Promise.race([promise, deadline]).finally(() => clearTimeout(timeout));
 }
 
-async function createWindowsDirectoryIdentityPin(paths) {
+async function createWindowsDirectoryIdentityPin(paths, label) {
   const child = spawn(
     "powershell.exe",
     [
@@ -343,19 +348,24 @@ async function createWindowsDirectoryIdentityPin(paths) {
     try {
       current = await readWindowsDirectoryIdentities(paths);
     } catch (error) {
-      throw new Error("staging identity changed", { cause: error });
+      throw new Error(`${label} identity changed`, { cause: error });
     }
     if (!sameIdentities(identities, current)) {
-      throw new Error("staging identity changed");
+      throw new Error(`${label} identity changed`);
     }
   }
   return {
+    assertMatches(expected) {
+      if (!sameIdentities(expected, identities)) {
+        throw new Error(`${label} identity changed`);
+      }
+    },
     async verify() {
       if (released) {
-        throw new Error("staging identity pin is already released");
+        throw new Error(`${label} identity pin is already released`);
       }
       if (child.exitCode !== null) {
-        throw new Error("staging identity changed: pin helper exited");
+        throw new Error(`${label} identity changed: pin helper exited`);
       }
       await verifyPaths();
     },
@@ -390,7 +400,7 @@ function linuxIdentity(entry) {
   return `${entry.dev.toString()}:${entry.ino.toString()}`;
 }
 
-async function createLinuxDirectoryIdentityPin(paths) {
+async function createLinuxDirectoryIdentityPin(paths, label) {
   const handles = [];
   const identities = [];
   try {
@@ -423,18 +433,23 @@ async function createLinuxDirectoryIdentityPin(paths) {
         !entry.isDirectory() ||
         linuxIdentity(entry) !== identities[index]
       ) {
-        throw new Error("staging identity changed");
+        throw new Error(`${label} identity changed`);
       }
     }
   }
   return {
+    assertMatches(expected) {
+      if (!sameIdentities(expected, identities)) {
+        throw new Error(`${label} identity changed`);
+      }
+    },
     async verify() {
       if (released) {
-        throw new Error("staging identity pin is already released");
+        throw new Error(`${label} identity pin is already released`);
       }
       for (const [index, handle] of handles.entries()) {
         if (linuxIdentity(await handle.stat({ bigint: true })) !== identities[index]) {
-          throw new Error("opened staging identity changed");
+          throw new Error(`opened ${label} identity changed`);
         }
       }
       await verifyPaths();
@@ -458,12 +473,32 @@ async function createLinuxDirectoryIdentityPin(paths) {
   };
 }
 
-async function createStagingIdentityPin(paths) {
+async function readDirectoryIdentitySnapshot(paths) {
   if (process.platform === "win32") {
-    return createWindowsDirectoryIdentityPin(paths);
+    return readWindowsDirectoryIdentities(paths);
   }
   if (process.platform === "linux") {
-    return createLinuxDirectoryIdentityPin(paths);
+    const identities = [];
+    for (const candidate of paths) {
+      const entry = await lstat(candidate, { bigint: true });
+      if (entry.isSymbolicLink() || !entry.isDirectory()) {
+        throw new Error("directory identity snapshot requires a directory");
+      }
+      identities.push(linuxIdentity(entry));
+    }
+    return identities;
+  }
+  throw new Error(
+    `directory identity pinning is unsupported on ${process.platform}`,
+  );
+}
+
+async function createDirectoryIdentityPin(paths, label) {
+  if (process.platform === "win32") {
+    return createWindowsDirectoryIdentityPin(paths, label);
+  }
+  if (process.platform === "linux") {
+    return createLinuxDirectoryIdentityPin(paths, label);
   }
   throw new Error(
     `directory identity pinning is unsupported on ${process.platform}`,
@@ -471,6 +506,12 @@ async function createStagingIdentityPin(paths) {
 }
 
 export async function restrictPrivateDirectory(directory) {
+  if (process.platform === "linux") {
+    const entry = await lstat(directory);
+    if (entry.uid !== process.getuid()) {
+      throw new Error("private directory must be owned by the invoking uid");
+    }
+  }
   await chmod(directory, 0o700);
   if (process.platform === "win32") {
     await replaceWindowsAcl(directory, true);
@@ -625,6 +666,9 @@ async function validatePrivateDirectory(
   if (!isContained(parentReal, resolved)) {
     throw new Error(`${label} escapes its validated parent`);
   }
+  if (process.platform === "linux" && entry.uid !== process.getuid()) {
+    throw new Error(`${label} must be owned by the invoking uid`);
+  }
   if (process.platform !== "win32" && (entry.mode & 0o777) !== 0o700) {
     throw new Error(`${label} must have mode 0700`);
   }
@@ -652,16 +696,24 @@ async function validatePrivateFile(candidate, stagingReal, openedEntry) {
   }
 }
 
-async function writeExclusivePrivateFile(candidate, contents, stagingReal) {
+async function writeExclusivePrivateFile(
+  candidate,
+  contents,
+  stagingReal,
+  beforeMutation,
+) {
   const flags =
     fsConstants.O_WRONLY |
     fsConstants.O_CREAT |
     fsConstants.O_EXCL |
     (fsConstants.O_NOFOLLOW ?? 0);
+  await beforeMutation();
   const handle = await open(candidate, flags, 0o600);
   try {
+    await beforeMutation();
     await handle.writeFile(contents, "utf8");
     await handle.sync();
+    await beforeMutation();
     await restrictPrivateFile(candidate);
     await validatePrivateFile(candidate, stagingReal, await handle.stat());
   } finally {
@@ -669,7 +721,11 @@ async function writeExclusivePrivateFile(candidate, contents, stagingReal) {
   }
 }
 
-async function writeOwnedTemporaryFile(finalPath, contents) {
+async function writeOwnedTemporaryFile(
+  finalPath,
+  contents,
+  beforeMutation,
+) {
   const parent = path.dirname(finalPath);
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const temporaryPath = path.join(
@@ -678,6 +734,7 @@ async function writeOwnedTemporaryFile(finalPath, contents) {
     );
     let owned = false;
     try {
+      await beforeMutation();
       const handle = await open(
         temporaryPath,
         fsConstants.O_WRONLY |
@@ -688,6 +745,7 @@ async function writeOwnedTemporaryFile(finalPath, contents) {
       );
       owned = true;
       try {
+        await beforeMutation();
         await handle.writeFile(contents, "utf8");
         await handle.sync();
         const namedEntry = await lstat(temporaryPath);
@@ -707,6 +765,7 @@ async function writeOwnedTemporaryFile(finalPath, contents) {
     } catch (error) {
       if (owned) {
         try {
+          await beforeMutation();
           await unlink(temporaryPath);
         } catch (cleanupError) {
           if (cleanupError?.code !== "ENOENT") {
@@ -784,15 +843,18 @@ async function cleanupOwnedStage(
   stagingPath,
   devnetDirectory,
   stagingIdentityPin,
+  parentIdentityPin,
 ) {
   if (
     !stagingPath ||
     !stagingIdentityPin ||
+    !parentIdentityPin ||
     path.dirname(stagingPath) !== devnetDirectory ||
     !path.basename(stagingPath).startsWith(".private-stage-")
   ) {
     return;
   }
+  await parentIdentityPin.verify();
   await stagingIdentityPin.verifyPath();
   const allowedNames = new Set([
     "program-keypair.json",
@@ -804,19 +866,42 @@ async function cleanupOwnedStage(
     throw new Error("staging identity changed; cleanup skipped");
   }
   for (const entry of entries) {
+    await parentIdentityPin.verify();
     await stagingIdentityPin.verifyPath();
     const candidate = path.join(stagingPath, entry);
     const candidateEntry = await lstat(candidate);
     if (candidateEntry.isSymbolicLink() || !candidateEntry.isFile()) {
       throw new Error("staging identity changed; cleanup skipped");
     }
+    const handle = await open(
+      candidate,
+      fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0),
+    );
+    try {
+      const openedEntry = await handle.stat();
+      if (
+        openedEntry.dev !== candidateEntry.dev ||
+        openedEntry.ino !== candidateEntry.ino
+      ) {
+        throw new Error("staging identity changed; cleanup skipped");
+      }
+    } finally {
+      await handle.close();
+    }
+    await parentIdentityPin.verify();
+    await stagingIdentityPin.verifyPath();
     await unlink(candidate);
   }
+  await parentIdentityPin.verify();
   await stagingIdentityPin.verifyPath();
   await rmdir(stagingPath);
 }
 
-async function cleanupOwnedTemporaryFile(temporaryPath, finalPath) {
+async function cleanupOwnedTemporaryFile(
+  temporaryPath,
+  finalPath,
+  beforeMutation,
+) {
   if (
     temporaryPath &&
     path.dirname(temporaryPath) === path.dirname(finalPath) &&
@@ -826,6 +911,7 @@ async function cleanupOwnedTemporaryFile(temporaryPath, finalPath) {
     path.basename(temporaryPath).endsWith(".tmp")
   ) {
     try {
+      await beforeMutation();
       await unlink(temporaryPath);
     } catch (error) {
       if (error?.code !== "ENOENT") {
@@ -841,16 +927,30 @@ export function repositoryRootFromModule(moduleUrl) {
 
 export async function generateDevnetReleaseConfig({
   repositoryRoot,
+  preParentPinHook,
   postValidationHook,
+  postStagingPinReleaseHook,
 }) {
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new TypeError("repository root must be an absolute path");
+  }
+  if (
+    preParentPinHook !== undefined &&
+    typeof preParentPinHook !== "function"
+  ) {
+    throw new TypeError("pre-parent-pin hook must be a function");
   }
   if (
     postValidationHook !== undefined &&
     typeof postValidationHook !== "function"
   ) {
     throw new TypeError("post-validation hook must be a function");
+  }
+  if (
+    postStagingPinReleaseHook !== undefined &&
+    typeof postStagingPinReleaseHook !== "function"
+  ) {
+    throw new TypeError("post-staging-pin-release hook must be a function");
   }
   const root = path.resolve(repositoryRoot);
   const rootEntry = await lstat(root);
@@ -861,13 +961,13 @@ export async function generateDevnetReleaseConfig({
   const rootReal = await realpath(root);
 
   const artifactsDirectory = path.join(root, "artifacts");
-  const artifactsReal = await ensureSafeDirectory(
+  await ensureSafeDirectory(
     artifactsDirectory,
     rootReal,
     "artifacts directory",
   );
   const devnetDirectory = path.join(artifactsDirectory, "devnet");
-  const devnetReal = await ensureSafeDirectory(
+  await ensureSafeDirectory(
     devnetDirectory,
     rootReal,
     "devnet directory",
@@ -913,41 +1013,122 @@ export async function generateDevnetReleaseConfig({
     rootReal,
     "Rust release config",
   );
-  await restrictPrivateDirectory(devnetDirectory);
-  await validatePrivateDirectory(
-    devnetDirectory,
-    artifactsReal,
-    "devnet staging parent",
-  );
 
+  const parentPaths = [root, artifactsDirectory, devnetDirectory];
+  const validatedParentIdentities =
+    await readDirectoryIdentitySnapshot(parentPaths);
+  if (preParentPinHook) {
+    await preParentPinHook(
+      Object.freeze({
+        artifactsDirectory,
+        devnetDirectory,
+      }),
+    );
+  }
+
+  let parentIdentityPin;
   let stagingDirectory;
   let stagingIdentityPin;
+  let stagingPinReleased = false;
+  let stagingReleaseHookInvoked = false;
   let publicTemporaryPath;
   let rustTemporaryPath;
+
+  async function verifyParentPin() {
+    if (!parentIdentityPin) {
+      throw new Error("parent identity pin is unavailable");
+    }
+    await parentIdentityPin.verify();
+  }
+
+  async function verifyRetainedPins() {
+    await verifyParentPin();
+    if (!stagingIdentityPin) {
+      throw new Error("staging identity pin is unavailable");
+    }
+    await stagingIdentityPin.verify();
+  }
+
+  async function releaseStagingPin(phase) {
+    if (!stagingIdentityPin) {
+      return;
+    }
+    if (!stagingPinReleased) {
+      await stagingIdentityPin.release();
+      stagingPinReleased = true;
+    }
+    if (postStagingPinReleaseHook && !stagingReleaseHookInvoked) {
+      stagingReleaseHookInvoked = true;
+      await postStagingPinReleaseHook(
+        Object.freeze({
+          devnetDirectory,
+          phase,
+          stagingDirectory,
+        }),
+      );
+    }
+  }
+
   try {
+    parentIdentityPin = await createDirectoryIdentityPin(
+      parentPaths,
+      "parent",
+    );
+    await restrictPrivateDirectory(artifactsDirectory);
+    await verifyParentPin();
+    const pinnedArtifactsReal = await validatePrivateDirectory(
+      artifactsDirectory,
+      rootReal,
+      "artifacts staging parent",
+    );
+    await restrictPrivateDirectory(devnetDirectory);
+    await verifyParentPin();
+    const pinnedDevnetReal = await validatePrivateDirectory(
+      devnetDirectory,
+      pinnedArtifactsReal,
+      "devnet staging parent",
+    );
+    await verifyParentPin();
+    parentIdentityPin.assertMatches(validatedParentIdentities);
+
+    const currentPrivateEntry = await lstatIfExists(privateDirectory);
+    if (currentPrivateEntry) {
+      if (
+        currentPrivateEntry.isSymbolicLink() ||
+        (await isWindowsReparsePoint(privateDirectory))
+      ) {
+        throw new Error(
+          "private identity path already exists and is redirected by a reparse point",
+        );
+      }
+      throw new Error("private identity path already exists");
+    }
+
+    await verifyParentPin();
     stagingDirectory = await mkdtemp(
       path.join(devnetDirectory, ".private-stage-"),
     );
+    await verifyParentPin();
     await restrictPrivateDirectory(stagingDirectory);
     const stagingReal = await validatePrivateDirectory(
       stagingDirectory,
-      devnetReal,
+      pinnedDevnetReal,
     );
-    stagingIdentityPin = await createStagingIdentityPin([
-      root,
-      artifactsDirectory,
-      devnetDirectory,
-      stagingDirectory,
-    ]);
+    await verifyParentPin();
+    stagingIdentityPin = await createDirectoryIdentityPin(
+      [stagingDirectory],
+      "staging",
+    );
     if (postValidationHook) {
       await postValidationHook(
         Object.freeze({
+          artifactsDirectory,
           devnetDirectory,
           stagingDirectory,
         }),
       );
     }
-    await stagingIdentityPin.verify();
+    await verifyRetainedPins();
 
     const program = Keypair.generate();
     const initializer = Keypair.generate();
@@ -965,13 +1146,15 @@ export async function generateDevnetReleaseConfig({
       ["instance-nonce.hex", `${nonce.toString("hex")}\n`],
     ];
     for (const [fileName, contents] of privateFiles) {
-      await stagingIdentityPin.verify();
+      await verifyRetainedPins();
       await writeExclusivePrivateFile(
         path.join(stagingDirectory, fileName),
         contents,
         stagingReal,
+        verifyRetainedPins,
       );
     }
+    await verifyRetainedPins();
     const stagedNames = (await readdir(stagingDirectory)).sort();
     const expectedNames = privateFiles.map(([fileName]) => fileName).sort();
     if (
@@ -998,6 +1181,7 @@ export async function generateDevnetReleaseConfig({
     publicTemporaryPath = await writeOwnedTemporaryFile(
       publicConfigPath,
       canonicalPublicJson,
+      verifyRetainedPins,
     );
     rustTemporaryPath = await writeOwnedTemporaryFile(
       rustConfigPath,
@@ -1006,28 +1190,36 @@ export async function generateDevnetReleaseConfig({
         initializer: initializer.publicKey,
         instanceCommitment: commitment,
       }),
+      verifyRetainedPins,
     );
 
-    await stagingIdentityPin.verify();
-    await stagingIdentityPin.release();
+    await verifyRetainedPins();
+    await releaseStagingPin("publication");
+    await verifyParentPin();
     await stagingIdentityPin.verifyPath();
+    await verifyParentPin();
     await directoryRenameNoReplace(stagingDirectory, privateDirectory);
     stagingDirectory = null;
+    await verifyParentPin();
     await rename(publicTemporaryPath, publicConfigPath);
     publicTemporaryPath = null;
+    await verifyParentPin();
     await rename(rustTemporaryPath, rustConfigPath);
     rustTemporaryPath = null;
 
-    return {
+    const result = {
       canonicalPublicJson,
       publicConfig,
       repositoryRoot: root,
     };
+    await parentIdentityPin.release();
+    parentIdentityPin = null;
+    return result;
   } catch (error) {
     const cleanupErrors = [];
     if (stagingIdentityPin) {
       try {
-        await stagingIdentityPin.release();
+        await releaseStagingPin("cleanup");
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
@@ -1038,12 +1230,31 @@ export async function generateDevnetReleaseConfig({
           stagingDirectory,
           devnetDirectory,
           stagingIdentityPin,
+          parentIdentityPin,
         ),
-      () => cleanupOwnedTemporaryFile(publicTemporaryPath, publicConfigPath),
-      () => cleanupOwnedTemporaryFile(rustTemporaryPath, rustConfigPath),
+      () =>
+        cleanupOwnedTemporaryFile(
+          publicTemporaryPath,
+          publicConfigPath,
+          verifyParentPin,
+        ),
+      () =>
+        cleanupOwnedTemporaryFile(
+          rustTemporaryPath,
+          rustConfigPath,
+          verifyParentPin,
+        ),
     ]) {
       try {
         await cleanup();
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    if (parentIdentityPin) {
+      try {
+        await parentIdentityPin.release();
+        parentIdentityPin = null;
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }

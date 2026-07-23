@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import {
+  chmod,
   lstat,
   mkdir,
   mkdtemp,
@@ -68,6 +69,9 @@ $entries = @($acl.Access | ForEach-Object {
 })
 [Console]::Out.Write((ConvertTo-Json -Compress -Depth 4 -InputObject (
   [PSCustomObject]@{
+    owner = $acl.GetOwner(
+      [System.Security.Principal.SecurityIdentifier]
+    ).Value
     protected = $acl.AreAccessRulesProtected
     entries = $entries
   }
@@ -106,6 +110,63 @@ async function lstatIfExistsForTest(candidate) {
     }
     throw error;
   }
+}
+
+async function assertExactPrivateDirectorySecurity(candidate) {
+  if (process.platform === "win32") {
+    const allowedSids = [
+      await currentWindowsSid(),
+      "S-1-5-18",
+      "S-1-5-32-544",
+    ].sort();
+    const acl = await windowsAcl(candidate);
+    assert.equal(acl.owner, await currentWindowsSid());
+    assert.equal(acl.protected, true);
+    assert.deepEqual(
+      acl.entries.map(({ sid }) => sid).sort(),
+      allowedSids,
+    );
+    assert.ok(
+      acl.entries.every(
+        ({ inherited, rights, type }) =>
+          type === "Allow" &&
+          inherited === false &&
+          rights.includes("FullControl"),
+      ),
+    );
+    return;
+  }
+
+  const entry = await stat(candidate);
+  assert.equal(entry.mode & 0o777, 0o700);
+  if (process.platform === "linux") {
+    assert.equal(entry.uid, process.getuid());
+  }
+}
+
+async function assertNoWindowsDirectoryPinHelper() {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const script = `
+$needle = 'Hakky' + 'DirectoryPin'
+$matches = @(Get-CimInstance Win32_Process | Where-Object {
+  $_.CommandLine -like ('*' + $needle + '*')
+})
+[Console]::Out.Write($matches.Count)
+`;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const { stdout } = await execFileAsync(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", script],
+      { windowsHide: true },
+    );
+    if (Number.parseInt(stdout, 10) === 0) {
+      return;
+    }
+    await delay(25);
+  }
+  assert.fail("native directory pin helper must be reaped");
 }
 
 test("renders only public compile-time release values", () => {
@@ -442,6 +503,268 @@ test("post-validation ancestor replacement cannot redirect staging", async (t) =
       [],
     );
   }
+});
+
+test("pre-parent-pin substitutions never become an unverified secret boundary", async (t) => {
+  await t.test("ordinary directory replacement is hardened and rejected", async (t) => {
+    const root = await isolatedRepository(t);
+    const artifactsDirectory = path.join(root, "artifacts");
+    const devnetDirectory = path.join(artifactsDirectory, "devnet");
+    const movedDevnetDirectory = `${devnetDirectory}.validated`;
+    const publicConfigPath = path.join(
+      devnetDirectory,
+      "public-release-config.json",
+    );
+    const rustConfigPath = path.join(
+      root,
+      "programs",
+      "hakky-market",
+      "src",
+      "release_config.rs",
+    );
+    await mkdir(devnetDirectory, { recursive: true });
+    await writeFile(publicConfigPath, "existing public config\n", "utf8");
+    await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+
+    let hookCalled = false;
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async preParentPinHook(context) {
+          hookCalled = true;
+          assert.equal(context.artifactsDirectory, artifactsDirectory);
+          assert.equal(context.devnetDirectory, devnetDirectory);
+          await rename(devnetDirectory, movedDevnetDirectory);
+          await mkdir(devnetDirectory);
+          if (process.platform === "win32") {
+            await execFileAsync("icacls.exe", [
+              devnetDirectory,
+              "/grant",
+              "*S-1-1-0:(OI)(CI)F",
+            ]);
+          } else {
+            await chmod(devnetDirectory, 0o777);
+          }
+        },
+      }),
+      /parent identity changed/i,
+    );
+
+    assert.equal(hookCalled, true);
+    assert.deepEqual(await readdir(devnetDirectory), []);
+    assert.equal(
+      await readFile(
+        path.join(movedDevnetDirectory, "public-release-config.json"),
+        "utf8",
+      ),
+      "existing public config\n",
+    );
+    assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+    assert.equal(await lstatIfExistsForTest(path.join(devnetDirectory, "private")), null);
+    await assertExactPrivateDirectorySecurity(artifactsDirectory);
+    await assertExactPrivateDirectorySecurity(devnetDirectory);
+    await assertNoWindowsDirectoryPinHelper();
+
+    await rm(devnetDirectory, { recursive: true, force: true });
+    await rename(movedDevnetDirectory, devnetDirectory);
+  });
+
+  await t.test("junction or symlink replacement is rejected by native acquisition", async (t) => {
+    const root = await isolatedRepository(t);
+    const artifactsDirectory = path.join(root, "artifacts");
+    const devnetDirectory = path.join(artifactsDirectory, "devnet");
+    const movedDevnetDirectory = `${devnetDirectory}.validated`;
+    const publicConfigPath = path.join(
+      devnetDirectory,
+      "public-release-config.json",
+    );
+    const rustConfigPath = path.join(
+      root,
+      "programs",
+      "hakky-market",
+      "src",
+      "release_config.rs",
+    );
+    const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
+    t.after(() => rm(outside, { recursive: true, force: true }));
+    await mkdir(devnetDirectory, { recursive: true });
+    await writeFile(publicConfigPath, "existing public config\n", "utf8");
+    await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+    await writeFile(path.join(outside, "sentinel.txt"), "outside unchanged\n");
+
+    let hookCalled = false;
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async preParentPinHook() {
+          hookCalled = true;
+          await rename(devnetDirectory, movedDevnetDirectory);
+          await symlink(
+            outside,
+            devnetDirectory,
+            process.platform === "win32" ? "junction" : "dir",
+          );
+        },
+      }),
+      /reparse|symbolic|parent identity changed/i,
+    );
+
+    assert.equal(hookCalled, true);
+    assert.deepEqual(await readdir(outside), ["sentinel.txt"]);
+    assert.equal(
+      await readFile(
+        path.join(movedDevnetDirectory, "public-release-config.json"),
+        "utf8",
+      ),
+      "existing public config\n",
+    );
+    assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+    assert.equal(await lstatIfExistsForTest(path.join(outside, "private")), null);
+    await assertNoWindowsDirectoryPinHelper();
+
+    await unlink(devnetDirectory);
+    await rename(movedDevnetDirectory, devnetDirectory);
+  });
+});
+
+test("staging substitution after pin release cannot be published", async (t) => {
+  const root = await isolatedRepository(t);
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  const privateDirectory = path.join(devnetDirectory, "private");
+  const publicConfigPath = path.join(
+    devnetDirectory,
+    "public-release-config.json",
+  );
+  const rustConfigPath = path.join(
+    root,
+    "programs",
+    "hakky-market",
+    "src",
+    "release_config.rs",
+  );
+  const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
+  t.after(() => rm(outside, { recursive: true, force: true }));
+  await mkdir(devnetDirectory, { recursive: true });
+  await writeFile(publicConfigPath, "existing public config\n", "utf8");
+  await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+  await writeFile(path.join(outside, "sentinel.txt"), "outside unchanged\n");
+
+  let hookCalled = false;
+  let stagingDirectory;
+  let movedStagingDirectory;
+  await assert.rejects(
+    generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async postStagingPinReleaseHook(context) {
+        assert.equal(context.phase, "publication");
+        hookCalled = true;
+        stagingDirectory = context.stagingDirectory;
+        movedStagingDirectory = `${stagingDirectory}.released`;
+        await rename(stagingDirectory, movedStagingDirectory);
+        await symlink(
+          outside,
+          stagingDirectory,
+          process.platform === "win32" ? "junction" : "dir",
+        );
+      },
+    }),
+    /staging identity changed/i,
+  );
+
+  assert.equal(hookCalled, true);
+  assert.deepEqual(await readdir(outside), ["sentinel.txt"]);
+  assert.equal(await lstatIfExistsForTest(privateDirectory), null);
+  assert.equal(await readFile(publicConfigPath, "utf8"), "existing public config\n");
+  assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+  assert.equal((await lstat(stagingDirectory)).isSymbolicLink(), true);
+  assert.deepEqual(
+    (await readdir(movedStagingDirectory)).sort(),
+    [
+      "initializer-keypair.json",
+      "instance-nonce.hex",
+      "program-keypair.json",
+    ],
+  );
+  await assertNoWindowsDirectoryPinHelper();
+
+  await unlink(stagingDirectory);
+  await rm(movedStagingDirectory, { recursive: true, force: true });
+});
+
+test("staging substitution after pin release cannot be removed by cleanup", async (t) => {
+  const root = await isolatedRepository(t);
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  const publicConfigPath = path.join(
+    devnetDirectory,
+    "public-release-config.json",
+  );
+  const rustConfigPath = path.join(
+    root,
+    "programs",
+    "hakky-market",
+    "src",
+    "release_config.rs",
+  );
+  await mkdir(devnetDirectory, { recursive: true });
+  await writeFile(publicConfigPath, "existing public config\n", "utf8");
+  await writeFile(rustConfigPath, "existing Rust binding\n", "utf8");
+
+  let hookCalled = false;
+  let stagingDirectory;
+  let movedStagingDirectory;
+  await assert.rejects(
+    generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async postValidationHook(context) {
+        await writeFile(
+          path.join(context.stagingDirectory, "force-cleanup.txt"),
+          "force cleanup\n",
+          "utf8",
+        );
+      },
+      async postStagingPinReleaseHook(context) {
+        assert.equal(context.phase, "cleanup");
+        hookCalled = true;
+        stagingDirectory = context.stagingDirectory;
+        movedStagingDirectory = `${stagingDirectory}.released`;
+        await rename(stagingDirectory, movedStagingDirectory);
+        await mkdir(stagingDirectory);
+        await writeFile(
+          path.join(stagingDirectory, "replacement-sentinel.txt"),
+          "replacement retained\n",
+          "utf8",
+        );
+      },
+    }),
+    /staging identity changed/i,
+  );
+
+  assert.equal(hookCalled, true);
+  assert.deepEqual(await readdir(stagingDirectory), [
+    "replacement-sentinel.txt",
+  ]);
+  assert.equal(
+    await readFile(
+      path.join(stagingDirectory, "replacement-sentinel.txt"),
+      "utf8",
+    ),
+    "replacement retained\n",
+  );
+  assert.deepEqual(
+    (await readdir(movedStagingDirectory)).sort(),
+    [
+      "force-cleanup.txt",
+      "initializer-keypair.json",
+      "instance-nonce.hex",
+      "program-keypair.json",
+    ],
+  );
+  assert.equal(await readFile(publicConfigPath, "utf8"), "existing public config\n");
+  assert.equal(await readFile(rustConfigPath, "utf8"), "existing Rust binding\n");
+  await assertNoWindowsDirectoryPinHelper();
+
+  await rm(stagingDirectory, { recursive: true, force: true });
+  await rm(movedStagingDirectory, { recursive: true, force: true });
 });
 
 test("rejects redirected secret ancestors and destinations", async (t) => {
