@@ -1,16 +1,11 @@
-import { randomUUID } from "node:crypto";
-import {
-  open,
-  readFile,
-  rename,
-  unlink,
-} from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   loadCanonicalProofArtifacts,
   validateCanonicalProofBinding,
 } from "../src/canonical-proof.mjs";
+import { publishLaunchRecord } from "../src/record-output.mjs";
 import {
   LAUNCH_FIELDS,
   LIVE_PROOF_FIELDS,
@@ -103,73 +98,21 @@ async function readSourceRecord(root, readFileImpl) {
   }
 }
 
-async function removeTemporaryFile(temporaryPath, unlinkImpl) {
-  try {
-    await unlinkImpl(temporaryPath);
-  } catch (error) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-}
-
-async function publishAtomicFile(targetPath, contents, {
-  openImpl,
-  renameImpl,
-  unlinkImpl,
-  randomUUIDImpl,
-}) {
-  const temporaryPath = path.join(
-    path.dirname(targetPath),
-    `.${path.basename(targetPath)}.${process.pid}.${randomUUIDImpl()}.tmp`,
-  );
-  let handle;
-  let ownsTemporaryPath = false;
-  try {
-    handle = await openImpl(temporaryPath, "wx", 0o600);
-    ownsTemporaryPath = true;
-    await handle.writeFile(contents, "utf8");
-    await handle.sync();
-    await handle.close();
-    handle = undefined;
-    // Same-directory rename atomically replaces the destination or fails before changing it,
-    // including on Windows; a failed promotion therefore leaves the existing record intact.
-    await renameImpl(temporaryPath, targetPath);
-  } catch (error) {
-    if (handle !== undefined) {
-      try {
-        await handle.close();
-      } catch {
-        // The exclusive temporary path is still removed below when the platform permits it.
-      }
-    }
-    if (ownsTemporaryPath) {
-      try {
-        await removeTemporaryFile(temporaryPath, unlinkImpl);
-      } catch (cleanupError) {
-        throw new AggregateError(
-          [error, cleanupError],
-          `${error instanceof Error ? error.message : String(error)}; temporary-file cleanup failed`,
-        );
-      }
-    }
-    throw error;
-  }
-}
-
 export async function buildLiveRecordFile({
   root = PROJECT_ROOT,
   verifiedAt,
   readFileImpl = readFile,
-  openImpl = open,
-  renameImpl = rename,
-  unlinkImpl = unlink,
-  randomUUIDImpl = randomUUID,
+  openImpl,
+  renameImpl,
+  unlinkImpl,
+  randomUUIDImpl,
 } = {}) {
   const prelaunchRecord = await readSourceRecord(root, readFileImpl);
   const { mintProof, launchlabProof } = await loadCanonicalProofArtifacts({ root, readFileImpl });
   const liveRecord = buildLiveRecord({ prelaunchRecord, mintProof, launchlabProof, verifiedAt });
-  await publishAtomicFile(
+  await publishLaunchRecord(
     atRoot(root, "web/data/launch.json"),
-    `${JSON.stringify(liveRecord, null, 2)}\n`,
+    liveRecord,
     { openImpl, renameImpl, unlinkImpl, randomUUIDImpl },
   );
   return liveRecord;
