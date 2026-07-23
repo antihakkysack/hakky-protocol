@@ -35,6 +35,10 @@ LaunchLab instruction, PDA, and account decoding is pinned to
 `@solana/web3.js@1.98.4`, official Raydium
 SDK V2 commit `fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c`, official Raydium IDL
 commit `e7e0c96fe77bcf6a020b84a44c47a722aac8e359`, and
+official Raydium docs commit
+`10dd5f7d9f23f0be7daabd571fc9e7c65ce269dc` path
+`products/launchlab/platform-config.mdx` (Git-blob SHA-256
+`e048a0b3caf3cd8b543a8fd143897b4cdb5ea2de2f8ad58fb93d0837f6486b92`), plus
 `@solana/spl-token@0.4.15` (official `solana-program/token-2022` commit
 `27c359d1c7d38afdec293720dba4b768aa61aeb7`). The fixed mainnet LaunchLab program is
 `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`. Fixtures under
@@ -56,13 +60,13 @@ It has no mint-account input. The exact 82-byte `MintLayout` path is intentional
 not claimed here and remains a downstream Task 6 source pin; adding an unused mint
 decoder would broaden this interface without evidence from a current input.
 
-At these pinned revisions, the HAKKY CPMM target has no source-covered LP-rights
-approval path. The exact `cpmm` / `0` platform / `0` creator / `1000000` burn
-query returns `source-coverage-unavailable` with reason
-`cpmm-burn-scale-lp-rights-unmapped`. This is a hard stop: it cannot be replaced
-by operator input, Raydium API data, or a semantic conclusion inferred from
-current accounts. Graduation account decoding remains raw-only and returns no
-LP disposition, burned/locked quantity, withdrawal-right, or fee-right claim.
+At these pinned revisions, the sole reviewed HAKKY query is exact `cpmm` /
+`0` platform / `0` creator / `1000000` burn. The official docs semantics map
+that tuple to Burn & Earn with 0/0/10000 basis points, no creator or platform
+Fee Key, no withdrawal right, and no fee recipient. The result is immutable
+and exact-query-only: operator input, Raydium API data, extra fields, and every
+other tuple remain rejected. Graduation account decoding remains raw-only and
+does not by itself prove a later on-chain locked quantity or account identity.
 PlatformConfig authority decoding likewise consumes transaction-derived metas
 and fee payer, including the reviewed pinned-SDK writable CPMM-config privilege
 at creation and only the exact fee-payer promotion allowed for updates.
@@ -139,12 +143,13 @@ reads the exact finalized pre-state, and simulates with
 contain exactly one direct stack-height-2 CreateMetadataAccountV3 CPI matching
 the hashed manifest/readback with `isMutable: false`.
 
-The exact HAKKY CPMM query currently returns
-`source-coverage-unavailable` / `cpmm-burn-scale-lp-rights-unmapped`. This is a
-non-bypassable control result: the verifier emits no `preview.json` and no
-`approval-envelope.json`, and signing remains prohibited. A UI setting,
-screenshot, API result, current PlatformConfig value, or operator-authored
-override cannot replace missing source coverage.
+The exact HAKKY CPMM query now returns the immutable
+`source-coverage-verified` result backed by the pinned official Raydium docs.
+Only when every independent identity, metadata, receipt, state, simulation,
+debit, and policy check also passes may the verifier emit `preview.json` and
+`approval-envelope.json`. A UI setting, screenshot, API result, current
+PlatformConfig value, different scale tuple, or operator-authored override
+cannot replace the exact source-covered result.
 
 ## Mainnet session receipt
 

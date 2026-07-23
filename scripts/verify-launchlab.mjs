@@ -2,11 +2,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PublicKey } from "@solana/web3.js";
 import {
-  HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
-} from "../src/raydium-launchlab.mjs";
-import {
   runLaunchlabVerifier,
 } from "../src/launchlab-proof.mjs";
+import {
+  publishJsonProof,
+  resolveCanonicalLaunchlabProofPath,
+} from "../src/proof-output.mjs";
 import {
   DEFAULT_PUBLIC_MAINNET_RPC,
   parsePublicRpcUrl,
@@ -26,6 +27,7 @@ const REPEATED = "--recovery-transaction";
 const OPTIONAL_ONCE = "--rpc";
 const MANIFEST_PATH = "artifacts/metadata/manifest.json";
 const READBACK_PATH = "artifacts/metadata/readback.json";
+const WORKTREE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function fail(code) {
   throw new Error(code);
@@ -95,9 +97,20 @@ export function readOptions(argv) {
   });
 }
 
-export async function runFromCli({ argv = process.argv.slice(2) } = {}) {
+export async function runFromCli({
+  argv = process.argv.slice(2),
+  repositoryRoot = WORKTREE_ROOT,
+  publishProofImpl = publishJsonProof,
+  runVerifier = runLaunchlabVerifier,
+} = {}) {
   const options = readOptions(argv);
-  return runLaunchlabVerifier({ argv, options });
+  const root = path.resolve(repositoryRoot);
+  const outputPath = resolveCanonicalLaunchlabProofPath({ repositoryRoot: root });
+  return runVerifier({
+    argv,
+    options,
+    publishProof: (proof) => publishProofImpl(outputPath, proof, { repositoryRoot: root }),
+  });
 }
 
 export async function main({
@@ -107,14 +120,13 @@ export async function main({
 } = {}) {
   try {
     const result = await runVerifier();
-    if (result?.proof === null
-      && result?.publication === null
-      && result?.coverage === HAKKY_SOURCE_COVERAGE_UNAVAILABLE) {
-      stderr.write(`SOURCE_COVERAGE_UNAVAILABLE: ${result.coverage.reason}\n`);
-      return 1;
-    }
     if (result?.proof?.ok === true && result?.publication?.published === true) {
       stdout.write(`${JSON.stringify(result.proof, null, 2)}\n`);
+      for (const warning of result.publication.warnings ?? []) {
+        if (warning?.code === "TEMP_UNLINK_FAILED") {
+          stderr.write("WARNING: Proof was committed, but owned temporary cleanup failed. Do not retry publication.\n");
+        }
+      }
       return 0;
     }
     stderr.write("LaunchLab verification failed before publishing a proof.\n");

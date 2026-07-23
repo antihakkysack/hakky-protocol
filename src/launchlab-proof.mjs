@@ -1,7 +1,8 @@
 import {
   evaluateHakkyLaunchlabSourceCoverage,
-  HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
+  HAKKY_SOURCE_COVERAGE_VERIFIED,
 } from "./raydium-launchlab.mjs";
+import { assertSchema } from "./schema-validation.mjs";
 
 const SHARED_FIELDS = Object.freeze([
   "allocations",
@@ -30,6 +31,12 @@ function exactKeys(value, keys, code) {
 
 function equal(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function recursivelyFreeze(value) {
+  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) recursivelyFreeze(child);
+  return Object.freeze(value);
 }
 
 function check(id, observed, expected) {
@@ -168,8 +175,64 @@ export function reconcileLaunchlabEvidence({
     creatorScaleRaw: unsigned(transactionEvidence.platformConfig.creatorScaleRaw, "coverage-query"),
     burnScaleRaw: unsigned(transactionEvidence.platformConfig.burnScaleRaw, "coverage-query"),
   });
-  check("source-coverage-control", coverage, HAKKY_SOURCE_COVERAGE_UNAVAILABLE);
-  return HAKKY_SOURCE_COVERAGE_UNAVAILABLE;
+  check("source-coverage-control", coverage, HAKKY_SOURCE_COVERAGE_VERIFIED);
+  const transactionPlatformConfig = transactionEvidence.platformConfig;
+  const proof = {
+    schemaVersion: 2,
+    network: transactionEvidence.network,
+    identities: structuredClone(transactionEvidence.identities),
+    transaction: structuredClone(transactionEvidence.transaction),
+    programs: structuredClone(transactionEvidence.programs),
+    platformConfig: {
+      address: transactionPlatformConfig.address,
+      creationAccountSha256: transactionPlatformConfig.creationAccountSha256,
+      verificationAccountSha256:
+        accountEvidence.platformConfig.verificationAccountSha256,
+      updateAuthorities: [...transactionPlatformConfig.updateAuthorities],
+      mutableFields: [...transactionPlatformConfig.mutableFields],
+      mutabilityClassification: transactionPlatformConfig.mutabilityClassification,
+      platformScaleRaw: transactionPlatformConfig.platformScaleRaw,
+      creatorScaleRaw: transactionPlatformConfig.creatorScaleRaw,
+      burnScaleRaw: transactionPlatformConfig.burnScaleRaw,
+      feeRateMillionths: transactionPlatformConfig.feeRateMillionths,
+      creatorFeeRateMillionths: transactionPlatformConfig.creatorFeeRateMillionths,
+      platformVestingScaleRaw: transactionPlatformConfig.platformVestingScaleRaw,
+      immutableBinding: transactionPlatformConfig.immutableBinding,
+    },
+    allocations: structuredClone(transactionEvidence.allocations),
+    quote: structuredClone(transactionEvidence.quote),
+    creatorFirstBuy: structuredClone(transactionEvidence.creatorFirstBuy),
+    vesting: structuredClone(transactionEvidence.vesting),
+    fees: structuredClone(transactionEvidence.fees),
+    migration: structuredClone(transactionEvidence.migration),
+    metadata: structuredClone(transactionEvidence.metadata),
+    cost: structuredClone(transactionEvidence.cost),
+    links: structuredClone(transactionEvidence.links),
+    observation: {
+      launchAccountSha256: accountEvidence.observation.launchAccountSha256,
+      baseVaultSha256: accountEvidence.observation.baseVaultSha256,
+      quoteVaultSha256: accountEvidence.observation.quoteVaultSha256,
+      platformConfigSha256: accountEvidence.observation.platformConfigSha256,
+      finalizedSlot: accountEvidence.observation.finalizedSlot,
+      finalizedAt: accountEvidence.observation.finalizedAt,
+      checkedAt,
+      rpcHost: accountEvidence.observation.rpcHost,
+    },
+    checks: {
+      transactionDecoded: true,
+      accountsDecoded: true,
+      sourcesAgree: true,
+      immutableEconomics: true,
+      allocationPolicy: true,
+      feePolicy: true,
+      costCap: true,
+      metadataDigestMatch: true,
+      finalized: true,
+    },
+    ok: true,
+  };
+  assertSchema("launchlab-v2", proof);
+  return recursivelyFreeze(proof);
 }
 
 export async function fetchLaunchlabEvidence({ connection, request }) {
@@ -185,14 +248,28 @@ export async function runLaunchlabVerifier({
   publishProof,
   options,
 } = {}) {
-  if (!Array.isArray(argv) || typeof fetchEvidence !== "function") fail("launchlab-runner");
+  if (!Array.isArray(argv) || typeof fetchEvidence !== "function"
+    || typeof publishProof !== "function") fail("launchlab-runner");
   const evidence = await fetchEvidence({ argv, options });
-  const coverage = reconcileLaunchlabEvidence(evidence);
-  if (!equal(coverage, HAKKY_SOURCE_COVERAGE_UNAVAILABLE)) fail("source-coverage-control");
-  void publishProof;
-  return Object.freeze({
-    proof: null,
-    publication: null,
-    coverage: HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
+  const proof = reconcileLaunchlabEvidence(evidence);
+  const publication = await publishProof(proof);
+  exactKeys(publication, ["published", "outputPath", "warnings"], "publication-receipt");
+  if (publication.published !== true
+    || typeof publication.outputPath !== "string"
+    || publication.outputPath.length === 0
+    || !Array.isArray(publication.warnings)) fail("publication-receipt");
+  for (const warning of publication.warnings) {
+    exactKeys(warning, ["code", "message", "temporaryPath"], "publication-warning");
+    if (warning.code !== "TEMP_UNLINK_FAILED"
+      || typeof warning.message !== "string"
+      || typeof warning.temporaryPath !== "string") fail("publication-warning");
+  }
+  return recursivelyFreeze({
+    proof,
+    publication: {
+      published: true,
+      outputPath: publication.outputPath,
+      warnings: publication.warnings.map((warning) => ({ ...warning })),
+    },
   });
 }

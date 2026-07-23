@@ -137,12 +137,16 @@ Metaplex metadata CPI, and recomputes the one-SOL cumulative creator-debit cap.
 These commands accept no seed, keypair, program, fee, policy, approval, signing,
 or send override.
 
-At the currently pinned Raydium source revision, the exact approved CPMM
-Burn & Earn rights layout is not source-covered. The preview therefore exits
-with `source-coverage-unavailable` and writes neither `preview.json` nor
-`approval-envelope.json`. Do not sign while this stop is present. Removing it
-requires a separate reviewed source pin and tests that map every creator,
-platform, irreversible, withdrawal, and fee right for the selected migration.
+The exact CPMM disposition is additionally pinned to official Raydium docs
+commit `10dd5f7d9f23f0be7daabd571fc9e7c65ce269dc`, path
+`products/launchlab/platform-config.mdx`, Git-blob SHA-256
+`e048a0b3caf3cd8b543a8fd143897b4cdb5ea2de2f8ad58fb93d0837f6486b92`.
+For the sole reviewed tuple (`cpmm`, platform `0`, creator `0`, burn
+`1000000`), those semantics bind 0/0/10000 basis points to Burn & Earn,
+no creator or platform Fee Key, no withdrawal right, and no fee recipient.
+Only an otherwise fully passing preview may therefore write `preview.json`
+and its deterministic `approval-envelope.json`; a different tuple, extra
+coverage input, or operator override still stops before signing.
 
 ## Public session and recovery evidence
 

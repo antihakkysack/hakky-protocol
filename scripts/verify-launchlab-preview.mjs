@@ -183,7 +183,8 @@ export async function runPreviewVerifier({
     creator: options.creator,
   });
   if (evaluation.ok !== true) {
-    throw new Error(evaluation.coverage.code);
+    const failedCheck = evaluation.checks.find((check) => check.ok !== true);
+    throw new Error(`launch-preview-${failedCheck?.code ?? "evaluation"}`);
   }
   const envelope = buildApprovalEnvelope(evaluation);
   await writeImpl({

@@ -15,12 +15,15 @@ import {
   METAPLEX_METADATA_PROGRAM_ID,
 } from "./metaplex-metadata.mjs";
 import {
-  HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
+  HAKKY_SOURCE_COVERAGE_VERIFIED,
   RAYDIUM_LAUNCHLAB_PROGRAM_ID,
   decodeLaunchlabCreationTransaction,
   decodePlatformConfigAccount,
   evaluateHakkyLaunchlabSourceCoverage,
 } from "./raydium-launchlab.mjs";
+import {
+  serializeMainnetSessionJson,
+} from "./mainnet-session-artifact.mjs";
 import {
   MAINNET_BETA_GENESIS_HASH,
 } from "./solana-rpc.mjs";
@@ -271,6 +274,19 @@ function receiptAgeOk(checkedAt, evaluatedAt, maxAge) {
   if (!canonicalTimestamp(checkedAt) || !canonicalTimestamp(evaluatedAt)) return false;
   const age = Date.parse(evaluatedAt) - Date.parse(checkedAt);
   return age >= 0 && age <= maxAge;
+}
+
+function receiptBinding(receipt, maxAge) {
+  try {
+    if (!canonicalTimestamp(receipt.checkedAt)) return null;
+    return Object.freeze({
+      sha256: sha256(serializeMainnetSessionJson(receipt)),
+      checkedAt: receipt.checkedAt,
+      expiresAt: new Date(Date.parse(receipt.checkedAt) + maxAge).toISOString(),
+    });
+  } catch {
+    return null;
+  }
 }
 
 function originReceiptOk(receipt, evaluatedAt) {
@@ -572,8 +588,8 @@ export function evaluateLaunchPreview(input) {
   } catch {
     // The decoder supplied a policy outside the sole reviewed HAKKY query.
   }
-  if (coverage === HAKKY_SOURCE_COVERAGE_UNAVAILABLE) {
-    addCheck(checks, coverage.code, false, coverage.reason);
+  if (coverage === HAKKY_SOURCE_COVERAGE_VERIFIED) {
+    addCheck(checks, coverage.code, true);
   } else {
     addCheck(checks, coverage.code, false, coverage.reason);
   }
@@ -590,6 +606,25 @@ export function evaluateLaunchPreview(input) {
       protocolFeeRateMillionths: observed.protocolBuyFeeRateMillionths,
       simulationSlot: simulation?.simulationSlot ?? null,
     },
+    approvalEvidence: {
+      signers: Array.isArray(input.preview?.signers) ? [...input.preview.signers] : [],
+      programs: Array.isArray(input.preview?.programs) ? [...input.preview.programs] : [],
+      transfers: Array.isArray(input.preview?.transfers)
+        ? input.preview.transfers.map((transfer) => ({ ...transfer }))
+        : [],
+      walletReadiness: walletOk ? {
+        finalizedBalanceLamports: input.walletReadinessReceipt.finalizedBalanceLamports,
+        finalizedSlot: input.walletReadinessReceipt.finalizedSlot,
+      } : null,
+      receipts: {
+        officialOrigin: originOk
+          ? receiptBinding(input.officialOriginReceipt, ORIGIN_MAX_AGE_MS)
+          : null,
+        walletReadiness: walletOk
+          ? receiptBinding(input.walletReadinessReceipt, WALLET_MAX_AGE_MS)
+          : null,
+      },
+    },
     coverage,
     checks,
     ok: checks.every((check) => check.ok),
@@ -601,5 +636,100 @@ export function buildApprovalEnvelope(evaluation) {
     const coverageCode = evaluation?.coverage?.code ?? "evaluation-not-approved";
     fail(coverageCode);
   }
-  fail("approval-envelope-disabled-at-current-source-pin");
+  exactKeys(evaluation, [
+    "schemaVersion", "transactionSha256", "creator", "observed", "diagnostic",
+    "approvalEvidence", "coverage", "checks", "ok",
+  ], "approval-evaluation-shape");
+  if (evaluation.schemaVersion !== "launchlab-preview-evaluation-v1"
+    || !/^[0-9a-f]{64}$/u.test(evaluation.transactionSha256)
+    || canonicalKey(evaluation.creator, "approval-creator") !== evaluation.creator
+    || JSON.stringify(evaluation.observed) !== JSON.stringify(TARGET)
+    || JSON.stringify(evaluation.coverage) !== JSON.stringify(HAKKY_SOURCE_COVERAGE_VERIFIED)
+    || !Array.isArray(evaluation.checks)
+    || evaluation.checks.length === 0
+    || !evaluation.checks.every((entry) => entry?.ok === true)
+    || !evaluation.checks.some((entry) => entry.code === HAKKY_SOURCE_COVERAGE_VERIFIED.code)) {
+    fail("approval-evaluation");
+  }
+  exactKeys(evaluation.diagnostic, [
+    "creationDebitLamports", "cumulativeCreatorDebitLamports",
+    "protocolFeeRateMillionths", "simulationSlot",
+  ], "approval-diagnostic");
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(evaluation.diagnostic.creationDebitLamports)
+    || !/^(?:0|[1-9][0-9]*)$/u.test(evaluation.diagnostic.cumulativeCreatorDebitLamports)
+    || evaluation.diagnostic.protocolFeeRateMillionths
+      !== evaluation.observed.protocolBuyFeeRateMillionths
+    || !Number.isSafeInteger(evaluation.diagnostic.simulationSlot)
+    || BigInt(evaluation.diagnostic.creationDebitLamports)
+      > BigInt(evaluation.observed.maximumCreationDebitLamports)
+    || BigInt(evaluation.diagnostic.cumulativeCreatorDebitLamports)
+      > BigInt(evaluation.observed.cumulativeCreatorDebitCapLamports)) {
+    fail("approval-diagnostic");
+  }
+  exactKeys(evaluation.approvalEvidence, [
+    "signers", "programs", "transfers", "walletReadiness", "receipts",
+  ], "approval-evidence");
+  const { signers, programs, transfers, walletReadiness, receipts } = evaluation.approvalEvidence;
+  if (!Array.isArray(signers) || signers.length !== 2
+    || signers[0] !== evaluation.creator
+    || !signers.every((value) => canonicalKey(value, "approval-signer") === value)
+    || !Array.isArray(programs) || programs.length === 0
+    || !programs.every((value) => canonicalKey(value, "approval-program") === value)
+    || !Array.isArray(transfers) || transfers.length !== 0) {
+    fail("approval-transaction-evidence");
+  }
+  exactKeys(walletReadiness, [
+    "finalizedBalanceLamports", "finalizedSlot",
+  ], "approval-wallet");
+  if (!/^(?:0|[1-9][0-9]*)$/u.test(walletReadiness.finalizedBalanceLamports)
+    || BigInt(walletReadiness.finalizedBalanceLamports) < BigInt(REQUIRED_LAMPORTS)
+    || !Number.isSafeInteger(walletReadiness.finalizedSlot)
+    || walletReadiness.finalizedSlot < 0) {
+    fail("approval-wallet");
+  }
+  exactKeys(receipts, ["officialOrigin", "walletReadiness"], "approval-receipts");
+  for (const [label, receipt] of Object.entries(receipts)) {
+    exactKeys(receipt, ["sha256", "checkedAt", "expiresAt"], `approval-${label}-receipt`);
+    if (!/^[0-9a-f]{64}$/u.test(receipt.sha256)
+      || !canonicalTimestamp(receipt.checkedAt)
+      || !canonicalTimestamp(receipt.expiresAt)
+      || Date.parse(receipt.expiresAt) <= Date.parse(receipt.checkedAt)) {
+      fail(`approval-${label}-receipt`);
+    }
+  }
+  const disposition = evaluation.coverage.disposition;
+  return recursivelyFreeze({
+    schemaVersion: "launchlab-approval-envelope-v1",
+    transactionSha256: evaluation.transactionSha256,
+    creator: evaluation.creator,
+    selectedWallet: evaluation.creator,
+    signers: [...signers],
+    programs: [...programs],
+    transfers: [],
+    walletReadiness: { ...walletReadiness },
+    cost: {
+      metadataUploadLamports: evaluation.observed.metadataUploadLamports,
+      maximumCreationDebitLamports: evaluation.observed.maximumCreationDebitLamports,
+      cumulativeCreatorDebitCapLamports: evaluation.observed.cumulativeCreatorDebitCapLamports,
+      simulatedCreationDebitLamports: evaluation.diagnostic.creationDebitLamports,
+      simulatedCumulativeCreatorDebitLamports:
+        evaluation.diagnostic.cumulativeCreatorDebitLamports,
+    },
+    fees: {
+      protocolBuyFeeRateMillionths: evaluation.observed.protocolBuyFeeRateMillionths,
+      protocolSellFeeRateMillionths: evaluation.observed.protocolSellFeeRateMillionths,
+      feeRateDenominator: evaluation.observed.feeRateDenominator,
+      creatorTradingFeeRateMillionths: evaluation.observed.creatorFeeRateMillionths,
+      creatorFeeRights: false,
+    },
+    migration: {
+      type: evaluation.observed.migrationType,
+      ...disposition,
+    },
+    receipts: {
+      officialOrigin: { ...receipts.officialOrigin },
+      walletReadiness: { ...receipts.walletReadiness },
+    },
+    authorization: `Authorize only serialized transaction SHA-256 ${evaluation.transactionSha256} with maximum creation debit ${evaluation.observed.maximumCreationDebitLamports} lamports.`,
+  });
 }

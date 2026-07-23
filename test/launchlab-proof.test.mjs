@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
-import {
-  HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
-} from "../src/raydium-launchlab.mjs";
+import { assertSchema } from "../src/schema-validation.mjs";
 import { encodeBase58 } from "../src/solana-transaction.mjs";
 import {
   reconcileLaunchlabEvidence,
@@ -14,6 +13,7 @@ import {
 import {
   main as launchlabMain,
   readOptions,
+  runFromCli,
 } from "../scripts/verify-launchlab.mjs";
 
 const CLI_VALUES = Object.freeze({
@@ -46,16 +46,36 @@ function setPath(root, dottedPath, value) {
   cursor[parts.at(-1)] = value;
 }
 
-test("ordinary two-source reconciliation reaches the exact frozen coverage stop", () => {
+test("ordinary two-source reconciliation produces the canonical covered proof", () => {
   const fixture = createLaunchlabReconciliationFixture();
   const before = structuredClone(fixture);
   const result = reconcileLaunchlabEvidence(fixture);
-  assert.deepEqual(result, HAKKY_SOURCE_COVERAGE_UNAVAILABLE);
-  assert.strictEqual(result, HAKKY_SOURCE_COVERAGE_UNAVAILABLE);
+  assert.equal(result.schemaVersion, 2);
+  assert.equal(result.network, "mainnet-beta");
+  assert.deepEqual(result.platformConfig, {
+    ...fixture.transactionEvidence.platformConfig,
+    verificationAccountSha256:
+      fixture.accountEvidence.platformConfig.verificationAccountSha256,
+  });
+  assert.deepEqual(result.observation, {
+    ...fixture.accountEvidence.observation,
+    checkedAt: fixture.checkedAt,
+  });
+  assert.deepEqual(result.checks, {
+    transactionDecoded: true,
+    accountsDecoded: true,
+    sourcesAgree: true,
+    immutableEconomics: true,
+    allocationPolicy: true,
+    feePolicy: true,
+    costCap: true,
+    metadataDigestMatch: true,
+    finalized: true,
+  });
+  assert.equal(result.ok, true);
+  assert.equal(assertSchema("launchlab-v2", result), result);
   assert.equal(Object.isFrozen(result), true);
   assert.deepEqual(fixture, before);
-  assert.equal("proof" in result, false);
-  assert.equal("candidate" in result, false);
 });
 
 test("each independent transaction/account source mismatch fails a named check", () => {
@@ -137,24 +157,29 @@ test("immutable economics, fee rights, LP union, cost, and finality fail closed"
   assert.throws(() => reconcileLaunchlabEvidence(stale), /finalized-chronology/);
 });
 
-test("the verifier never publishes when exact HAKKY source coverage is unavailable", async () => {
+test("the verifier publishes exactly once only after covered reconciliation", async () => {
   const fixture = createLaunchlabReconciliationFixture();
   let publications = 0;
+  const publication = Object.freeze({
+    published: true,
+    outputPath: "C:\\fixture\\proof\\mainnet-launchlab.json",
+    warnings: Object.freeze([]),
+  });
   const result = await runLaunchlabVerifier({
     argv: [],
     fetchEvidence: async () => fixture,
-    publishProof: async () => {
+    publishProof: async (proof) => {
       publications += 1;
-      return { published: true };
+      assert.equal(proof.ok, true);
+      return publication;
     },
     options: Object.freeze({ fixtureMode: true }),
   });
   assert.deepEqual(result, {
-    proof: null,
-    publication: null,
-    coverage: HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
+    proof: reconcileLaunchlabEvidence(fixture),
+    publication,
   });
-  assert.equal(publications, 0);
+  assert.equal(publications, 1);
 });
 
 test("CLI accepts only exact public launch inputs and repeated recovery signatures", () => {
@@ -185,19 +210,51 @@ test("CLI accepts only exact public launch inputs and repeated recovery signatur
   }
 });
 
-test("CLI main emits no proof and exits nonzero for the frozen coverage stop", async () => {
+test("CLI runner binds publication to the canonical LaunchLab proof path", async () => {
+  const repositoryRoot = path.resolve("test-support");
+  let publishedPath = null;
+  const publication = {
+    published: true,
+    outputPath: path.join(repositoryRoot, "proof", "mainnet-launchlab.json"),
+    warnings: [],
+  };
+  const result = await runFromCli({
+    argv: validArgv(),
+    repositoryRoot,
+    publishProofImpl: async (outputPath, proof, options) => {
+      publishedPath = outputPath;
+      assert.equal(proof.ok, true);
+      assert.deepEqual(options, { repositoryRoot });
+      return publication;
+    },
+    runVerifier: async ({ options, publishProof }) => {
+      assert.deepEqual(options, readOptions(validArgv()));
+      return {
+        proof: { ok: true },
+        publication: await publishProof({ ok: true }),
+      };
+    },
+  });
+  assert.equal(
+    publishedPath,
+    path.join(repositoryRoot, "proof", "mainnet-launchlab.json"),
+  );
+  assert.deepEqual(result, { proof: { ok: true }, publication });
+});
+
+test("CLI main emits the verified proof after publication", async () => {
+  const proof = reconcileLaunchlabEvidence(createLaunchlabReconciliationFixture());
   let stdout = "";
   let stderr = "";
   const exitCode = await launchlabMain({
     runVerifier: async () => ({
-      proof: null,
-      publication: null,
-      coverage: HAKKY_SOURCE_COVERAGE_UNAVAILABLE,
+      proof,
+      publication: { published: true, outputPath: "fixture", warnings: [] },
     }),
     stdout: { write: (value) => { stdout += value; } },
     stderr: { write: (value) => { stderr += value; } },
   });
-  assert.equal(exitCode, 1);
-  assert.equal(stdout, "");
-  assert.equal(stderr, "SOURCE_COVERAGE_UNAVAILABLE: cpmm-burn-scale-lp-rights-unmapped\n");
+  assert.equal(exitCode, 0);
+  assert.equal(stdout, `${JSON.stringify(proof, null, 2)}\n`);
+  assert.equal(stderr, "");
 });
