@@ -78,3 +78,15 @@ test("active operator documents use stage-correct authority and graduation langu
   assert.match(joined, /2026-08-23/u);
   assert.match(joined, /npm audit fix --force/u);
 });
+
+test("the active runbook names the current canonical proof schema versions", async () => {
+  const launch = await readFile("docs/LAUNCH.md", "utf8");
+  assert.match(
+    launch,
+    /The canonical mint and LaunchLab artifacts both use strict schema version `2`\./u,
+  );
+  assert.match(
+    launch,
+    /The graduation artifact uses strict schema version `1`\./u,
+  );
+});

@@ -238,14 +238,16 @@ creator HAKKY balance, finalized metadata and immutable state, LaunchLab launch
 address, curve and liquidity allocation, creator-fee state, graduation target,
 quote asset, LP disposal, and official Raydium and Solscan URLs.
 
-The canonical mint and LaunchLab artifacts both use strict schema version `1`
-and require `ok: true`. Live publication is fail-closed: the site checker reads
-both files, rejects unknown fields, and cross-checks the exact mint, creator,
-launch address and signature, supply, decimals, authorities, zero creator
-balance, metadata URI/image/links/immutability, 80/20/0 allocation, disabled
-creator fees, configured migration policy, 24 SOL target, SOL quote, and
-creator spend no greater than 1.00 SOL. LP irreversibility is not claimed until
-the separate graduation artifact proves the final disposition.
+The canonical mint and LaunchLab artifacts both use strict schema version `2`.
+The graduation artifact uses strict schema version `1`. Every canonical proof
+requires `ok: true`. Live publication is fail-closed: the site checker reads
+the stage-required files, rejects unknown fields, and cross-checks the exact
+mint, creator, launch address and signature, supply, decimals, authorities,
+zero creator balance, metadata URI/image/links/immutability, 80/20/0
+allocation, disabled creator fees, configured migration policy, 24 SOL target,
+SOL quote, and creator spend no greater than 1.00 SOL. LP irreversibility is
+not claimed until the separate graduation artifact proves the final
+disposition.
 
 The mint proof timestamp must not be later than the LaunchLab proof timestamp.
 The web record stores the exact artifact observations. The operator supplies a
