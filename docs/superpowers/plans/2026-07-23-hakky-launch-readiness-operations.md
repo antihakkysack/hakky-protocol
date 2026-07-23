@@ -217,7 +217,7 @@ test("serializes exact HAKKY metadata bytes deterministically", () => {
     twitter: "https://x.com/antihakkysack",
   });
   assert.equal(serializeMetadata(metadata).toString("utf8").endsWith("\n"), true);
-  assert.equal(sha256Hex(Buffer.from("HAKKY")), "de24f724449b3f8cf23b44e898163e2f8244b1ff8671183ee704384e44072d76");
+  assert.equal(sha256Hex(Buffer.from("HAKKY")), "4a72026d8c69a1cde54008588eee6fffda23290eec418820db8499c1956e3a10");
 });
 
 test("accepts only content-addressed public metadata destinations", () => {

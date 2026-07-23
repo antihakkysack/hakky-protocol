@@ -63,6 +63,35 @@ PlatformConfig authority decoding likewise consumes transaction-derived metas
 and fee payer, including the reviewed pinned-SDK writable CPMM-config privilege
 at creation and only the exact fee-payer promotion allowed for updates.
 
+## Immutable metadata evidence
+
+Metadata proof is prepared in three fail-closed local stages. `metadata:prepare`
+pins the approved 74,230-byte image and its SHA-256, builds the fixed HAKKY JSON
+with canonical key order/LF/trailing newline, writes both leaves exclusively,
+and commits `draft-manifest.json` last. `metadata:finalize` accepts only a raw
+canonical CIDv1/raw/sha2-256 IPFS URI or exact Arweave transaction identity,
+rehashes both local leaves, recomputes the full canonical metadata bytes, and
+writes `manifest.json` without uploading. `metadata:verify` performs only
+bounded manual-redirect HTTPS `GET` requests and writes `readback.json` only
+after both remote byte lengths and SHA-256 digests exactly match the validated
+manifest.
+
+All five leaves under `artifacts/metadata/` are ignored and fixed-path. Writers
+are no-clobber and exact-byte idempotent. A raw IPFS CID must embed the digest of
+the exact bytes before prepare, finalize, or readback can proceed; an Arweave
+transaction ID is treated as an exact content identity and remote equality is
+still mandatory. Same-provider redirects may not change hostname, canonical
+path, or content identity. The readback creator-payment record is always the
+contract constant `{ "signature": null, "debitLamports": "0" }`.
+
+Image and metadata uploads remain separately approved browser/provider actions.
+The selected flow must not connect a Solana wallet or request SOL, token, or
+on-chain payment; if it does, stop and revise the reviewed plan before upload or
+readback. The later creation instruction must consume the exact verified
+metadata URI and set `isMutable: false` atomically. A manifest or readback is
+evidence only and never carries approval into wallet connection, signing, spend,
+publication, or any other action.
+
 The LaunchLab artifact includes the exact metadata image, website, X link, and
 canonical Solscan transaction URL in addition to the fields in `docs/LAUNCH.md`.
 For a live website, both artifacts must exist with `ok: true`, match the web

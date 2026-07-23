@@ -41,6 +41,44 @@ If a transaction fails, do not announce a launch or create another token
 automatically. Save the signature and state, diagnose the existing mint, and
 obtain explicit approval for any recovery transaction and cost.
 
+## Immutable metadata preparation
+
+Metadata preparation, provider upload, and remote readback are separate gates.
+The three repository commands never upload content, connect a wallet, call a
+Solana RPC, sign, simulate, send, or pay. They accept only the fixed ignored
+paths below:
+
+1. Render and inspect the approved `web/assets/token.png`. It is pinned to
+   exactly 74,230 bytes and SHA-256
+   `9e672cdc454e6249873cdf359b51a1f8f6a7f8a10f057d77f85ecce705bca8a0`.
+2. Obtain separate action-time approval to upload that exact image through a
+   provider/browser flow with no Solana wallet connection or payment request.
+   If the provider asks for a wallet, SOL, another token, or any on-chain
+   payment, stop before uploading and revise the reviewed plan.
+3. Run
+   `npm run metadata:prepare -- --image web/assets/token.png --image-uri <approved-content-addressed-image-uri> --out artifacts/metadata`.
+   It locally publishes exact `token.png` and canonical `token.json` bytes,
+   then commits `draft-manifest.json` last. It performs no network request.
+4. Obtain separate action-time approval to upload the exact generated
+   `artifacts/metadata/token.json` through the same no-wallet/no-payment
+   provider boundary. Record the provider-returned canonical content address.
+5. Run
+   `npm run metadata:finalize -- --draft-manifest artifacts/metadata/draft-manifest.json --metadata-uri <approved-content-addressed-metadata-uri> --out artifacts/metadata/manifest.json`.
+   It rehashes the approved source image and both prepared local leaves,
+   rebuilds the canonical metadata bytes, and never uploads.
+6. Run
+   `npm run metadata:verify -- --manifest artifacts/metadata/manifest.json --out artifacts/metadata/readback.json`.
+   Verification issues bounded HTTPS `GET` requests only, requires exact remote
+   size and SHA-256 equality for both objects, and fixes `creatorPayment` to
+   `{ "signature": null, "debitLamports": "0" }`.
+
+Exact-byte replays are idempotent; a divergent existing artifact fails without
+replacement. The ignored metadata manifest and readback are inputs to later
+proof and transaction gates, not launch approval. The creation transaction must
+use the exact verified metadata URI and create it atomically with
+`isMutable: false`; otherwise stop before signing. Post-creation metadata
+finalization is prohibited.
+
 ## Mainnet proof record
 
 The proof must record the network and RPC identity, classic token program, mint,
