@@ -1,5 +1,9 @@
 # HAKKY Personal-Project Pivot Build Implementation Plan
 
+> **Completed historical plan — do not use for launch quantities.** Its
+> 1,000,000-token examples are superseded by the approved 10,000,000 HAKKY
+> supply and the 2026-07-23 immutable-guard design.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the legacy BTC product with a locally verified, personal Solana meme-coin repository, Meme Broadcast website, Sack Sentinel brand assets, launch-policy manifest, and read-only verification tooling.

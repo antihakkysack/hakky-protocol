@@ -14,7 +14,7 @@ export function buildProofPost({ mint } = {}) {
   return [
     "$HAKKY is live on Solana.",
     "",
-    "1,000,000 fixed supply",
+    "10,000,000 fixed supply",
     "0% team allocation · no presale",
     "Mint revoked · freeze authority none",
     "LP burned",

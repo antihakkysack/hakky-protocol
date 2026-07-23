@@ -89,8 +89,8 @@ const GRADUATION_SIGNATURE = `${"1".repeat(63)}2`;
 
 function supply() {
   return {
-    baseUnits: "1000000000000",
-    uiAmount: "1000000",
+    baseUnits: "10000000000000",
+    uiAmount: "10000000",
     decimals: 6,
     tokenProgram: PROGRAMS.classicTokenProgram,
   };
@@ -154,9 +154,9 @@ function metadata() {
 
 function allocations() {
   return {
-    publicCurveBaseUnits: "800000000000",
+    publicCurveBaseUnits: "8000000000000",
     publicCurveBps: 8000,
-    liquidityBaseUnits: "200000000000",
+    liquidityBaseUnits: "2000000000000",
     liquidityBps: 2000,
     teamBaseUnits: "0",
     teamBps: 0,
@@ -550,8 +550,8 @@ function baseRecord(tokenMint) {
     },
     token: {
       mint: tokenMint,
-      supplyBaseUnits: "1000000000000",
-      uiSupply: "1000000",
+      supplyBaseUnits: "10000000000000",
+      uiSupply: "10000000",
       decimals: 6,
       tokenProgram: PROGRAMS.classicTokenProgram,
     },

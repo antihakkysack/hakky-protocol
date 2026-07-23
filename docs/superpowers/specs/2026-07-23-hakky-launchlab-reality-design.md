@@ -28,8 +28,8 @@ prove it:
 
 - classic SPL Token;
 - Hakky Protocol / HAKKY;
-- exactly 1,000,000 tokens with six decimals and
-  `1,000,000,000,000` base units;
+- exactly 10,000,000 tokens with six decimals and
+  `10,000,000,000,000` base units;
 - 80% public bonding curve, 20% post-graduation liquidity, and 0% team
   allocation encoded in the launch;
 - no presale, vesting, creator allocation, or creator first-buy;
@@ -447,8 +447,8 @@ documentation and decoded transaction must agree before it is trusted.
 The preview and simulation must prove:
 
 - classic Token Program, not Token-2022;
-- raw supply `1,000,000,000,000` and decimals `6`;
-- raw curve allocation `800,000,000,000`, remaining 20% for migration, and
+- raw supply `10,000,000,000,000` and decimals `6`;
+- raw curve allocation `8,000,000,000,000`, remaining 20% for migration, and
   locked/vested amount `0`;
 - wrapped SOL quote mint
   `So11111111111111111111111111111111111111112`;

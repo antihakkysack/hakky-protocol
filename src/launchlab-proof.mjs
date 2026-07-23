@@ -401,8 +401,8 @@ function asDecimal(value, code) {
 function allocationEvidence({ supply, totalSell }) {
   const supplyValue = BigInt(asDecimal(supply, "allocation"));
   const publicValue = BigInt(asDecimal(totalSell, "allocation"));
-  if (supplyValue !== 1_000_000_000_000n
-    || publicValue !== 800_000_000_000n) collectorFail("allocation");
+  if (supplyValue !== 10_000_000_000_000n
+    || publicValue !== 8_000_000_000_000n) collectorFail("allocation");
   return {
     publicCurveBaseUnits: publicValue.toString(),
     publicCurveBps: 8000,
@@ -836,9 +836,9 @@ function checkPublicIdentifiers(transactionEvidence, accountEvidence, publicIden
 
 function checkFixedPolicy(transactionEvidence) {
   const { allocations, quote, creatorFirstBuy, vesting, fees, migration, platformConfig } = transactionEvidence;
-  if (allocations.publicCurveBaseUnits !== "800000000000"
+  if (allocations.publicCurveBaseUnits !== "8000000000000"
     || allocations.publicCurveBps !== 8000
-    || allocations.liquidityBaseUnits !== "200000000000"
+    || allocations.liquidityBaseUnits !== "2000000000000"
     || allocations.liquidityBps !== 2000
     || allocations.teamBaseUnits !== "0"
     || allocations.teamBps !== 0

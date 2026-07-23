@@ -324,7 +324,7 @@ test("mint/metadata collection binds one finalized batch to classic raw account 
   MintLayout.encode({
     mintAuthorityOption: 1,
     mintAuthority: new PublicKey(sourceFixture.identities.authority),
-    supply: 1_000_000_000_000n,
+    supply: 10_000_000_000_000n,
     decimals: 6,
     isInitialized: true,
     freezeAuthorityOption: 0,
@@ -359,7 +359,7 @@ test("mint/metadata collection binds one finalized batch to classic raw account 
     metadataUri: result.metadata.uri,
   }, {
     slot: 302,
-    supply: "1000000000000",
+    supply: "10000000000000",
     authority: sourceFixture.identities.authority,
     freezeAuthority: null,
     metadataUri: sourceFixture.uri,
@@ -372,7 +372,7 @@ test("mint collection rejects noncanonical COption tags", async () => {
     MintLayout.encode({
       mintAuthorityOption: field === "mintAuthorityOption" ? value : 1,
       mintAuthority: new PublicKey(sourceFixture.identities.authority),
-      supply: 1_000_000_000_000n,
+      supply: 10_000_000_000_000n,
       decimals: 6,
       isInitialized: true,
       freezeAuthorityOption: field === "freezeAuthorityOption" ? value : 0,

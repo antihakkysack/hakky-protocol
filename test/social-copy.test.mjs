@@ -8,7 +8,7 @@ test("proof post includes only the verified mint and stays within X limit", () =
   const post = buildProofPost({ mint: VERIFIED_MINT });
 
   assert.equal(post.match(new RegExp(VERIFIED_MINT, "g"))?.length, 1);
-  assert.match(post, /1,000,000 fixed supply/);
+  assert.match(post, /10,000,000 fixed supply/);
   assert.match(post, /0% team allocation/);
   assert.ok([...post].length <= 280);
 });

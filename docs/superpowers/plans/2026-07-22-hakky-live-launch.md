@@ -1,5 +1,9 @@
 # HAKKY Mainnet and Public-Surface Rollout Implementation Plan
 
+> **Superseded — do not execute.** This historical plan predates the approved
+> 10,000,000 HAKKY supply and immutable-guard architecture. Follow the
+> 2026-07-23 guard design and current readiness plan instead.
+
 > **Superseded:** Do not execute this plan. It is replaced by `docs/superpowers/plans/2026-07-23-hakky-launch-readiness-operations.md`, which corrects the LaunchLab authority lifecycle and the feature-branch -> PR quality -> approved merge -> main Pages sequence.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

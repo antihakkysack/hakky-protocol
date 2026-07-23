@@ -6,7 +6,7 @@ import { deriveLaunchlabAuthorityPda } from "./raydium-launchlab.mjs";
 import { encodeBase58 } from "./solana-transaction.mjs";
 import { METAPLEX_METADATA_PROGRAM_ID } from "./metaplex-metadata.mjs";
 
-const SUPPLY = "1000000000000";
+const SUPPLY = "10000000000000";
 const DECIMALS = 6;
 
 function fail(code) {
@@ -205,7 +205,7 @@ export function evaluateMintEvidenceV2(evidence) {
     },
     supply: {
       baseUnits: SUPPLY,
-      uiAmount: "1000000",
+      uiAmount: "10000000",
       decimals: DECIMALS,
       tokenProgram: TOKEN_PROGRAM_ID.toBase58(),
     },

@@ -137,8 +137,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["publicCurveBaseUnits", "publicCurveBps", "liquidityBaseUnits", "liquidityBps", "teamBaseUnits", "teamBps", "totalBps"],
       "properties": {
-        "publicCurveBaseUnits": { "const": "800000000000" }, "publicCurveBps": { "const": 8000 },
-        "liquidityBaseUnits": { "const": "200000000000" }, "liquidityBps": { "const": 2000 },
+        "publicCurveBaseUnits": { "const": "8000000000000" }, "publicCurveBps": { "const": 8000 },
+        "liquidityBaseUnits": { "const": "2000000000000" }, "liquidityBps": { "const": 2000 },
         "teamBaseUnits": { "const": "0" }, "teamBps": { "const": 0 }, "totalBps": { "const": 10000 }
       }
     },

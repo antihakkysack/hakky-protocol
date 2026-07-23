@@ -21,8 +21,8 @@ export const HAKKY_TARGET_RAW_VALUES = Object.freeze({
   launchlabProgramId: "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
   tokenProgramId: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
   quoteMint: "So11111111111111111111111111111111111111112",
-  supply: "1000000000000",
-  totalSell: "800000000000",
+  supply: "10000000000000",
+  totalSell: "8000000000000",
   totalFundraising: "24000000000",
   lockedAmount: "0",
   decimals: 6,
@@ -104,12 +104,16 @@ function metadataCpiData({ isMutable = false } = {}) {
 
 function unsignedTransaction(base64, { launchData = initializeData() } = {}) {
   const transaction = VersionedTransaction.deserialize(Buffer.from(base64, "base64"));
-  const launchInstruction = transaction.message.compiledInstructions.find((instruction) => (
+  const launchInstructionIndex = transaction.message.compiledInstructions.findIndex((instruction) => (
     transaction.message.staticAccountKeys[instruction.programIdIndex].toBase58()
       === HAKKY_TARGET_RAW_VALUES.launchlabProgramId
   ));
-  if (!launchInstruction) throw new Error("preview fixture has no LaunchLab instruction");
-  launchInstruction.data = launchData;
+  if (launchInstructionIndex < 0) throw new Error("preview fixture has no LaunchLab instruction");
+  if (transaction.message.version === "legacy") {
+    transaction.message.instructions[launchInstructionIndex].data = encodeBase58(launchData);
+  } else {
+    transaction.message.compiledInstructions[launchInstructionIndex].data = launchData;
+  }
   transaction.signatures = transaction.signatures.map(() => new Uint8Array(64));
   return Buffer.from(transaction.serialize()).toString("base64");
 }
@@ -160,6 +164,13 @@ function accountDataHash(dataBase64) {
   return createHash("sha256").update(Buffer.from(dataBase64, "base64")).digest("hex");
 }
 
+function hakkyPlatformDataBase64() {
+  const data = Buffer.from(PLATFORM_FIXTURE.accounts.platformConfig.dataBase64, "base64");
+  data.writeBigUInt64LE(BigInt(HAKKY_TARGET_RAW_VALUES.supply), 987);
+  data.writeBigUInt64LE(BigInt(HAKKY_TARGET_RAW_VALUES.totalSell), 995);
+  return data.toString("base64");
+}
+
 export function createLaunchlabPreviewFixture({ version = "legacy", isMutable = false } = {}) {
   const sourceBase64 = version === "legacy"
     ? MINT_V2_SOURCE_FIXTURE.legacyTransactionBase64
@@ -177,7 +188,7 @@ export function createLaunchlabPreviewFixture({ version = "legacy", isMutable = 
   };
   const metadataManifest = manifest();
   const metadataReadback = readback(metadataManifest);
-  const platformDataBase64 = PLATFORM_FIXTURE.accounts.platformConfig.dataBase64;
+  const platformDataBase64 = hakkyPlatformDataBase64();
   const requiredAccounts = [
     {
       address: identities.payer,

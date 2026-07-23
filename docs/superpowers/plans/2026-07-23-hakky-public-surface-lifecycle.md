@@ -1005,7 +1005,7 @@ export function buildCurveLiveProofPost({ mint } = {}) {
     "$HAKKY curve live.",
     "",
     `Mint: ${mint}`,
-    "Supply: 1,000,000 | team allocation encoded: 0%",
+    "Supply: 10,000,000 | team allocation encoded: 0%",
     "Mint authority: LaunchLab PDA; creator cannot sign.",
     "Freeze authority: null",
     "Final null authority and LP proof: pending graduation.",
@@ -1027,7 +1027,7 @@ export function buildGraduatedProofPost({ mint, lpDispositionKind } = {}) {
     "",
     `Mint: ${mint}`,
     "Mint/freeze authorities: null",
-    "Supply unchanged: 1,000,000",
+    "Supply unchanged: 10,000,000",
     "Creator/platform LP rights: zero",
     lpLine,
     "",
@@ -1059,7 +1059,7 @@ Set `launch/prelaunch-post.md` to:
 ```text
 HakkyAgent is online.
 
-Planned: 1,000,000 $HAKKY; 80% public curve, 20% liquidity, 0% team allocation encoded, no presale.
+Planned: 10,000,000 $HAKKY; 80% public curve, 20% liquidity, 0% team allocation encoded, no presale.
 Authority lifecycle: LaunchLab PDA on curve; null after verified graduation.
 
 No official mint yet. Ignore impostors.

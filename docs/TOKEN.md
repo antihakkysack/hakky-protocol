@@ -6,9 +6,9 @@
 | Token program | Classic SPL Token |
 | Name | Hakky Protocol |
 | Symbol | HAKKY |
-| Display supply | 1,000,000 |
+| Display supply | 10,000,000 |
 | Decimals | 6 |
-| Base-unit supply | 1,000,000,000,000 |
+| Base-unit supply | 10,000,000,000,000 |
 | Team allocation | 0% |
 | Presale | None |
 | Creator first-buy | None |

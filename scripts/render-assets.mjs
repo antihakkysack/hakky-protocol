@@ -22,7 +22,7 @@ const ogHeadlineOne = vectorText("RUGS HATE THIS", {
 const ogHeadlineTwo = vectorText("LITTLE GUY.", {
   x: 82, y: 254, height: 46, letterSpacing: 2, color: "#160C2C", strokeWidth: 1
 }).svg;
-const ogAllocation = vectorText("1,000,000 HAKKY · 0% TEAM · NO PRESALE", {
+const ogAllocation = vectorText("10,000,000 HAKKY · 0% TEAM · NO PRESALE", {
   x: 111, y: 375, height: 17, letterSpacing: 1, color: "#FFFFFF"
 }).svg;
 const ogTagline = vectorText("KEEP CRYPTO CLEAN.", {

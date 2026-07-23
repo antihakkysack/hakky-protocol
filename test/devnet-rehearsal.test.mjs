@@ -49,12 +49,12 @@ function validEvidence({ payer = Keypair.generate(), vaultOwner = Keypair.genera
     mint: mint.toBase58(),
     payer: payer.publicKey.toBase58(),
     vaultOwner: vaultOwner.publicKey.toBase58(),
-    supplyBaseUnits: "1000000000000",
+    supplyBaseUnits: "10000000000000",
     decimals: 6,
     mintAuthority: null,
     freezeAuthority: null,
     payerTokenBalanceBaseUnits: "0",
-    vaultTokenBalanceBaseUnits: "1000000000000",
+    vaultTokenBalanceBaseUnits: "10000000000000",
     observation: {
       commitment: "finalized",
       slot: 42,
@@ -127,7 +127,7 @@ function mintAccountInfo({ initialized = true, programOwner = TOKEN_PROGRAM_ID }
   MintLayout.encode({
     mintAuthorityOption: 0,
     mintAuthority: PublicKey.default,
-    supply: 1_000_000_000_000n,
+    supply: 10_000_000_000_000n,
     decimals: 6,
     isInitialized: initialized,
     freezeAuthorityOption: 0,
@@ -539,7 +539,7 @@ test("fetches finalized raw classic-token evidence for exhaustive payer and vaul
           value: [tokenAccountEntry({
             address: owner.equals(payer.publicKey) ? creatorAta : vaultAta,
             owner,
-            amount: owner.equals(payer.publicKey) ? 0n : 1_000_000_000_000n,
+            amount: owner.equals(payer.publicKey) ? 0n : 10_000_000_000_000n,
           })],
         };
       },
@@ -551,7 +551,7 @@ test("fetches finalized raw classic-token evidence for exhaustive payer and vaul
     checkedAt: () => "2026-07-23T00:00:00.000Z",
   });
   assert.equal(evidence.payerTokenBalanceBaseUnits, "0");
-  assert.equal(evidence.vaultTokenBalanceBaseUnits, "1000000000000");
+  assert.equal(evidence.vaultTokenBalanceBaseUnits, "10000000000000");
   assert.equal(evidence.observation.slot, 41);
   assert.deepEqual(requests, [
     ["mint", mint.toBase58(), { commitment: "finalized", minContextSlot: 40 }],
@@ -571,7 +571,7 @@ test("fetch evidence rejects stale or missing context and every invalid raw acco
   const vaultEntry = () => tokenAccountEntry({
     address: vaultAta,
     owner: vaultOwner.publicKey,
-    amount: 1_000_000_000_000n,
+    amount: 10_000_000_000_000n,
   });
   const scenarios = [
     ["missing-context", {
@@ -612,7 +612,7 @@ test("fetch evidence rejects stale or missing context and every invalid raw acco
         value: [tokenAccountEntry({
           address: creatorAta,
           owner: vaultOwner.publicKey,
-          amount: 1_000_000_000_000n,
+          amount: 10_000_000_000_000n,
         })],
       },
     }],
@@ -713,12 +713,12 @@ test("external funding announces only the public address and never requests an a
       mint: mint.toBase58(),
       payer: payer.publicKey.toBase58(),
       vaultOwner: vaultOwner.publicKey.toBase58(),
-      supplyBaseUnits: "1000000000000",
+      supplyBaseUnits: "10000000000000",
       decimals: 6,
       mintAuthority: null,
       freezeAuthority: null,
       payerTokenBalanceBaseUnits: "0",
-      vaultTokenBalanceBaseUnits: "1000000000000",
+      vaultTokenBalanceBaseUnits: "10000000000000",
       observation: {
         commitment: "finalized",
         slot: 1,
@@ -977,12 +977,12 @@ test("creates classic fixed-supply evidence without persisting an ephemeral secr
         mint: mint.toBase58(),
         payer: payer.publicKey.toBase58(),
         vaultOwner: vaultOwner.publicKey.toBase58(),
-        supplyBaseUnits: "1000000000000",
+        supplyBaseUnits: "10000000000000",
         decimals: 6,
         mintAuthority: null,
         freezeAuthority: null,
         payerTokenBalanceBaseUnits: "0",
-        vaultTokenBalanceBaseUnits: "1000000000000",
+        vaultTokenBalanceBaseUnits: "10000000000000",
         observation: {
           commitment: "finalized",
           slot: 42,
@@ -999,9 +999,9 @@ test("creates classic fixed-supply evidence without persisting an ephemeral secr
   assert.equal(proof.cluster, "devnet");
   assert.equal(proof.ok, true);
   assert.equal(proof.schemaVersion, "devnet-rehearsal-v2");
-  assert.equal(proof.supply.baseUnits, "1000000000000");
+  assert.equal(proof.supply.baseUnits, "10000000000000");
   assert.equal(proof.balances.payerBaseUnits, "0");
-  assert.equal(proof.balances.vaultBaseUnits, "1000000000000");
+  assert.equal(proof.balances.vaultBaseUnits, "10000000000000");
 
   assert.deepEqual(calls.map(([name]) => name), [
     "airdrop",
@@ -1041,7 +1041,7 @@ test("creates classic fixed-supply evidence without persisting an ephemeral secr
   assert.equal(mintToCall[2].toBase58(), mint.toBase58());
   assert.equal(mintToCall[3].toBase58(), creatorAta.toBase58());
   assert.equal(mintToCall[4], payer);
-  assert.equal(mintToCall[5], 1_000_000_000_000n);
+  assert.equal(mintToCall[5], 10_000_000_000_000n);
   assert.equal(mintToCall[8].toBase58(), TOKEN_PROGRAM_ID.toBase58());
 
   const transferCall = calls.find(([name]) => name === "transfer")[1];
@@ -1050,7 +1050,7 @@ test("creates classic fixed-supply evidence without persisting an ephemeral secr
   assert.equal(transferCall[2].toBase58(), creatorAta.toBase58());
   assert.equal(transferCall[3].toBase58(), vaultAta.toBase58());
   assert.equal(transferCall[4], payer);
-  assert.equal(transferCall[5], 1_000_000_000_000n);
+  assert.equal(transferCall[5], 10_000_000_000_000n);
   assert.equal(transferCall[8].toBase58(), TOKEN_PROGRAM_ID.toBase58());
 
   const authorityCall = calls.find(([name]) => name === "setAuthority")[1];

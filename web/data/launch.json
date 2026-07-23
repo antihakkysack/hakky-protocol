@@ -11,8 +11,8 @@
   },
   "token": {
     "mint": null,
-    "supplyBaseUnits": "1000000000000",
-    "uiSupply": "1000000",
+    "supplyBaseUnits": "10000000000000",
+    "uiSupply": "10000000",
     "decimals": 6,
     "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
   },

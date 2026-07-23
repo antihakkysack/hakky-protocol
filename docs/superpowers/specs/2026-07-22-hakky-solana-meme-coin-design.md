@@ -1,5 +1,10 @@
 # HAKKY Solana Fair-Launch Pivot — Design Specification
 
+> **Historical economics only:** Do not execute token quantities or launch
+> architecture from this document. The approved supply is now 10,000,000 HAKKY
+> with six decimals and 80/20/0 allocation. The current authority is
+> `2026-07-23-hakky-immutable-launch-guard-design.md`.
+
 **Date:** 2026-07-22
 
 **Status:** Approved design; implementation not started

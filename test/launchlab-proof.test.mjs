@@ -450,8 +450,8 @@ test("collector projection derives both evidence sources from approval, transact
       symbol: transaction.metadata.symbol,
       uri: transaction.metadata.uri,
       curve: {
-        supply: "1000000000000",
-        totalSell: "800000000000",
+        supply: "10000000000000",
+        totalSell: "8000000000000",
         totalFundraising: "24000000000",
         migrationType: "cpmm",
       },
@@ -484,8 +484,8 @@ test("collector projection derives both evidence sources from approval, transact
         mintDecimalsA: 6,
         mintDecimalsB: 9,
         migrationType: "cpmm",
-        supply: "1000000000000",
-        totalSellA: "800000000000",
+        supply: "10000000000000",
+        totalSellA: "8000000000000",
         totalFundRaisingB: "24000000000",
         vestingSchedule: {
           totalLockedAmount: "0",

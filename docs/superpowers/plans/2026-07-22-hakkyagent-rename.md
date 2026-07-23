@@ -1,5 +1,8 @@
 # HakkyAgent Rename Implementation Plan
 
+> **Completed historical plan.** Any embedded 1,000,000-token copy is
+> superseded by the approved 10,000,000 HAKKY supply.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Rename the active HAKKY proof-agent identity to HakkyAgent while preserving existing account URLs and limiting every verification claim to facts the repository actually checks.

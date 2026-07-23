@@ -26,7 +26,7 @@ import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.j
 
 export const DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
-export const FULL_SUPPLY = 1_000_000_000_000n;
+export const FULL_SUPPLY = 10_000_000_000_000n;
 export const EXTERNAL_FUNDING_MINIMUM_LAMPORTS = 2_000_000_000n;
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

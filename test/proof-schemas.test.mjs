@@ -59,6 +59,47 @@ test("all versioned artifact and lifecycle fixture branches satisfy their normat
   }
 });
 
+test("every lifecycle fixture uses the approved 10,000,000 fixed supply and 80/20/0 allocation", () => {
+  const expectedSupply = {
+    baseUnits: "10000000000000",
+    uiAmount: "10000000",
+  };
+  const expectedAllocations = {
+    publicCurveBaseUnits: "8000000000000",
+    publicCurveBps: 8000,
+    liquidityBaseUnits: "2000000000000",
+    liquidityBps: 2000,
+    teamBaseUnits: "0",
+    teamBps: 0,
+    totalBps: 10000,
+  };
+
+  for (const create of [
+    createCanonicalMintProofV2,
+    createCanonicalGraduationProofV1,
+  ]) {
+    const value = create();
+    assert.equal(value.supply.baseUnits, expectedSupply.baseUnits);
+    assert.equal(value.supply.uiAmount, expectedSupply.uiAmount);
+  }
+
+  const launchlab = createCanonicalLaunchlabProofV2();
+  assert.deepEqual(launchlab.allocations, expectedAllocations);
+
+  for (const create of [
+    createPrelaunchRecordV2,
+    createCurveLiveRecordV2,
+    createGraduatedRecordV2,
+  ]) {
+    const value = create();
+    assert.equal(value.token.supplyBaseUnits, expectedSupply.baseUnits);
+    assert.equal(value.token.uiSupply, expectedSupply.uiAmount);
+    if (value.proof?.allocations) {
+      assert.deepEqual(value.proof.allocations, expectedAllocations);
+    }
+  }
+});
+
 test("mint-v2 requires all 14 exact true checks and all three execution digests", () => {
   const pristine = createCanonicalMintProofV2();
   assert.equal(Object.keys(pristine.checks).length, 14);

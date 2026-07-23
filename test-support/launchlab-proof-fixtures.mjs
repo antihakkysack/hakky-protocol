@@ -79,9 +79,9 @@ function platformConfig({ creation }) {
 
 function allocations() {
   return {
-    publicCurveBaseUnits: "800000000000",
+    publicCurveBaseUnits: "8000000000000",
     publicCurveBps: 8000,
-    liquidityBaseUnits: "200000000000",
+    liquidityBaseUnits: "2000000000000",
     liquidityBps: 2000,
     teamBaseUnits: "0",
     teamBps: 0,

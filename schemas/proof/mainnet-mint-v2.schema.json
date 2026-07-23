@@ -80,8 +80,8 @@
       "additionalProperties": false,
       "required": ["baseUnits", "uiAmount", "decimals", "tokenProgram"],
       "properties": {
-        "baseUnits": { "const": "1000000000000" },
-        "uiAmount": { "const": "1000000" },
+        "baseUnits": { "const": "10000000000000" },
+        "uiAmount": { "const": "10000000" },
         "decimals": { "const": 6 },
         "tokenProgram": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
       }

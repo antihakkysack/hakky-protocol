@@ -33,14 +33,14 @@
     "unavailableToken": {
       "type": "object", "additionalProperties": false, "required": ["mint", "supplyBaseUnits", "uiSupply", "decimals", "tokenProgram"],
       "properties": {
-        "mint": { "type": "null" }, "supplyBaseUnits": { "const": "1000000000000" }, "uiSupply": { "const": "1000000" },
+        "mint": { "type": "null" }, "supplyBaseUnits": { "const": "10000000000000" }, "uiSupply": { "const": "10000000" },
         "decimals": { "const": 6 }, "tokenProgram": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
       }
     },
     "verifiedToken": {
       "type": "object", "additionalProperties": false, "required": ["mint", "supplyBaseUnits", "uiSupply", "decimals", "tokenProgram"],
       "properties": {
-        "mint": { "$ref": "#/$defs/publicKey" }, "supplyBaseUnits": { "const": "1000000000000" }, "uiSupply": { "const": "1000000" },
+        "mint": { "$ref": "#/$defs/publicKey" }, "supplyBaseUnits": { "const": "10000000000000" }, "uiSupply": { "const": "10000000" },
         "decimals": { "const": 6 }, "tokenProgram": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
       }
     },
@@ -139,7 +139,7 @@
     "supply": {
       "type": "object", "additionalProperties": false, "required": ["baseUnits", "uiAmount", "decimals", "tokenProgram"],
       "properties": {
-        "baseUnits": { "const": "1000000000000" }, "uiAmount": { "const": "1000000" }, "decimals": { "const": 6 },
+        "baseUnits": { "const": "10000000000000" }, "uiAmount": { "const": "10000000" }, "decimals": { "const": 6 },
         "tokenProgram": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
       }
     },
@@ -172,8 +172,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["publicCurveBaseUnits", "publicCurveBps", "liquidityBaseUnits", "liquidityBps", "teamBaseUnits", "teamBps", "totalBps"],
       "properties": {
-        "publicCurveBaseUnits": { "const": "800000000000" }, "publicCurveBps": { "const": 8000 },
-        "liquidityBaseUnits": { "const": "200000000000" }, "liquidityBps": { "const": 2000 },
+        "publicCurveBaseUnits": { "const": "8000000000000" }, "publicCurveBps": { "const": 8000 },
+        "liquidityBaseUnits": { "const": "2000000000000" }, "liquidityBps": { "const": 2000 },
         "teamBaseUnits": { "const": "0" }, "teamBps": { "const": 0 }, "totalBps": { "const": 10000 }
       }
     },

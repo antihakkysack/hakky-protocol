@@ -11,7 +11,7 @@ are checked by HakkyAgent.
 
 Until canonical proof is published, these policy values are planned commitments:
 
-- 1,000,000 HAKKY fixed supply
+- 10,000,000 HAKKY fixed supply
 - six decimals
 - 100% public distribution: 80% bonding curve, 20% post-graduation liquidity
 - 0% team allocation

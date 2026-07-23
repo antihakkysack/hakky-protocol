@@ -37,7 +37,7 @@ const ELEMENT_SELECTORS = Object.freeze({
 });
 const SAFE_TEXT = Object.freeze({
   mint: "Not published",
-  supply: "Required: 1,000,000",
+  supply: "Required: 10,000,000",
   mintAuthority: "Required: LaunchLab PDA on curve; null after graduation",
   freezeAuthority: "Required: null",
   teamAllocation: "Required: 0%",

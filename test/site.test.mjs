@@ -157,7 +157,7 @@ function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {})
   const element = (selector) => documentRef.elements.get(selector);
   assert.match(element("[data-launch-status]").textContent, statusPattern);
   assert.equal(element("[data-mint]").textContent, "Not published");
-  assert.equal(element("[data-supply]").textContent, "Required: 1,000,000");
+  assert.equal(element("[data-supply]").textContent, "Required: 10,000,000");
   assert.equal(
     element("[data-mint-authority]").textContent,
     "Required: LaunchLab PDA on curve; null after graduation",
@@ -186,10 +186,14 @@ function assertFailClosed(documentRef, { statusPattern = /do not trust/i } = {})
 }
 
 test("homepage contains the approved story and safety contract", () => {
+  assert.match(
+    html,
+    /All 10,000,000 tokens enter the Raydium launch mechanism\./u,
+  );
   for (const text of [
     "Rugs hate this little guy.",
     "The first thing it cleaned was its own launch.",
-    "1,000,000",
+    "10,000,000",
     "0% team",
     "no presale",
     "No official mint address exists yet",
@@ -280,7 +284,7 @@ test("valid live record renders exact verified evidence and official destination
   const element = (selector) => documentRef.elements.get(selector);
   assert.equal(element("[data-launch-status]").textContent, "CURVE LIVE - PROGRAM AUTHORITY ACTIVE");
   assert.equal(element("[data-mint]").textContent, live.token.mint);
-  assert.equal(element("[data-supply]").textContent, "1,000,000 (verified)");
+  assert.equal(element("[data-supply]").textContent, "10,000,000 (verified)");
   assert.equal(
     element("[data-mint-authority]").textContent,
     `${live.proof.authorities.mintAuthority} (LaunchLab PDA, verified)`,

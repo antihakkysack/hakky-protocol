@@ -5,7 +5,7 @@ welcome through focused pull requests.
 
 Every change must preserve these non-negotiable rules:
 
-- 1,000,000 HAKKY fixed supply with six decimals;
+- 10,000,000 HAKKY fixed supply with six decimals;
 - 100% public distribution and 0% team allocation;
 - no presale, vesting, treasury, creator first-buy, taxes, or hidden controls;
 - exact LaunchLab PDA mint authority during `curve-live`, null mint authority
