@@ -4,6 +4,7 @@ import {
   lstat,
   mkdir,
   open,
+  readFile,
   realpath,
   unlink,
 } from "node:fs/promises";
@@ -42,7 +43,7 @@ const DEFAULT_OPERATIONS = {
   setAuthority,
   transfer,
 };
-const DEFAULT_FILE_SYSTEM = { link, lstat, mkdir, open, realpath, unlink };
+const DEFAULT_FILE_SYSTEM = { link, lstat, mkdir, open, readFile, realpath, unlink };
 const CHECK_IDS = [
   "devnet-genesis",
   "classic-token-program",
@@ -541,6 +542,37 @@ async function assertExactFile(candidate, fileSystem) {
   if (isUnsafeFilesystemObject(stats) || !stats.isFile()) throw stageError("PUBLICATION_ERROR");
   const resolved = await fileSystem.realpath(candidate);
   if (!sameFilesystemPath(resolved, candidate)) throw stageError("PUBLICATION_ERROR");
+  return stats;
+}
+
+function stableFileIdentity(stats, expectedSize) {
+  const component = (value) => {
+    if (typeof value === "bigint" && value >= 0n) return value.toString();
+    if (typeof value === "number" && Number.isInteger(value) && value >= 0) return String(value);
+    throw stageError("PUBLICATION_ERROR");
+  };
+  if (component(stats.size) !== String(expectedSize)) throw stageError("PUBLICATION_ERROR");
+  return `${component(stats.dev)}:${component(stats.ino)}:${component(stats.size)}`;
+}
+
+async function assertBoundFile(candidate, expectedBytes, fileSystem, expectedIdentity) {
+  const beforeStats = await assertExactFile(candidate, fileSystem);
+  const beforeIdentity = stableFileIdentity(beforeStats, expectedBytes.length);
+  let observed;
+  try {
+    observed = await fileSystem.readFile(candidate);
+  } catch {
+    throw stageError("PUBLICATION_ERROR");
+  }
+  const afterStats = await assertExactFile(candidate, fileSystem);
+  const afterIdentity = stableFileIdentity(afterStats, expectedBytes.length);
+  if (!(observed instanceof Uint8Array)
+    || !Buffer.from(observed).equals(expectedBytes)
+    || beforeIdentity !== afterIdentity
+    || (expectedIdentity !== undefined && afterIdentity !== expectedIdentity)) {
+    throw stageError("PUBLICATION_ERROR");
+  }
+  return afterIdentity;
 }
 
 async function assertLeafAbsent(candidate, fileSystem) {
@@ -615,27 +647,28 @@ async function publishProof({
 }) {
   const tempSuffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const tempPath = path.join(artifactDirectory, `.proof-${tempSuffix}.tmp`);
-  const bytes = `${JSON.stringify(proof, null, 2)}\n`;
+  const bytes = Buffer.from(`${JSON.stringify(proof, null, 2)}\n`, "utf8");
   let handle;
   let committed = false;
   let linking = false;
+  let publicationIdentity;
   try {
     await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
     await assertLeafAbsent(proofPath, fileSystem);
     handle = await fileSystem.open(tempPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600);
-    await handle.writeFile(bytes, "utf8");
+    await handle.writeFile(bytes);
     await handle.sync();
     await handle.close();
     handle = undefined;
     await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
-    await assertExactFile(tempPath, fileSystem);
     await assertLeafAbsent(proofPath, fileSystem);
+    publicationIdentity = await assertBoundFile(tempPath, bytes, fileSystem);
     linking = true;
     await fileSystem.link(tempPath, proofPath);
     committed = true;
     await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
-    await assertExactFile(tempPath, fileSystem);
-    await assertExactFile(proofPath, fileSystem);
+    await assertBoundFile(tempPath, bytes, fileSystem, publicationIdentity);
+    await assertBoundFile(proofPath, bytes, fileSystem, publicationIdentity);
   } catch (error) {
     try {
       if (handle) await handle.close();
@@ -660,9 +693,12 @@ async function publishProof({
   }
   try {
     await assertPublicationParents({ outputRoot, artifactDirectory, fileSystem });
-    await assertExactFile(proofPath, fileSystem);
-    if (tempUnlinkFailed) await assertExactFile(tempPath, fileSystem);
-    else await assertLeafAbsent(tempPath, fileSystem);
+    await assertBoundFile(proofPath, bytes, fileSystem, publicationIdentity);
+    if (tempUnlinkFailed) {
+      await assertBoundFile(tempPath, bytes, fileSystem, publicationIdentity);
+    } else {
+      await assertLeafAbsent(tempPath, fileSystem);
+    }
   } catch {
     throw stageError("PUBLICATION_ERROR");
   }
@@ -726,7 +762,9 @@ function validateRunnerOptions(options) {
     assertFunction(operations[operation]);
   }
   if (!fileSystem || typeof fileSystem !== "object") throw stageError("OPTION_ERROR");
-  for (const method of ["link", "lstat", "mkdir", "open", "realpath", "unlink"]) assertFunction(fileSystem[method]);
+  for (const method of ["link", "lstat", "mkdir", "open", "readFile", "realpath", "unlink"]) {
+    assertFunction(fileSystem[method]);
+  }
   assertPositiveSafeInteger(identityMaxAttempts, 3);
   assertNonnegativeSafeInteger(identityDelayMs, 500);
   assertPositiveSafeInteger(identityMaxWaitMs, 15_000);

@@ -67,7 +67,7 @@ function clone(value) {
 }
 
 function injectedFileSystem(overrides = {}) {
-  return { link, lstat, mkdir, open, realpath, unlink, ...overrides };
+  return { link, lstat, mkdir, open, readFile, realpath, unlink, ...overrides };
 }
 
 function successfulOperationsFor(payer) {
@@ -500,6 +500,8 @@ test("independent evidence evaluator and v2 proof validator reject shape and pol
     (value) => { value.observation.slot = -1; },
     (value) => { value.observation.checkedAt = "2026-07-23T00:00:01.000Z"; },
     (value) => { value.checks[0].unknown = true; },
+    (value) => { value.checks.pop(); },
+    (value) => { value.checks[1] = structuredClone(value.checks[0]); },
     (value) => { [value.checks[0], value.checks[1]] = [value.checks[1], value.checks[0]]; },
   ];
   for (let index = 0; index < proof.checks.length; index += 1) {
@@ -1308,6 +1310,58 @@ test("open, write, fsync, and generic pre-link faults never publish", async (t) 
         (error) => error.message === "PUBLICATION_ERROR" && !error.message.includes("secret"),
       );
       await assert.rejects(access(proofPath), { code: "ENOENT" });
+    });
+  }
+});
+
+test("pre-link temporary proof substitution is rejected before hard-link commit", async () => {
+  const outputRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-prelink-substitution-"));
+  const fixture = successfulRunnerOptions({ outputRoot });
+  const proofPath = path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json");
+  let substituted = false;
+  let linkCalls = 0;
+  fixture.options.fileSystem = injectedFileSystem({
+    async lstat(target) {
+      if (!substituted && path.basename(target).startsWith(".proof-") && target.endsWith(".tmp")) {
+        substituted = true;
+        await writeFile(target, "substituted-before-link\n");
+      }
+      return lstat(target);
+    },
+    async link(...args) {
+      linkCalls += 1;
+      return link(...args);
+    },
+  });
+  await assert.rejects(runDevnetRehearsal(fixture.options), /PUBLICATION_ERROR/);
+  assert.equal(substituted, true);
+  assert.equal(linkCalls, 0);
+  await assert.rejects(access(proofPath), { code: "ENOENT" });
+});
+
+test("post-link proof byte or identity substitution is rejected", async (t) => {
+  for (const substitution of ["different-bytes", "different-identity"]) {
+    await t.test(substitution, async () => {
+      const outputRoot = await mkdtemp(path.join(os.tmpdir(), `hakky-postlink-${substitution}-`));
+      const fixture = successfulRunnerOptions({ outputRoot });
+      const proofPath = path.join(outputRoot, "artifacts", "devnet-rehearsal", "proof.json");
+      let linkCalls = 0;
+      fixture.options.fileSystem = injectedFileSystem({
+        async link(source, destination) {
+          linkCalls += 1;
+          const canonicalBytes = await readFile(source);
+          await link(source, destination);
+          await unlink(destination);
+          await writeFile(
+            destination,
+            substitution === "different-bytes" ? "substituted-after-link\n" : canonicalBytes,
+            { mode: 0o600 },
+          );
+        },
+      });
+      await assert.rejects(runDevnetRehearsal(fixture.options), /PUBLICATION_ERROR/);
+      assert.equal(linkCalls, 1);
+      await access(proofPath);
     });
   }
 });
