@@ -41,6 +41,16 @@ If a transaction fails, do not announce a launch or create another token
 automatically. Save the signature and state, diagnose the existing mint, and
 obtain explicit approval for any recovery transaction and cost.
 
+## Devnet rehearsal boundary
+
+Run `npm run rehearsal:devnet -- --external-funding` when the public faucet is
+unavailable. The command prints one ephemeral public devnet address, waits for
+at least 2 devnet SOL under one ten-minute monotonic deadline, and never writes
+its secret key. “Zero payer balance” in its proof means zero payer-owned HAKKY
+base units, not zero SOL. It proves finalized classic-SPL devnet state including
+the intended vault owner's full HAKKY balance only; it does not simulate
+Raydium LaunchLab or mainnet metadata.
+
 ## Immutable metadata preparation
 
 Metadata preparation, provider upload, and remote readback are separate gates.

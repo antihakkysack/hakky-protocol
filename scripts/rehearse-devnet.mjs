@@ -1,4 +1,12 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  realpath,
+  unlink,
+} from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
@@ -10,19 +18,21 @@ import {
   mintTo,
   setAuthority,
   transfer,
+  unpackAccount,
+  unpackMint,
 } from "@solana/spl-token";
-import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
-import { evaluateMintEvidence } from "../src/mint-proof.mjs";
-import { fetchMintEvidence } from "../src/solana-rpc.mjs";
+import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 
 export const DEVNET_RPC_URL = "https://api.devnet.solana.com";
 export const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 export const FULL_SUPPLY = 1_000_000_000_000n;
+export const EXTERNAL_FUNDING_MINIMUM_LAMPORTS = 2_000_000_000n;
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const TOKEN_PROGRAM_ADDRESS = TOKEN_PROGRAM_ID.toBase58();
 const CONFIRM_OPTIONS = {
-  commitment: "confirmed",
-  preflightCommitment: "confirmed",
+  commitment: "finalized",
+  preflightCommitment: "finalized",
   maxRetries: 5,
 };
 const DEFAULT_OPERATIONS = {
@@ -32,190 +42,799 @@ const DEFAULT_OPERATIONS = {
   setAuthority,
   transfer,
 };
+const DEFAULT_FILE_SYSTEM = { link, lstat, mkdir, open, realpath, unlink };
+const CHECK_IDS = [
+  "devnet-genesis",
+  "classic-token-program",
+  "canonical-identities",
+  "fixed-supply",
+  "six-decimals",
+  "mint-authority-revoked",
+  "freeze-authority-none",
+  "payer-token-balance-zero",
+  "vault-token-balance-full",
+  "finalized-observation",
+];
 
-function sleep(delayMs) {
-  return delayMs > 0 ? new Promise((resolve) => setTimeout(resolve, delayMs)) : Promise.resolve();
+function stageError(code) {
+  return new Error(code);
 }
 
-async function retryRpc(operation, { label, maxAttempts = 4, delayMs = 1_000 } = {}) {
-  let lastError;
+function isFunction(value) {
+  return typeof value === "function";
+}
+
+function assertFunction(value) {
+  if (!isFunction(value)) throw stageError("OPTION_ERROR");
+}
+
+function assertPositiveSafeInteger(value, maximum = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(value) || value <= 0 || value > maximum) {
+    throw stageError("OPTION_ERROR");
+  }
+}
+
+function assertNonnegativeSafeInteger(value) {
+  if (!Number.isSafeInteger(value) || value < 0) throw stageError("OPTION_ERROR");
+}
+
+function assertExactKeys(value, keys) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const actual = Object.keys(value).sort();
+  const expected = [...keys].sort();
+  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+}
+
+function isCanonicalPublicKey(value) {
+  if (typeof value !== "string") return false;
+  try {
+    return new PublicKey(value).toBase58() === value;
+  } catch {
+    return false;
+  }
+}
+
+function isUtcMillisecondTimestamp(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value)) {
+    return false;
+  }
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString() === value;
+}
+
+function publicStage(error, fallback) {
+  const safe = new Set([
+    "OPTION_ERROR",
+    "CLEANUP_ERROR",
+    "IDENTITY_ERROR",
+    "FUNDING_ERROR",
+    "CONFIRMATION_ERROR",
+    "TOKEN_OPERATION_ERROR",
+    "EVIDENCE_ERROR",
+    "PUBLICATION_ERROR",
+    "PUBLICATION_CONFLICT",
+    "DEADLINE_TIMEOUT",
+    "DEADLINE_OPERATION_FAILED",
+  ]);
+  return error instanceof Error && safe.has(error.message) ? error : stageError(fallback);
+}
+
+export function parseRehearsalOptions(argv) {
+  if (!Array.isArray(argv)) {
+    throw new Error("Usage: npm run rehearsal:devnet -- [--external-funding]");
+  }
+  if (argv.length === 0) return { fundingMode: "faucet" };
+  if (argv.length === 1 && argv[0] === "--external-funding") {
+    return { fundingMode: "external" };
+  }
+  throw new Error("Usage: npm run rehearsal:devnet -- [--external-funding]");
+}
+
+export async function withDeadline(operationFactory, remainingMs) {
+  assertFunction(operationFactory);
+  assertPositiveSafeInteger(remainingMs);
+  let timer;
+  try {
+    return await Promise.race([
+      Promise.resolve().then(operationFactory).catch(() => {
+        throw stageError("DEADLINE_OPERATION_FAILED");
+      }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(stageError("DEADLINE_TIMEOUT")), remainingMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+async function waitUntilScheduled({ scheduledAt, deadline, monotonicNow, sleepImpl, deadlineImpl }) {
+  const now = monotonicNow();
+  if (!Number.isFinite(now) || now >= deadline) throw stageError("DEADLINE_TIMEOUT");
+  const delay = Math.max(0, scheduledAt - now);
+  if (delay === 0) return;
+  const remaining = Math.floor(deadline - now);
+  if (remaining <= 0) throw stageError("DEADLINE_TIMEOUT");
+  await deadlineImpl(() => sleepImpl(delay), remaining);
+}
+
+export async function waitForExternalFunding({
+  connection,
+  address,
+  minimumLamports,
+  maxAttempts = 120,
+  delayMs = 5_000,
+  maxWaitMs = 600_000,
+  monotonicNow = () => performance.now(),
+  sleepImpl = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+  withDeadline: deadlineImpl = withDeadline,
+}) {
+  if (!connection || typeof connection !== "object" || !isFunction(connection.getBalance)) {
+    throw stageError("OPTION_ERROR");
+  }
+  if (!(address instanceof PublicKey)) throw stageError("OPTION_ERROR");
+  if (typeof minimumLamports !== "bigint" || minimumLamports <= 0n) {
+    throw stageError("OPTION_ERROR");
+  }
+  assertPositiveSafeInteger(maxAttempts);
+  assertNonnegativeSafeInteger(delayMs);
+  assertPositiveSafeInteger(maxWaitMs, 600_000);
+  assertFunction(monotonicNow);
+  assertFunction(sleepImpl);
+  assertFunction(deadlineImpl);
+
+  const start = monotonicNow();
+  if (!Number.isFinite(start)) throw stageError("FUNDING_ERROR");
+  const deadline = start + maxWaitMs;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (attempt < maxAttempts) {
-        await sleep(delayMs * attempt);
+      await waitUntilScheduled({
+        scheduledAt: start + ((attempt - 1) * delayMs),
+        deadline,
+        monotonicNow,
+        sleepImpl,
+        deadlineImpl,
+      });
+      const now = monotonicNow();
+      const remaining = Math.floor(deadline - now);
+      if (!Number.isFinite(now) || remaining <= 0) throw stageError("DEADLINE_TIMEOUT");
+      const balance = await deadlineImpl(
+        () => connection.getBalance(address, "finalized"),
+        remaining,
+      );
+      if (Number.isSafeInteger(balance) && balance >= 0 && BigInt(balance) >= minimumLamports) {
+        return BigInt(balance);
       }
+    } catch {
+      // A low balance or transient failure consumes exactly one attempt.
     }
   }
-  const detail = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Devnet ${label} failed after ${maxAttempts} attempts: ${detail}`);
+  throw stageError("FUNDING_ERROR");
+}
+
+async function runBoundedStage({
+  operation,
+  accept,
+  maxAttempts,
+  delayMs,
+  maxWaitMs,
+  monotonicNow,
+  sleepImpl,
+  deadlineImpl,
+  failureCode,
+}) {
+  const start = monotonicNow();
+  if (!Number.isFinite(start)) throw stageError(failureCode);
+  const deadline = start + maxWaitMs;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      await waitUntilScheduled({
+        scheduledAt: start + ((attempt - 1) * delayMs),
+        deadline,
+        monotonicNow,
+        sleepImpl,
+        deadlineImpl,
+      });
+      const remaining = Math.floor(deadline - monotonicNow());
+      if (remaining <= 0) throw stageError("DEADLINE_TIMEOUT");
+      const result = await deadlineImpl(operation, remaining);
+      if (!accept || accept(result)) return result;
+    } catch (error) {
+      if (error instanceof Error && error.message === failureCode) throw error;
+      // Every dependency failure consumes exactly one attempt and is sanitized below.
+    }
+  }
+  throw stageError(failureCode);
 }
 
 export async function confirmSignature(
   connection,
   signature,
-  { maxAttempts = 30, delayMs = 2_000 } = {},
+  {
+    maxAttempts = 120,
+    delayMs = 1_000,
+    maxWaitMs = 120_000,
+    monotonicNow = () => performance.now(),
+    sleepImpl = (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+    withDeadline: deadlineImpl = withDeadline,
+  } = {},
 ) {
-  let lastRpcError;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    let response;
-    try {
-      response = await connection.getSignatureStatuses([signature], {
-        searchTransactionHistory: true,
-      });
-      lastRpcError = undefined;
-    } catch (error) {
-      lastRpcError = error;
-    }
-    const status = response?.value[0];
-    if (status?.err) {
-      throw new Error(`Devnet transaction failed: ${JSON.stringify(status.err)}`);
-    }
-    if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized") {
-      return status;
-    }
-    if (attempt < maxAttempts) {
-      await sleep(delayMs);
-    }
+  if (!connection || !isFunction(connection.getSignatureStatuses) || typeof signature !== "string" || signature.length === 0) {
+    throw stageError("OPTION_ERROR");
   }
-  if (lastRpcError) {
-    const detail = lastRpcError instanceof Error ? lastRpcError.message : String(lastRpcError);
-    throw new Error(`Devnet confirmation RPC failed after ${maxAttempts} attempts: ${detail}`);
-  }
-  throw new Error(`Devnet transaction was not confirmed after ${maxAttempts} attempts`);
+  assertPositiveSafeInteger(maxAttempts);
+  assertNonnegativeSafeInteger(delayMs);
+  assertPositiveSafeInteger(maxWaitMs);
+  assertFunction(monotonicNow);
+  assertFunction(sleepImpl);
+  assertFunction(deadlineImpl);
+
+  const status = await runBoundedStage({
+    operation: () => connection.getSignatureStatuses([signature], { searchTransactionHistory: true }),
+    accept(response) {
+      const candidate = response?.value?.[0];
+      if (candidate?.err) throw stageError("CONFIRMATION_ERROR");
+      return candidate?.confirmationStatus === "finalized";
+    },
+    maxAttempts,
+    delayMs,
+    maxWaitMs,
+    monotonicNow,
+    sleepImpl,
+    deadlineImpl,
+    failureCode: "CONFIRMATION_ERROR",
+  });
+  return status.value[0];
 }
 
-export async function runDevnetRehearsal({
-  connection = new Connection(DEVNET_RPC_URL, "confirmed"),
-  outputRoot = PROJECT_ROOT,
-  generateKeypair = () => Keypair.generate(),
-  operations = DEFAULT_OPERATIONS,
-  fetchEvidence = fetchMintEvidence,
-  evaluateEvidence = evaluateMintEvidence,
+function sumBalances(accounts, owner, mintAddress, seen) {
+  let total = 0n;
+  for (const entry of accounts) {
+    const address = entry.pubkey instanceof PublicKey ? entry.pubkey : new PublicKey(entry.pubkey);
+    const canonicalAddress = address.toBase58();
+    if (seen.has(canonicalAddress)) throw stageError("EVIDENCE_ERROR");
+    seen.add(canonicalAddress);
+    if (!entry.account || !entry.account.owner?.equals?.(TOKEN_PROGRAM_ID)) {
+      throw stageError("EVIDENCE_ERROR");
+    }
+    let decoded;
+    try {
+      decoded = unpackAccount(address, entry.account, TOKEN_PROGRAM_ID);
+    } catch {
+      throw stageError("EVIDENCE_ERROR");
+    }
+    if (!decoded.isInitialized || decoded.isFrozen || !decoded.owner.equals(owner)) {
+      throw stageError("EVIDENCE_ERROR");
+    }
+    if (!decoded.mint.equals(mintAddress)) continue;
+    total += decoded.amount;
+  }
+  return total;
+}
+
+function assertContext(response, barrierSlot) {
+  if (!response || !response.context || !Number.isSafeInteger(response.context.slot) || response.context.slot < barrierSlot) {
+    throw stageError("EVIDENCE_ERROR");
+  }
+}
+
+export async function fetchDevnetRehearsalEvidence({
+  connection,
+  genesisHash,
+  mintAddress,
+  payerAddress,
+  vaultOwnerAddress,
   checkedAt = () => new Date().toISOString(),
-  retryMaxAttempts = 4,
-  retryDelayMs = 1_000,
-  confirmationDelayMs = 2_000,
-} = {}) {
-  const artifactDirectory = path.join(outputRoot, "artifacts", "devnet-rehearsal");
-  const proofPath = path.join(artifactDirectory, "proof.json");
-  await rm(proofPath, { force: true });
-
-  const genesisHash = await retryRpc(() => connection.getGenesisHash(), {
-    label: "identity check",
-    maxAttempts: retryMaxAttempts,
-    delayMs: retryDelayMs,
-  });
-  if (genesisHash !== DEVNET_GENESIS_HASH) {
-    throw new Error(`RPC genesis hash ${genesisHash} is not devnet`);
+}) {
+  if (!connection || !isFunction(connection.getSlot)
+    || !isFunction(connection.getAccountInfoAndContext)
+    || !isFunction(connection.getTokenAccountsByOwner)
+    || !isFunction(checkedAt)) {
+    throw stageError("EVIDENCE_ERROR");
+  }
+  let mintKey;
+  let payerKey;
+  let vaultOwnerKey;
+  try {
+    mintKey = new PublicKey(mintAddress);
+    payerKey = new PublicKey(payerAddress);
+    vaultOwnerKey = new PublicKey(vaultOwnerAddress);
+  } catch {
+    throw stageError("EVIDENCE_ERROR");
   }
 
-  const payer = generateKeypair();
-  const launchVaultOwner = generateKeypair();
-  const airdropSignature = await retryRpc(
-    () => connection.requestAirdrop(payer.publicKey, 2 * LAMPORTS_PER_SOL),
-    { label: "faucet request", maxAttempts: retryMaxAttempts, delayMs: retryDelayMs },
-  );
-  await confirmSignature(connection, airdropSignature, { delayMs: confirmationDelayMs });
+  try {
+    const barrierSlot = await connection.getSlot("finalized");
+    if (!Number.isSafeInteger(barrierSlot) || barrierSlot < 0) throw stageError("EVIDENCE_ERROR");
+    const config = { commitment: "finalized", minContextSlot: barrierSlot };
+    const mintResponse = await connection.getAccountInfoAndContext(mintKey, config);
+    const payerResponse = await connection.getTokenAccountsByOwner(
+      payerKey,
+      { programId: TOKEN_PROGRAM_ID },
+      config,
+    );
+    const vaultResponse = await connection.getTokenAccountsByOwner(
+      vaultOwnerKey,
+      { programId: TOKEN_PROGRAM_ID },
+      config,
+    );
+    assertContext(mintResponse, barrierSlot);
+    assertContext(payerResponse, barrierSlot);
+    assertContext(vaultResponse, barrierSlot);
+    if (!mintResponse.value || !mintResponse.value.owner?.equals?.(TOKEN_PROGRAM_ID)) {
+      throw stageError("EVIDENCE_ERROR");
+    }
+    const decodedMint = unpackMint(mintKey, mintResponse.value, TOKEN_PROGRAM_ID);
+    if (!decodedMint.isInitialized) throw stageError("EVIDENCE_ERROR");
+    if (!Array.isArray(payerResponse.value) || !Array.isArray(vaultResponse.value)) {
+      throw stageError("EVIDENCE_ERROR");
+    }
+    const seen = new Set();
+    const timestamp = checkedAt();
+    return {
+      cluster: "devnet",
+      genesisHash,
+      tokenProgram: TOKEN_PROGRAM_ADDRESS,
+      mint: mintKey.toBase58(),
+      payer: payerKey.toBase58(),
+      vaultOwner: vaultOwnerKey.toBase58(),
+      supplyBaseUnits: decodedMint.supply.toString(),
+      decimals: decodedMint.decimals,
+      mintAuthority: decodedMint.mintAuthority?.toBase58() ?? null,
+      freezeAuthority: decodedMint.freezeAuthority?.toBase58() ?? null,
+      payerTokenBalanceBaseUnits: sumBalances(payerResponse.value, payerKey, mintKey, seen).toString(),
+      vaultTokenBalanceBaseUnits: sumBalances(vaultResponse.value, vaultOwnerKey, mintKey, seen).toString(),
+      observation: {
+        commitment: "finalized",
+        slot: Math.min(mintResponse.context.slot, payerResponse.context.slot, vaultResponse.context.slot),
+        checkedAt: timestamp,
+      },
+    };
+  } catch (error) {
+    throw publicStage(error, "EVIDENCE_ERROR");
+  }
+}
 
-  const mint = await operations.createMint(
-    connection,
-    payer,
-    payer.publicKey,
-    null,
-    6,
-    undefined,
-    CONFIRM_OPTIONS,
-    TOKEN_PROGRAM_ID,
-  );
-  const creatorAccount = await operations.getOrCreateAssociatedTokenAccount(
-    connection,
-    payer,
-    mint,
-    payer.publicKey,
-    false,
-    "confirmed",
-    CONFIRM_OPTIONS,
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  );
-  const vaultAccount = await operations.getOrCreateAssociatedTokenAccount(
-    connection,
-    payer,
-    mint,
-    launchVaultOwner.publicKey,
-    false,
-    "confirmed",
-    CONFIRM_OPTIONS,
-    TOKEN_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  );
-  await operations.mintTo(
-    connection,
-    payer,
-    mint,
-    creatorAccount.address,
-    payer,
-    FULL_SUPPLY,
-    [],
-    CONFIRM_OPTIONS,
-    TOKEN_PROGRAM_ID,
-  );
-  await operations.transfer(
-    connection,
-    payer,
-    creatorAccount.address,
-    vaultAccount.address,
-    payer,
-    FULL_SUPPLY,
-    [],
-    CONFIRM_OPTIONS,
-    TOKEN_PROGRAM_ID,
-  );
-  await operations.setAuthority(
-    connection,
-    payer,
-    mint,
-    payer,
-    AuthorityType.MintTokens,
-    null,
-    [],
-    CONFIRM_OPTIONS,
-    TOKEN_PROGRAM_ID,
-  );
-
-  const observed = await fetchEvidence({
-    connection,
-    network: "mainnet-beta",
-    mintAddress: mint.toBase58(),
-    creatorAddress: payer.publicKey.toBase58(),
-  });
-  const proof = {
+export function evaluateDevnetRehearsalEvidence(evidence) {
+  const evidenceKeys = [
+    "cluster", "genesisHash", "tokenProgram", "mint", "payer", "vaultOwner",
+    "supplyBaseUnits", "decimals", "mintAuthority", "freezeAuthority",
+    "payerTokenBalanceBaseUnits", "vaultTokenBalanceBaseUnits", "observation",
+  ];
+  if (!assertExactKeys(evidence, evidenceKeys)
+    || !assertExactKeys(evidence.observation, ["commitment", "slot", "checkedAt"])) {
+    throw stageError("EVIDENCE_ERROR");
+  }
+  const identitiesCanonical = [evidence.mint, evidence.payer, evidence.vaultOwner]
+    .every(isCanonicalPublicKey);
+  const checkValues = [
+    evidence.cluster === "devnet" && evidence.genesisHash === DEVNET_GENESIS_HASH,
+    evidence.tokenProgram === TOKEN_PROGRAM_ADDRESS,
+    identitiesCanonical,
+    evidence.supplyBaseUnits === FULL_SUPPLY.toString(),
+    evidence.decimals === 6,
+    evidence.mintAuthority === null,
+    evidence.freezeAuthority === null,
+    evidence.payerTokenBalanceBaseUnits === "0",
+    evidence.vaultTokenBalanceBaseUnits === FULL_SUPPLY.toString(),
+    evidence.observation.commitment === "finalized"
+      && Number.isSafeInteger(evidence.observation.slot)
+      && evidence.observation.slot >= 0
+      && isUtcMillisecondTimestamp(evidence.observation.checkedAt),
+  ];
+  const checks = CHECK_IDS.map((id, index) => ({ id, ok: checkValues[index] === true }));
+  return {
+    schemaVersion: "devnet-rehearsal-v2",
     cluster: "devnet",
-    checkedAt: checkedAt(),
-    ...evaluateEvidence(observed),
+    checkedAt: evidence.observation.checkedAt,
+    identities: {
+      mint: evidence.mint,
+      payer: evidence.payer,
+      vaultOwner: evidence.vaultOwner,
+      tokenProgram: evidence.tokenProgram,
+    },
+    supply: { baseUnits: evidence.supplyBaseUnits, decimals: evidence.decimals },
+    authorities: {
+      mintAuthority: evidence.mintAuthority,
+      freezeAuthority: evidence.freezeAuthority,
+    },
+    balances: {
+      payerBaseUnits: evidence.payerTokenBalanceBaseUnits,
+      vaultBaseUnits: evidence.vaultTokenBalanceBaseUnits,
+    },
+    observation: {
+      genesisHash: evidence.genesisHash,
+      commitment: evidence.observation.commitment,
+      slot: evidence.observation.slot,
+      checkedAt: evidence.observation.checkedAt,
+    },
+    checks,
+    ok: checks.every((check) => check.ok === true),
   };
-  if (!proof.ok) {
-    throw new Error("Devnet rehearsal evidence failed policy evaluation");
-  }
-  await mkdir(artifactDirectory, { recursive: true });
-  await writeFile(proofPath, `${JSON.stringify(proof, null, 2)}\n`, {
-    encoding: "utf8",
-    mode: 0o600,
+}
+
+export function assertDevnetRehearsalProofV2(proof) {
+  const fail = () => { throw stageError("EVIDENCE_ERROR"); };
+  if (!assertExactKeys(proof, [
+    "schemaVersion", "cluster", "checkedAt", "identities", "supply", "authorities",
+    "balances", "observation", "checks", "ok",
+  ])) fail();
+  if (!assertExactKeys(proof.identities, ["mint", "payer", "vaultOwner", "tokenProgram"])) fail();
+  if (!assertExactKeys(proof.supply, ["baseUnits", "decimals"])) fail();
+  if (!assertExactKeys(proof.authorities, ["mintAuthority", "freezeAuthority"])) fail();
+  if (!assertExactKeys(proof.balances, ["payerBaseUnits", "vaultBaseUnits"])) fail();
+  if (!assertExactKeys(proof.observation, ["genesisHash", "commitment", "slot", "checkedAt"])) fail();
+  if (proof.schemaVersion !== "devnet-rehearsal-v2" || proof.cluster !== "devnet" || proof.ok !== true) fail();
+  if (!isUtcMillisecondTimestamp(proof.checkedAt) || proof.checkedAt !== proof.observation.checkedAt) fail();
+  if (!isCanonicalPublicKey(proof.identities.mint)
+    || !isCanonicalPublicKey(proof.identities.payer)
+    || !isCanonicalPublicKey(proof.identities.vaultOwner)
+    || proof.identities.tokenProgram !== TOKEN_PROGRAM_ADDRESS) fail();
+  if (proof.supply.baseUnits !== FULL_SUPPLY.toString() || proof.supply.decimals !== 6) fail();
+  if (proof.authorities.mintAuthority !== null || proof.authorities.freezeAuthority !== null) fail();
+  if (proof.balances.payerBaseUnits !== "0" || proof.balances.vaultBaseUnits !== FULL_SUPPLY.toString()) fail();
+  if (proof.observation.genesisHash !== DEVNET_GENESIS_HASH
+    || proof.observation.commitment !== "finalized"
+    || !Number.isSafeInteger(proof.observation.slot)
+    || proof.observation.slot < 0) fail();
+  if (!Array.isArray(proof.checks) || proof.checks.length !== CHECK_IDS.length) fail();
+  proof.checks.forEach((check, index) => {
+    if (!assertExactKeys(check, ["id", "ok"]) || check.id !== CHECK_IDS[index] || check.ok !== true) fail();
   });
   return proof;
 }
 
-export async function main({ stdout = process.stdout, stderr = process.stderr } = {}) {
+async function validateArtifactRoot(outputRoot, fileSystem) {
+  if (typeof outputRoot !== "string" || outputRoot.length === 0 || !path.isAbsolute(outputRoot)) {
+    throw stageError("OPTION_ERROR");
+  }
   try {
-    const proof = await runDevnetRehearsal();
-    stdout.write(`${JSON.stringify(proof, null, 2)}\n`);
-    return proof.ok ? 0 : 1;
+    const root = path.resolve(outputRoot);
+    const rootStats = await fileSystem.lstat(root);
+    if (!rootStats.isDirectory() || rootStats.isSymbolicLink()) throw stageError("CLEANUP_ERROR");
+    if (await fileSystem.realpath(root) !== root) throw stageError("CLEANUP_ERROR");
+    const artifactsRoot = path.join(root, "artifacts");
+    try {
+      await fileSystem.mkdir(artifactsRoot);
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    const artifactDirectory = path.join(artifactsRoot, "devnet-rehearsal");
+    const artifactsStats = await fileSystem.lstat(artifactsRoot);
+    if (!artifactsStats.isDirectory() || artifactsStats.isSymbolicLink()) {
+      throw stageError("CLEANUP_ERROR");
+    }
+    try {
+      await fileSystem.mkdir(artifactDirectory);
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+    }
+    for (const candidate of [artifactsRoot, artifactDirectory]) {
+      const stats = await fileSystem.lstat(candidate);
+      if (!stats.isDirectory() || stats.isSymbolicLink()) throw stageError("CLEANUP_ERROR");
+    }
+    return { artifactDirectory, proofPath: path.join(artifactDirectory, "proof.json") };
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    stderr.write(`Devnet rehearsal failed: ${detail}\n`);
+    throw publicStage(error, "CLEANUP_ERROR");
+  }
+}
+
+async function removeStaleProof(proofPath, fileSystem) {
+  try {
+    await fileSystem.unlink(proofPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw stageError("CLEANUP_ERROR");
+  }
+}
+
+async function cleanupOwnedTemp(tempPath, fileSystem) {
+  try {
+    await fileSystem.unlink(tempPath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+}
+
+async function publishProof({ proof, artifactDirectory, proofPath, fileSystem, onPublicationWarning }) {
+  const tempSuffix = `${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const tempPath = path.join(artifactDirectory, `.proof-${tempSuffix}.tmp`);
+  const bytes = `${JSON.stringify(proof, null, 2)}\n`;
+  let handle;
+  let committed = false;
+  let linking = false;
+  try {
+    handle = await fileSystem.open(tempPath, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL, 0o600);
+    await handle.writeFile(bytes, "utf8");
+    await handle.sync();
+    await handle.close();
+    handle = undefined;
+    linking = true;
+    await fileSystem.link(tempPath, proofPath);
+    committed = true;
+  } catch (error) {
+    try {
+      if (handle) await handle.close();
+      await cleanupOwnedTemp(tempPath, fileSystem);
+    } catch {
+      // The public failure remains fixed and never includes dependency text.
+    }
+    if (linking && error?.code === "EEXIST") throw stageError("PUBLICATION_CONFLICT");
+    throw stageError("PUBLICATION_ERROR");
+  }
+  try {
+    await cleanupOwnedTemp(tempPath, fileSystem);
+  } catch {
+    if (committed) {
+      try {
+        await onPublicationWarning("TEMP_UNLINK_FAILED");
+      } catch {
+        process.stderr.write("Devnet rehearsal warning: TEMP_UNLINK_FAILED\n");
+      }
+    }
+  }
+}
+
+function validateRunnerOptions(options) {
+  const {
+    fundingMode,
+    connection,
+    createConnection,
+    generateKeypair,
+    onExternalAddress,
+    onPublicationWarning,
+    operations,
+    fetchEvidence,
+    checkedAt,
+    monotonicNow,
+    sleepImpl,
+    deadlineImpl,
+    fileSystem,
+    identityMaxAttempts,
+    identityDelayMs,
+    identityMaxWaitMs,
+    faucetMaxAttempts,
+    faucetDelayMs,
+    faucetMaxWaitMs,
+    fundingMaxAttempts,
+    fundingDelayMs,
+    fundingMaxWaitMs,
+    confirmationMaxAttempts,
+    confirmationDelayMs,
+    confirmationMaxWaitMs,
+  } = options;
+  if (fundingMode !== "faucet" && fundingMode !== "external") throw stageError("OPTION_ERROR");
+  if (connection !== undefined) {
+    if (connection === null || typeof connection !== "object" || !isFunction(connection.getGenesisHash)) {
+      throw stageError("OPTION_ERROR");
+    }
+    if (fundingMode === "external" && !isFunction(connection.getBalance)) {
+      throw stageError("OPTION_ERROR");
+    }
+    if (fundingMode === "faucet"
+      && (!isFunction(connection.requestAirdrop) || !isFunction(connection.getSignatureStatuses))) {
+      throw stageError("OPTION_ERROR");
+    }
+  }
+  for (const dependency of [createConnection, generateKeypair, onPublicationWarning, fetchEvidence, checkedAt, monotonicNow, sleepImpl, deadlineImpl]) {
+    assertFunction(dependency);
+  }
+  if (fundingMode === "external") assertFunction(onExternalAddress);
+  else if (onExternalAddress !== undefined) assertFunction(onExternalAddress);
+  if (!operations || typeof operations !== "object") throw stageError("OPTION_ERROR");
+  for (const operation of ["createMint", "getOrCreateAssociatedTokenAccount", "mintTo", "transfer", "setAuthority"]) {
+    assertFunction(operations[operation]);
+  }
+  if (!fileSystem || typeof fileSystem !== "object") throw stageError("OPTION_ERROR");
+  for (const method of ["link", "lstat", "mkdir", "open", "realpath", "unlink"]) assertFunction(fileSystem[method]);
+  for (const value of [identityMaxAttempts, faucetMaxAttempts, fundingMaxAttempts, confirmationMaxAttempts]) {
+    assertPositiveSafeInteger(value);
+  }
+  for (const value of [identityDelayMs, faucetDelayMs, fundingDelayMs, confirmationDelayMs]) {
+    assertNonnegativeSafeInteger(value);
+  }
+  assertPositiveSafeInteger(identityMaxWaitMs);
+  assertPositiveSafeInteger(faucetMaxWaitMs);
+  assertPositiveSafeInteger(fundingMaxWaitMs, 600_000);
+  assertPositiveSafeInteger(confirmationMaxWaitMs);
+}
+
+export async function runDevnetRehearsal(options = {}) {
+  const config = {
+    fundingMode: "faucet",
+    connection: undefined,
+    createConnection: () => new Connection(DEVNET_RPC_URL, "finalized"),
+    outputRoot: PROJECT_ROOT,
+    generateKeypair: () => Keypair.generate(),
+    onExternalAddress: undefined,
+    onPublicationWarning: () => {},
+    operations: DEFAULT_OPERATIONS,
+    fetchEvidence: fetchDevnetRehearsalEvidence,
+    checkedAt: () => new Date().toISOString(),
+    monotonicNow: () => performance.now(),
+    sleepImpl: (duration) => new Promise((resolve) => setTimeout(resolve, duration)),
+    deadlineImpl: withDeadline,
+    fileSystem: DEFAULT_FILE_SYSTEM,
+    identityMaxAttempts: 3,
+    identityDelayMs: 500,
+    identityMaxWaitMs: 15_000,
+    faucetMaxAttempts: 3,
+    faucetDelayMs: 500,
+    faucetMaxWaitMs: 30_000,
+    fundingMaxAttempts: 120,
+    fundingDelayMs: 5_000,
+    fundingMaxWaitMs: 600_000,
+    confirmationMaxAttempts: 120,
+    confirmationDelayMs: 1_000,
+    confirmationMaxWaitMs: 120_000,
+    ...options,
+  };
+  validateRunnerOptions(config);
+  const { artifactDirectory, proofPath } = await validateArtifactRoot(config.outputRoot, config.fileSystem);
+  await removeStaleProof(proofPath, config.fileSystem);
+
+  let connection;
+  try {
+    connection = config.connection ?? await config.createConnection();
+  } catch {
+    throw stageError("IDENTITY_ERROR");
+  }
+  if (!connection || typeof connection !== "object" || !isFunction(connection.getGenesisHash)) {
+    throw stageError("IDENTITY_ERROR");
+  }
+
+  let genesisHash;
+  try {
+    genesisHash = await runBoundedStage({
+      operation: () => connection.getGenesisHash(),
+      accept: (value) => typeof value === "string",
+      maxAttempts: config.identityMaxAttempts,
+      delayMs: config.identityDelayMs,
+      maxWaitMs: config.identityMaxWaitMs,
+      monotonicNow: config.monotonicNow,
+      sleepImpl: config.sleepImpl,
+      deadlineImpl: config.deadlineImpl,
+      failureCode: "IDENTITY_ERROR",
+    });
+  } catch (error) {
+    throw publicStage(error, "IDENTITY_ERROR");
+  }
+  if (genesisHash !== DEVNET_GENESIS_HASH) throw stageError("IDENTITY_ERROR");
+
+  let payer;
+  let vaultOwner;
+  try {
+    payer = config.generateKeypair();
+    vaultOwner = config.generateKeypair();
+    if (!(payer instanceof Keypair) || !(vaultOwner instanceof Keypair)) throw stageError("TOKEN_OPERATION_ERROR");
+  } catch {
+    throw stageError("TOKEN_OPERATION_ERROR");
+  }
+
+  if (config.fundingMode === "external") {
+    try {
+      await config.onExternalAddress({
+        address: payer.publicKey.toBase58(),
+        minimumLamports: EXTERNAL_FUNDING_MINIMUM_LAMPORTS.toString(),
+      });
+      await waitForExternalFunding({
+        connection,
+        address: payer.publicKey,
+        minimumLamports: EXTERNAL_FUNDING_MINIMUM_LAMPORTS,
+        maxAttempts: config.fundingMaxAttempts,
+        delayMs: config.fundingDelayMs,
+        maxWaitMs: config.fundingMaxWaitMs,
+        monotonicNow: config.monotonicNow,
+        sleepImpl: config.sleepImpl,
+        withDeadline: config.deadlineImpl,
+      });
+    } catch {
+      throw stageError("FUNDING_ERROR");
+    }
+  } else {
+    if (!isFunction(connection.requestAirdrop)) throw stageError("FUNDING_ERROR");
+    let airdropSignature;
+    try {
+      airdropSignature = await runBoundedStage({
+        operation: () => connection.requestAirdrop(payer.publicKey, 2 * LAMPORTS_PER_SOL),
+        accept: (value) => typeof value === "string" && value.length > 0,
+        maxAttempts: config.faucetMaxAttempts,
+        delayMs: config.faucetDelayMs,
+        maxWaitMs: config.faucetMaxWaitMs,
+        monotonicNow: config.monotonicNow,
+        sleepImpl: config.sleepImpl,
+        deadlineImpl: config.deadlineImpl,
+        failureCode: "FUNDING_ERROR",
+      });
+    } catch {
+      throw stageError("FUNDING_ERROR");
+    }
+    await confirmSignature(connection, airdropSignature, {
+      maxAttempts: config.confirmationMaxAttempts,
+      delayMs: config.confirmationDelayMs,
+      maxWaitMs: config.confirmationMaxWaitMs,
+      monotonicNow: config.monotonicNow,
+      sleepImpl: config.sleepImpl,
+      withDeadline: config.deadlineImpl,
+    });
+  }
+
+  let mint;
+  try {
+    mint = await config.deadlineImpl(() => config.operations.createMint(
+      connection, payer, payer.publicKey, null, 6, undefined, CONFIRM_OPTIONS, TOKEN_PROGRAM_ID,
+    ), 120_000);
+    const payerAccount = await config.deadlineImpl(() => config.operations.getOrCreateAssociatedTokenAccount(
+      connection, payer, mint, payer.publicKey, false, "finalized", CONFIRM_OPTIONS,
+      TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+    ), 120_000);
+    const vaultAccount = await config.deadlineImpl(() => config.operations.getOrCreateAssociatedTokenAccount(
+      connection, payer, mint, vaultOwner.publicKey, false, "finalized", CONFIRM_OPTIONS,
+      TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+    ), 120_000);
+    await config.deadlineImpl(() => config.operations.mintTo(
+      connection, payer, mint, payerAccount.address, payer, FULL_SUPPLY, [], CONFIRM_OPTIONS, TOKEN_PROGRAM_ID,
+    ), 120_000);
+    await config.deadlineImpl(() => config.operations.transfer(
+      connection, payer, payerAccount.address, vaultAccount.address, payer, FULL_SUPPLY, [], CONFIRM_OPTIONS,
+      TOKEN_PROGRAM_ID,
+    ), 120_000);
+    await config.deadlineImpl(() => config.operations.setAuthority(
+      connection, payer, mint, payer, AuthorityType.MintTokens, null, [], CONFIRM_OPTIONS, TOKEN_PROGRAM_ID,
+    ), 120_000);
+  } catch {
+    throw stageError("TOKEN_OPERATION_ERROR");
+  }
+
+  let proof;
+  try {
+    const evidence = await config.deadlineImpl(() => config.fetchEvidence({
+      connection,
+      genesisHash,
+      mintAddress: mint.toBase58(),
+      payerAddress: payer.publicKey.toBase58(),
+      vaultOwnerAddress: vaultOwner.publicKey.toBase58(),
+      checkedAt: config.checkedAt,
+    }), 120_000);
+    proof = evaluateDevnetRehearsalEvidence(evidence);
+    assertDevnetRehearsalProofV2(proof);
+  } catch {
+    throw stageError("EVIDENCE_ERROR");
+  }
+
+  await publishProof({
+    proof,
+    artifactDirectory,
+    proofPath,
+    fileSystem: config.fileSystem,
+    onPublicationWarning: config.onPublicationWarning,
+  });
+  return proof;
+}
+
+export async function main({
+  argv = process.argv.slice(2),
+  runRehearsal = runDevnetRehearsal,
+  stdout = process.stdout,
+  stderr = process.stderr,
+} = {}) {
+  let parsed;
+  try {
+    parsed = parseRehearsalOptions(argv);
+    assertFunction(runRehearsal);
+  } catch {
+    stderr.write("Devnet rehearsal failed: OPTION_ERROR\n");
+    return 1;
+  }
+  try {
+    const proof = await runRehearsal({
+      ...parsed,
+      onExternalAddress: async ({ address }) => stdout.write(`${address}\n`),
+      onPublicationWarning: async () => stderr.write("Devnet rehearsal warning: TEMP_UNLINK_FAILED\n"),
+    });
+    stdout.write(`${JSON.stringify(proof, null, 2)}\n`);
+    return 0;
+  } catch (error) {
+    stderr.write(`Devnet rehearsal failed: ${publicStage(error, "TOKEN_OPERATION_ERROR").message}\n`);
     return 1;
   }
 }
