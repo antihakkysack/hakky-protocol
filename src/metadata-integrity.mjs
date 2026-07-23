@@ -466,6 +466,15 @@ async function readBoundedResponseBody(result, { expectedByteLength, signal, has
   return Buffer.from(await awaitWithAbort(result.arrayBuffer(), signal));
 }
 
+function cancelUnconsumedResponseBody(result, reason) {
+  if (typeof result?.body?.cancel !== "function") return null;
+  try {
+    return Promise.resolve(result.body.cancel(reason));
+  } catch (error) {
+    return Promise.reject(error);
+  }
+}
+
 export async function verifyPublishedContent({
   expectedBytes,
   expectedByteLength,
@@ -502,6 +511,7 @@ export async function verifyPublishedContent({
   const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
   let currentUrl = resolvedContentUrl(expectedUri);
   const visited = new Set();
+  let unconsumedResponse;
   try {
     for (let redirectCount = 0; ; redirectCount += 1) {
       assertProviderUrl(currentUrl, expectedUri);
@@ -511,8 +521,17 @@ export async function verifyPublishedContent({
         fetchImpl(currentUrl, { method: "GET", redirect: "manual", signal: controller.signal }),
         controller.signal,
       );
+      unconsumedResponse = result;
       const status = Number.isInteger(result?.status) ? result.status : (result?.ok ? 200 : 0);
       if (status >= 300 && status < 400) {
+        try {
+          const cancellation = cancelUnconsumedResponseBody(result, new Error("Redirect response body is not content"));
+          if (cancellation) await awaitWithAbort(cancellation, controller.signal);
+        } catch (error) {
+          unconsumedResponse = undefined;
+          throw error;
+        }
+        unconsumedResponse = undefined;
         if (redirectCount >= maxRedirects) fail(`Remote verification exceeded ${maxRedirects} redirects`);
         const location = result?.headers?.get?.("location");
         if (!location) fail("Redirect response omitted Location");
@@ -532,6 +551,7 @@ export async function verifyPublishedContent({
         signal: controller.signal,
         hasTrustedContentLength: contentLength !== null,
       });
+      unconsumedResponse = undefined;
       if (observed.byteLength !== expectedByteLength) fail("Published content byte length does not match expected bytes");
       const observedSha256 = sha256Hex(observed);
       if (observedSha256 !== expectedSha256) fail("Published content digest does not match expected bytes");
@@ -544,7 +564,16 @@ export async function verifyPublishedContent({
       };
     }
   } catch (error) {
-    if (controller.signal.aborted && controller.signal.reason === timeoutError) throw timeoutError;
+    const timedOut = controller.signal.aborted && controller.signal.reason === timeoutError;
+    if (!controller.signal.aborted) controller.abort(error);
+    if (unconsumedResponse !== undefined) {
+      const cancellation = cancelUnconsumedResponseBody(unconsumedResponse, error);
+      cancellation?.catch(() => {
+        // Preserve the primary verification failure.
+      });
+      unconsumedResponse = undefined;
+    }
+    if (timedOut) throw timeoutError;
     throw error;
   } finally {
     clearTimeout(timer);

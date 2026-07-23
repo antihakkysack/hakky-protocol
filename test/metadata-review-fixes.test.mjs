@@ -52,6 +52,27 @@ function canonicalUrl(uri) {
   return `https://ipfs.io/ipfs/${uri.slice("ipfs://".length)}`;
 }
 
+function cancellableNativeBody({ cancelError, cancelResult } = {}) {
+  let cancelled = false;
+  let cancellationReason;
+  let cancellationAttempts = 0;
+  const body = new ReadableStream({
+    cancel(reason) {
+      cancellationAttempts += 1;
+      cancelled = true;
+      cancellationReason = reason;
+      if (cancelError) throw cancelError;
+      return cancelResult;
+    },
+  });
+  return {
+    body,
+    get cancelled() { return cancelled; },
+    get cancellationReason() { return cancellationReason; },
+    get cancellationAttempts() { return cancellationAttempts; },
+  };
+}
+
 async function tempRepository() {
   const root = await mkdtemp(path.join(os.tmpdir(), "hakky-metadata-review-"));
   await mkdir(path.join(root, "web", "assets"), { recursive: true });
@@ -116,21 +137,29 @@ test("oversized Content-Length rejects before arrayBuffer is called", async () =
   const expected = Buffer.from("bounded body\n");
   const expectedUri = rawIpfsUri(expected);
   let arrayBufferCalls = 0;
+  let requestSignal;
+  const cancellation = cancellableNativeBody();
   await assert.rejects(verifyPublishedContent({
     expectedBytes: expected,
     expectedUri,
-    fetchImpl: async (url) => ({
-      status: 200,
-      ok: true,
-      url,
-      headers: headers({ "content-length": "999999999" }),
-      async arrayBuffer() {
-        arrayBufferCalls += 1;
-        return expected;
-      },
-    }),
+    fetchImpl: async (url, init) => {
+      requestSignal = init.signal;
+      return {
+        status: 200,
+        ok: true,
+        url,
+        headers: headers({ "content-length": "999999999" }),
+        body: cancellation.body,
+        async arrayBuffer() {
+          arrayBufferCalls += 1;
+          return expected;
+        },
+      };
+    },
   }), /Content-Length|body size|exceeds/i);
   assert.equal(arrayBufferCalls, 0);
+  assert.equal(cancellation.cancelled, true);
+  assert.equal(requestSignal.aborted, true);
 });
 
 for (const malformed of ["+12", "12.0", "1, 2", "-1", " 12", "12 "]) {
@@ -138,23 +167,196 @@ for (const malformed of ["+12", "12.0", "1, 2", "-1", " 12", "12 "]) {
     const expected = Buffer.from("bounded body\n");
     const expectedUri = rawIpfsUri(expected);
     let arrayBufferCalls = 0;
+    let requestSignal;
+    const cancellation = cancellableNativeBody();
     await assert.rejects(verifyPublishedContent({
       expectedBytes: expected,
       expectedUri,
-      fetchImpl: async (url) => ({
+      fetchImpl: async (url, init) => {
+        requestSignal = init.signal;
+        return {
+          status: 200,
+          ok: true,
+          url,
+          headers: headers({ "content-length": malformed }),
+          body: cancellation.body,
+          async arrayBuffer() {
+            arrayBufferCalls += 1;
+            return expected;
+          },
+        };
+      },
+    }), /Content-Length/i);
+    assert.equal(arrayBufferCalls, 0);
+    assert.equal(cancellation.cancelled, true);
+    assert.equal(requestSignal.aborted, true);
+  });
+}
+
+test("mismatched Content-Length aborts the request and cancels the unconsumed body", async () => {
+  const expected = Buffer.from("mismatched body\n");
+  const expectedUri = rawIpfsUri(expected);
+  const cancellation = cancellableNativeBody();
+  let requestSignal;
+  await assert.rejects(verifyPublishedContent({
+    expectedBytes: expected,
+    expectedUri,
+    fetchImpl: async (url, init) => {
+      requestSignal = init.signal;
+      return {
         status: 200,
         ok: true,
         url,
-        headers: headers({ "content-length": malformed }),
-        async arrayBuffer() {
-          arrayBufferCalls += 1;
-          return expected;
-        },
-      }),
-    }), /Content-Length/i);
-    assert.equal(arrayBufferCalls, 0);
+        headers: headers({ "content-length": String(expected.byteLength - 1) }),
+        body: cancellation.body,
+      };
+    },
+  }), /Content-Length.*expected byte length/i);
+  assert.equal(cancellation.cancelled, true);
+  assert.equal(requestSignal.aborted, true);
+});
+
+for (const [label, responseFields, pattern] of [
+  ["non-success status", { status: 503, ok: false }, /HTTP 503/i],
+  ["response URL drift", { status: 200, ok: true, drift: true }, /resolved URL|identity/i],
+]) {
+  test(`${label} aborts the request and cancels the unconsumed body`, async () => {
+    const expected = Buffer.from("pre-body failure\n");
+    const expectedUri = rawIpfsUri(expected);
+    const cancellation = cancellableNativeBody();
+    let requestSignal;
+    await assert.rejects(verifyPublishedContent({
+      expectedBytes: expected,
+      expectedUri,
+      fetchImpl: async (url, init) => {
+        requestSignal = init.signal;
+        return {
+          status: responseFields.status,
+          ok: responseFields.ok,
+          url: responseFields.drift ? `${url}/drift` : url,
+          headers: headers({ "content-length": String(expected.byteLength) }),
+          body: cancellation.body,
+        };
+      },
+    }), pattern);
+    assert.equal(cancellation.cancelled, true);
+    assert.equal(requestSignal.aborted, true);
   });
 }
+
+test("redirect response body is cancelled before its target is evaluated", async () => {
+  const expected = Buffer.from("redirect cleanup\n");
+  const expectedUri = rawIpfsUri(expected);
+  const canonical = canonicalUrl(expectedUri);
+  const cancellation = cancellableNativeBody();
+  let requestSignal;
+  let calls = 0;
+  await assert.rejects(verifyPublishedContent({
+    expectedBytes: expected,
+    expectedUri,
+    fetchImpl: async (url, init) => {
+      calls += 1;
+      requestSignal = init.signal;
+      return {
+        status: 302,
+        ok: false,
+        url,
+        headers: {
+          get(name) {
+            if (name.toLowerCase() === "location") {
+              assert.equal(cancellation.cancelled, true);
+              return canonical;
+            }
+            return null;
+          },
+        },
+        body: cancellation.body,
+      };
+    },
+  }), /redirect loop/i);
+  assert.equal(calls, 1);
+  assert.equal(cancellation.cancelled, true);
+  assert.equal(requestSignal.aborted, true);
+});
+
+test("body cancellation failure preserves the primary verification error", async () => {
+  const expected = Buffer.from("cleanup failure\n");
+  const expectedUri = rawIpfsUri(expected);
+  const cancellation = cancellableNativeBody({ cancelError: new Error("cleanup sentinel") });
+  let requestSignal;
+  await assert.rejects(verifyPublishedContent({
+    expectedBytes: expected,
+    expectedUri,
+    fetchImpl: async (url, init) => {
+      requestSignal = init.signal;
+      return {
+        status: 503,
+        ok: false,
+        url,
+        headers: headers(),
+        body: cancellation.body,
+      };
+    },
+  }), /HTTP 503/i);
+  assert.equal(cancellation.cancellationAttempts, 1);
+  assert.equal(requestSignal.aborted, true);
+});
+
+test("hanging failure cleanup cannot delay the primary verification error", async () => {
+  const expected = Buffer.from("hanging cleanup\n");
+  const expectedUri = rawIpfsUri(expected);
+  const cancellation = cancellableNativeBody({ cancelResult: new Promise(() => {}) });
+  let requestSignal;
+  const verification = verifyPublishedContent({
+    expectedBytes: expected,
+    expectedUri,
+    timeoutMs: 250,
+    fetchImpl: async (url, init) => {
+      requestSignal = init.signal;
+      return {
+        status: 503,
+        ok: false,
+        url,
+        headers: headers(),
+        body: cancellation.body,
+      };
+    },
+  });
+  await assert.rejects(Promise.race([
+    verification,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("failure cleanup hang sentinel")), 100)),
+  ]), /HTTP 503/i);
+  assert.equal(cancellation.cancellationAttempts, 1);
+  assert.equal(requestSignal.aborted, true);
+});
+
+test("redirect body cancellation stays inside the shared overall deadline", async () => {
+  const expected = Buffer.from("redirect cleanup deadline\n");
+  const expectedUri = rawIpfsUri(expected);
+  const cancellation = cancellableNativeBody({ cancelResult: new Promise(() => {}) });
+  let requestSignal;
+  const verification = verifyPublishedContent({
+    expectedBytes: expected,
+    expectedUri,
+    timeoutMs: 20,
+    fetchImpl: async (url, init) => {
+      requestSignal = init.signal;
+      return {
+        status: 302,
+        ok: false,
+        url,
+        headers: headers({ location: canonicalUrl(expectedUri) }),
+        body: cancellation.body,
+      };
+    },
+  });
+  await assert.rejects(Promise.race([
+    verification,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("redirect cleanup hang sentinel")), 150)),
+  ]), /timed out|timeout/i);
+  assert.equal(cancellation.cancellationAttempts, 1);
+  assert.equal(requestSignal.aborted, true);
+});
 
 test("streaming verification cancels immediately after expected length plus one", async () => {
   const expected = Buffer.from("streamed body\n");
