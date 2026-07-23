@@ -427,6 +427,13 @@ not an approved recovery path because LaunchLab trading would already be public.
 Metadata upload costs count toward the 1.00 SOL creator-funded mainnet cap when
 the creator wallet pays them.
 
+For the current HAKKY execution plan, the approved metadata branch is narrower:
+use only a provider-account/free upload with no connected Solana wallet and no
+creator-wallet payment, so the metadata creator debit is exactly zero. This is
+an action-workflow invariant, not a claim inferred from chain history. If the
+provider requests a wallet, SOL, token, or on-chain payment, stop before upload
+and revise the reviewed plan; a zero/null readback must never conceal a payment.
+
 ## 6. Transaction and Fee Gates
 
 The launch-day controller must verify the official Raydium origin, mainnet

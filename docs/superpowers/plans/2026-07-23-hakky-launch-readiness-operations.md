@@ -166,7 +166,7 @@ rtk git commit -m "launch: add externally funded devnet rehearsal"
 
 **Interfaces:**
 - Consumes: deterministic `web/assets/token.png`, `isPublicHostname()` from `web/lib/public-host.js`, and user-approved content-addressed image/metadata destinations.
-- Produces: `sha256Hex(bytes) -> string`; `validateContentAddressedUri(uri) -> URL`; `buildMetadata(input) -> object`; `serializeMetadata(metadata) -> Buffer`; `prepareMetadataBundle(options) -> MetadataDraftV1`; `assertMetadataDraftV1(value) -> value`; `finalizeMetadataManifest({ draft, metadataUri }) -> MetadataManifestV1`; `assertMetadataManifestV1(value) -> value`; `verifyPublishedContent(options) -> contentReadback`; `verifyPublishedMetadata({ manifest, fetchImpl, connection, creatorAddress, creatorPayment, now }) -> MetadataReadbackV1`; `assertMetadataReadbackV1({ manifest, readback }) -> readback`; ignored `artifacts/metadata/token.png`, `token.json`, `draft-manifest.json`, `manifest.json`, and `readback.json`.
+- Produces: `sha256Hex(bytes) -> string`; `validateContentAddressedUri(uri) -> URL`; `buildMetadata(input) -> object`; `serializeMetadata(metadata) -> Buffer`; `serializeMetadataDraft(draft) -> Buffer`; `serializeMetadataManifest(manifest) -> Buffer`; `serializeMetadataReadback(readback) -> Buffer`; `prepareMetadataBundle(options) -> MetadataDraftV1`; `assertMetadataDraftV1(value) -> value`; `finalizeMetadataManifest({ draft, metadataUri }) -> MetadataManifestV1`; `assertMetadataManifestV1(value) -> value`; `verifyPublishedContent(options) -> contentReadback`; `verifyPublishedMetadata({ manifest, fetchImpl, now }) -> MetadataReadbackV1`; `assertMetadataReadbackV1({ manifest, readback }) -> readback`; ignored `artifacts/metadata/token.png`, `token.json`, `draft-manifest.json`, `manifest.json`, and `readback.json`.
 
 The cross-plan metadata contract is exact; every object rejects unknown keys:
 
@@ -174,13 +174,19 @@ The cross-plan metadata contract is exact; every object rejects unknown keys:
 |---|---|
 | `MetadataDraftV1` | `schemaVersion`, `image`, `metadata`; version constant `metadata-draft-v1`; image is the final manifest image object; metadata has exact keys `sourcePath`, `byteLength`, `sha256`, `name`, `symbol`, `imageUri` and deliberately has no metadata URI |
 | `MetadataManifestV1` | `schemaVersion`, `image`, `metadata`; version constant `metadata-manifest-v1` |
-| manifest `image` | `sourcePath`, `uri`, `byteLength`, `sha256`; repository-relative path, approved content-addressed URI, nonnegative integer, lowercase digest |
-| manifest `metadata` | `sourcePath`, `uri`, `byteLength`, `sha256`, `name`, `symbol`, `imageUri`; exact deterministic JSON path/URI/size/hash and approved HAKKY values |
+| manifest `image` | `sourcePath`, `uri`, `byteLength`, `sha256`; `sourcePath` is exactly `artifacts/metadata/token.png`; approved canonical content-addressed URI; nonnegative safe integer; lowercase 64-character SHA-256 digest |
+| manifest `metadata` | `sourcePath`, `uri`, `byteLength`, `sha256`, `name`, `symbol`, `imageUri`; `sourcePath` is exactly `artifacts/metadata/token.json`; exact deterministic JSON URI/size/hash and approved HAKKY values; `imageUri` equals `image.uri` byte-for-byte |
 | `MetadataReadbackV1` | `schemaVersion`, `image`, `metadata`, `creatorPayment`, `verifiedAt`, `ok`; version constant `metadata-readback-v1`; UTC millisecond timestamp; `ok: true` only on exact byte equality |
 | each readback content object | `uri`, `resolvedUrl`, `byteLength`, `sha256`; identity-preserving public URL and exact manifest size/hash |
-| readback `creatorPayment` | `signature`, `debitLamports`; signature is canonical Solana signature or `null`; debit is canonical unsigned decimal; zero requires null signature, nonzero requires a finalized creator-wallet payment transaction |
+| readback `creatorPayment` | exact constant `{ "signature": null, "debitLamports": "0" }`; this iteration forbids creator-wallet/SOL metadata-upload payments |
 
-`src/metadata-integrity.mjs` exports `assertMetadataDraftV1(value)`, `finalizeMetadataManifest({ draft, metadataUri })`, `assertMetadataManifestV1(value)`, and `assertMetadataReadbackV1({ manifest, readback })`. Proof Tasks 3–4 and Operations Task 3 consume only these validators; no task may invent a metadata alias or accept a URI/hash without the paired manifest and readback.
+`src/metadata-integrity.mjs` exports `assertMetadataDraftV1(value)`, `finalizeMetadataManifest({ draft, metadataUri })`, `assertMetadataManifestV1(value)`, and `assertMetadataReadbackV1({ manifest, readback })`. Proof Tasks 3–4 and Operations Task 3 consume only these validators; no task may invent a metadata alias or accept a URI/hash without the paired manifest and readback. The paired validators enforce every cross-object relation: exact source paths; draft/manifest `metadata.imageUri === image.uri`; manifest/readback URI, byte length, and digest equality for both objects; safe integer byte lengths; lowercase 64-character digests; canonical resolved content identity; exact approved name/symbol; canonical payment signature/debit pairing; and exact unknown-key rejection. Each one-field mutation has a named failing test.
+
+The URI contract is deliberately narrow. Accept only raw, canonical `ipfs://<cidv1-base32>` whose lowercase unpadded base32 payload decodes to the exact 36-byte CIDv1/raw/sha2-256 tuple `0x01 0x55 0x12 0x20 <32 digest bytes>` and re-encodes byte-for-byte, with no path, port, credentials, query, or fragment; or exact `https://arweave.net/<43-character-base64url-transaction-id>` whose unpadded base64url segment decodes to exactly 32 bytes and re-encodes byte-for-byte, with no port, extra path, credentials, query, or fragment. For IPFS, the embedded 32-byte multihash digest must equal `sha256Hex(expectedBytes)` before prepare, finalize, or remote readback can succeed; fixtures use CIDs computed from their exact bytes, never decorative examples. Validate the raw string before `URL` normalization so case-sensitive identity is never silently rewritten. Resolve IPFS only as `https://ipfs.io/ipfs/<same-cid>` and Arweave only as the same canonical `https://arweave.net/<same-transaction-id>` path. Fetch with `redirect: "manual"`; allow at most three hops, and before following each `Location` require HTTPS, no credentials/port/query/fragment, the same exact provider hostname (`ipfs.io` or `arweave.net`), and the same scheme-specific content identity and canonical path. Reject redirect loops, encoded path separators, dot segments, private/special hosts, and any identity/host/path drift.
+
+All five artifact paths are fixed repository-relative paths. The prepare CLI accepts only the exact input `web/assets/token.png` and output directory `artifacts/metadata`; finalize accepts only `artifacts/metadata/draft-manifest.json` and `artifacts/metadata/manifest.json`; verify accepts only `artifacts/metadata/manifest.json` and `artifacts/metadata/readback.json`. Reject absolute, UNC, device, drive-relative, traversal, alternate-separator, and case-drifted spellings. Resolve from the verified repository root, inspect every existing ancestor with `lstat`/`realpath`, and reject a symlink, junction, reparse point, or any ancestor that resolves outside the repository before reading or writing.
+
+Every artifact serializer reconstructs the exact documented key order, uses `JSON.stringify(value, null, 2)`, UTF-8 LF, and exactly one trailing newline. Caller property order never controls bytes. Writers use the existing `publishJsonProof`-style exclusive temporary-file, flush, hard-link/no-clobber commit, and owned-temp cleanup discipline for binary and JSON bytes. Exact-byte replay may succeed idempotently; a divergent existing file fails. Prepare publishes `token.png` and `token.json` before publishing `draft-manifest.json` last, so no consumer can observe a committed draft naming incomplete content. Injected write/fsync/link/cleanup failures must never replace an existing artifact or publish the manifest early.
 
 - [ ] **Step 1: Write RED deterministic-byte and URI tests**
 
@@ -197,8 +203,8 @@ import {
   verifyPublishedContent,
 } from "../src/metadata-integrity.mjs";
 
-const IMAGE_URI = "ipfs://bafkreibm6jg3ux5qu4jiy4zo7l3f4k5e2p6b4il5xw4lpu5wq6wzj6m4ay";
-const METADATA_URI = "ipfs://bafkreidg6l3bzg5gzt6fpkqyf4nqjz2j6rxklwdq2ncbmkh3c4d2jmwqlu";
+const IMAGE_URI = "ipfs://bafkreie6m4wnyrkomjeyopg7gwnvdipy62t7riipav6xp6c6zttqlpfiua";
+const METADATA_URI = "ipfs://bafkreidgs6ooffmvxyflsar56griun3ca6j7kgtx7yum3l2pfphttxbzjy";
 
 test("serializes exact HAKKY metadata bytes deterministically", () => {
   const metadata = buildMetadata({ imageUri: IMAGE_URI });
@@ -229,7 +235,7 @@ test("remote verification requires exact metadata bytes and final URI", async ()
     expectedUri: METADATA_URI,
     fetchImpl: async () => ({
       ok: true,
-      url: "https://ipfs.io/ipfs/bafkreidg6l3bzg5gzt6fpkqyf4nqjz2j6rxklwdq2ncbmkh3c4d2jmwqlu",
+      url: "https://ipfs.io/ipfs/bafkreidgs6ooffmvxyflsar56griun3ca6j7kgtx7yum3l2pfphttxbzjy",
       arrayBuffer: async () => expected,
     }),
   });
@@ -237,6 +243,8 @@ test("remote verification requires exact metadata bytes and final URI", async ()
   assert.equal(receipt.byteLength, expected.byteLength);
 });
 ```
+
+The metadata CID above is the exact raw/sha2-256 CID of `expected`; the image CID is the exact raw/sha2-256 CID of the approved `web/assets/token.png`. A syntactically valid raw CID whose embedded digest differs from the exact bytes must fail before any fetch.
 
 - [ ] **Step 2: Run metadata tests and verify RED**
 
@@ -248,13 +256,19 @@ Expected: FAIL with `ERR_MODULE_NOT_FOUND` for `src/metadata-integrity.mjs`.
 
 - [ ] **Step 3: Implement deterministic metadata construction and hashing**
 
-Create `src/metadata-integrity.mjs` using `createHash("sha256")`, exact object insertion order, a single trailing newline, and strict validation of an `ipfs://` URI followed by a CID or an `https://arweave.net/` URI followed by an Arweave transaction ID. Map IPFS reads to the same CID below `https://ipfs.io/ipfs/` and Arweave reads to the exact transaction-ID path on `arweave.net`. Reject credentials, query, fragment, redirects to a different content identity, non-public hosts, non-2xx responses, size mismatches, and digest mismatches.
+Create `src/metadata-integrity.mjs` using `createHash("sha256")`, the exact canonical serializers and content-address/redirect contract above. Validate the raw URI before `URL` construction; never let URL hostname normalization define a CID. Map IPFS reads to the same CID below `https://ipfs.io/ipfs/` and Arweave reads to the exact transaction-ID path on `arweave.net`. Use bounded manual redirect handling and validate every hop before issuing the next GET. Reject credentials, ports, extra paths, encoded separators, dot segments, query, fragment, redirect loops, redirects to a different host/path/content identity, private/special hosts, non-2xx responses, size mismatches, and digest mismatches.
 
 The exported builder must hard-code the approved name, symbol, description, `https://hakky.xyz`, and `https://x.com/antihakkysack`; callers may supply only `imageUri`.
 
 - [ ] **Step 4: Add RED CLI-path and no-upload tests**
 
-Test that `scripts/prepare-metadata.mjs` accepts only `--image`, `--image-uri`, and `--out`; resolves `--out` below `artifacts/metadata`; copies exact bytes; writes deterministic JSON plus `draft-manifest.json`; and has no HTTP upload or credential option. Test that `scripts/finalize-metadata-manifest.mjs` accepts only `--draft-manifest`, `--metadata-uri`, and `--out`, validates the provider-returned content address, rehashes local files, and writes the exact final manifest without uploading. Test that `scripts/verify-metadata-upload.mjs` accepts only `--manifest`, `--creator`, `--creator-payment-signature`, `--creator-payment-lamports`, and `--out`, obtains an HTTPS mainnet RPC URL only from `HAKKY_RPC_URL`, validates any nonzero payment from a finalized transaction by the exact creator, and writes the readback only after remote equality. Add failures for missing/fake final URI, changed draft bytes, payment debit without signature, signature with zero debit, missing RPC configuration for nonzero payment, wrong payer, non-finalized payment, manifest/readback drift, and unknown keys.
+Test that `scripts/prepare-metadata.mjs` accepts only `--image`, `--image-uri`, and `--out`; requires the exact fixed source/output paths above; copies exact bytes; writes canonical `token.json` plus `draft-manifest.json`; and has no HTTP upload or credential option. Test that `scripts/finalize-metadata-manifest.mjs` accepts only `--draft-manifest`, `--metadata-uri`, and `--out`, requires the exact fixed paths, validates the provider-returned content address, rehashes local files, and writes the canonical final manifest without uploading. Test that `scripts/verify-metadata-upload.mjs` accepts only `--manifest` and `--out`, requires the exact fixed paths, performs no wallet/RPC operation, fixes `creatorPayment` to `{ "signature": null, "debitLamports": "0" }`, and writes the canonical readback only after remote equality. Reject `--creator`, payment/signature, RPC, provider-credential, upload, and every unknown option.
+
+Add failures for missing/fake/noncanonical final URI; CID case drift; invalid CIDv1/Arweave identity; valid CID with the wrong embedded content digest; credentials/port/query/fragment; encoded separators, extra path, dot segment, redirect loop, private/special host, and same/different-host or same/different-identity redirects outside the exact allowed mapping; changed draft bytes; any creator-payment field other than the fixed zero/null pair; manifest/readback drift; unsafe byte lengths; malformed digest; and unknown keys. Mutate every relational field independently. Add path failures for absolute, UNC/device, drive-relative, traversal, separator/case drift, and symlink/junction/reparse ancestors. Add existing-identical, existing-different, partial prior run, and injected open/write/fsync/link/cleanup failures, asserting the manifest/readback is never published early and existing bytes are never replaced. Rebuild each draft, manifest, and readback from differently ordered inputs and assert byte-identical canonical serialization.
+
+Recompute the canonical metadata bytes inside every draft/manifest validator using `serializeMetadata(buildMetadata({ imageUri }))`; require its exact byte length and SHA-256, including the fixed description, website, X URL, key order, LF, and trailing newline. Pin the approved deterministic image to exact byte length `74230` and SHA-256 `9e672cdc454e6249873cdf359b51a1f8f6a7f8a10f057d77f85ecce705bca8a0`; tests compare those constants to `web/assets/token.png`. Prepare/finalize must require `artifacts/metadata/token.png` to remain byte-identical to that approved source. Add consistently forged draft/file mutations where all attacker-controlled length/hash fields agree with changed bytes and still require rejection.
+
+For no-upload proof, run prepare/finalize with injected network functions that throw if called. Remote verification may issue only bounded GET requests with `redirect: "manual"` and has no RPC or wallet dependency. No CLI may send, simulate, sign, pay, or upload.
 
 - [ ] **Step 5: Implement the three narrow CLIs and package scripts**
 
@@ -266,32 +280,36 @@ Add to `package.json`:
 "metadata:verify": "node scripts/verify-metadata-upload.mjs"
 ```
 
-The preparation and finalization CLIs write only below `artifacts/metadata/`. The verification CLI is read-only against the remote destination/chain and writes only `artifacts/metadata/readback.json`. None uploads. If the creator wallet did not pay a Solana upload transaction, pass no payment signature and record `"0"`; otherwise exact finalized payer/debit verification is mandatory and later subtracts from the 1 SOL creation allowance.
+The preparation and finalization CLIs use only the fixed paths above and the exclusive canonical writers. The verification CLI is read-only against the remote content destination, has no chain/wallet dependency, and writes only `artifacts/metadata/readback.json`. None uploads.
+
+This iteration permits only provider-account/free uploads performed with no connected Solana wallet and no creator-wallet payment. The readback therefore emits the contract constant `{ "signature": null, "debitLamports": "0" }`; validators and every downstream cost/signing consumer accept only that exact pair. This is an explicit action-workflow invariant, not an inferred chain fact. If a provider requires a wallet, SOL, token, or on-chain payment—or any creator-wallet upload/payment attempt has occurred—stop before upload/readback and revise the reviewed plan; never hand-author zero to conceal a payment. The action-time upload gate records that the provider flow had no Solana wallet connection or payment request.
 
 - [ ] **Step 6: Run GREEN tests and a deterministic local rehearsal**
 
 ```powershell
 rtk npm run assets
 rtk node --test test/metadata-integrity.test.mjs
-rtk npm run metadata:prepare -- --image web/assets/token.png --image-uri ipfs://bafkreibm6jg3ux5qu4jiy4zo7l3f4k5e2p6b4il5xw4lpu5wq6wzj6m4ay --out artifacts/metadata
-rtk npm run metadata:finalize -- --draft-manifest artifacts/metadata/draft-manifest.json --metadata-uri ipfs://bafkreidg6l3bzg5gzt6fpkqyf4nqjz2j6rxklwdq2ncbmkh3c4d2jmwqlu --out artifacts/metadata/manifest.json
 rtk node --check scripts/prepare-metadata.mjs
 rtk node --check scripts/finalize-metadata-manifest.mjs
 rtk node --check scripts/verify-metadata-upload.mjs
 ```
 
-Expected: tests pass; preparation/finalization create only the four ignored bundle/draft files. The example CIDs are test-only and must never enter a mainnet approval envelope.
+Expected: tests pass and rehearse the exact fixed relative paths only beneath a fresh `mkdtemp` repository fixture with an injected repository root; no command writes `artifacts/metadata/*` in the real worktree. The five production leaves remain absent and pristine until the separately approved provider-upload workflow returns real content addresses. Test fixture CIDs must never enter a mainnet approval envelope.
+
+Also assert all five fixed artifact leaves are ignored, no artifact is staged/tracked, repeated generation produces byte-identical files, and the worktree differs only by the intended tracked implementation/docs/tests.
 
 - [ ] **Step 7: Document the upload approval boundary and hard stop**
 
-Update `docs/LAUNCH.md` and `proof/README.md`: image and metadata uploads are separately approved browser/provider actions; prepare locally, upload image, prepare JSON/draft, upload that exact JSON, finalize the production manifest with the provider-returned metadata address, and verify both remote byte sequences. The creation transaction must use the exact verified metadata URI and atomically create `isMutable: false`; otherwise stop before signing.
+Update `docs/LAUNCH.md` and `proof/README.md`: image and metadata uploads are separately approved browser/provider actions; the selected provider flow must have no Solana wallet connection or payment request; prepare locally, upload image, prepare JSON/draft, upload that exact JSON, finalize the production manifest with the provider-returned metadata address, and verify both remote byte sequences. The creation transaction must use the exact verified metadata URI and atomically create `isMutable: false`; otherwise stop before signing.
 
 - [ ] **Step 8: Commit the metadata slice**
 
 ```powershell
-rtk git add src/metadata-integrity.mjs scripts/prepare-metadata.mjs scripts/finalize-metadata-manifest.mjs scripts/verify-metadata-upload.mjs test/metadata-integrity.test.mjs package.json package-lock.json docs/LAUNCH.md proof/README.md
+rtk git add src/metadata-integrity.mjs scripts/prepare-metadata.mjs scripts/finalize-metadata-manifest.mjs scripts/verify-metadata-upload.mjs test/metadata-integrity.test.mjs package.json docs/LAUNCH.md proof/README.md
 rtk git commit -m "launch: add immutable metadata preparation gates"
 ```
+
+Stage `package-lock.json` only if an intentionally reviewed dependency change is required; otherwise it must remain unchanged.
 
 ---
 
@@ -320,7 +338,7 @@ rtk git commit -m "launch: add immutable metadata preparation gates"
 
 The origin receipt has exact keys `schemaVersion`, `checkedAt`, `uiUrl`, `uiOrigin`, `docsUrl`, `docsSha256`, `documentedProgramId`, `pinnedProgramId`, `checks`, `ok`. The verifier fetches `https://docs.raydium.io/introduction/what-is-raydium` and `https://docs.raydium.io/reference/program-addresses` with redirect-origin checks, requires the first to identify `raydium.io` as the official app and the second to identify the exact current LaunchLab program, requires the browser URL origin to be exactly `https://raydium.io`, and requires the documented ID to equal the pinned decoder ID. DNS success, search results, screenshots, cached receipts, `api-v3`, and lookalike/subdomain URLs are insufficient. The receipt expires after 30 minutes and must be regenerated immediately before preview approval; any fetch/parse/drift failure stops signing.
 
-The wallet receipt has exact keys `schemaVersion`, `network`, `creator`, `genesisHash`, `finalizedBalanceLamports`, `requiredLamports`, `finalizedSlot`, `checkedAt`, `rpcHost`, `checks`, `ok`. `checks` has exact booleans `mainnetGenesis`, `creatorMatches`, `finalizedBalance`, `sufficientBalance`; all are true when `ok: true`. The CLI receives only the public creator plus validated metadata readback, derives `requiredLamports = 1000000000 - metadataUploadLamports`, reads an HTTPS RPC URL from `HAKKY_RPC_URL`, calls `getGenesisHash()` and `getBalanceAndContext(..., { commitment: "finalized" })`, and expires after five minutes. Before running it, the operator must read the selected wallet's visible public address and require byte-for-byte equality with the creator; screenshot/account labels alone are insufficient.
+The wallet receipt has exact keys `schemaVersion`, `network`, `creator`, `genesisHash`, `finalizedBalanceLamports`, `requiredLamports`, `finalizedSlot`, `checkedAt`, `rpcHost`, `checks`, `ok`. `checks` has exact booleans `mainnetGenesis`, `creatorMatches`, `finalizedBalance`, `sufficientBalance`; all are true when `ok: true`. The CLI receives only the public creator plus validated metadata readback, requires its exact fixed zero/null creator-payment pair, sets `requiredLamports = 1000000000`, reads an HTTPS RPC URL from `HAKKY_RPC_URL`, calls `getGenesisHash()` and `getBalanceAndContext(..., { commitment: "finalized" })`, and expires after five minutes. Before running it, the operator must read the selected wallet's visible public address and require byte-for-byte equality with the creator; screenshot/account labels alone are insufficient.
 
 - [ ] **Step 1: Write RED policy-matrix tests**
 
@@ -342,8 +360,8 @@ export const HAKKY_TARGET_RAW_VALUES = Object.freeze({
   feeRateDenominator: "1000000",
   firstBuyInstructionCount: 0,
   creatorTokenCredit: "0",
-  metadataUploadLamports: "25000000",
-  maximumCreationDebitLamports: "975000000",
+  metadataUploadLamports: "0",
+  maximumCreationDebitLamports: "1000000000",
   cumulativeCreatorDebitCapLamports: "1000000000",
   migrationType: "cpmm",
   platformScaleRaw: "0",
@@ -352,7 +370,7 @@ export const HAKKY_TARGET_RAW_VALUES = Object.freeze({
 });
 ```
 
-The current pinned-source result for this exact target is the frozen `{ ok: false, code: "source-coverage-unavailable", reason: "cpmm-burn-scale-lp-rights-unmapped" }`. Assert `evaluateLaunchPreview()` includes the exact failed `source-coverage-unavailable` check, returns `ok: false`, and `buildApprovalEnvelope()` refuses to produce an envelope. There is no passing approval-envelope fixture in this slice. For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be preserved in the non-approvable diagnostic evaluation. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, and any creation debit above `1000000000 - metadataUploadLamports`.
+The current pinned-source result for this exact target is the frozen `{ ok: false, code: "source-coverage-unavailable", reason: "cpmm-burn-scale-lp-rights-unmapped" }`. Assert `evaluateLaunchPreview()` includes the exact failed `source-coverage-unavailable` check, returns `ok: false`, and `buildApprovalEnvelope()` refuses to produce an envelope. There is no passing approval-envelope fixture in this slice. For each field, mutate one value and require `ok: false`. The protocol fee is an observed fixture value, not a policy constant; require it to be preserved in the non-approvable diagnostic evaluation. Add dedicated failures for Token-2022, transfer fee/hook/permanent delegate, 90/10 LP split, creator/platform Fee Key, platform-only mutable fee/LP settings, unknown signer/program/transfer destination, referral/tip, metadata URI/hash mismatch, any nonzero/non-null metadata creator payment, `isMutable: true`, expired/wrong official-origin receipt, wrong/expired/insufficient/non-finalized wallet receipt, selected-wallet mismatch, simulation error, and any creation debit above `1000000000`.
 
 - [ ] **Step 2: Run preview tests and verify RED**
 
@@ -504,7 +522,7 @@ Each event has exactly these keys:
 }
 ```
 
-`creator`, `mint`, and `launchId` are the exact canonical public keys decoded from the preview. `costBaseline` has exactly `metadataPaymentSignature`, `metadataPaymentLamports`, `verifiedAt`: values are copied from the validated hashed `MetadataReadbackV1`; zero payment requires null signature, nonzero requires its verified signature, and no caller override exists. `sequence` is a positive safe integer; `operationId` is 1–64 characters matching `^[a-z0-9]+(?:-[a-z0-9]+)*$`; `operationKind` is exactly `creation`, `recovery`, or `graduation`; `purpose` is 1–120 characters matching `^[A-Za-z0-9 .,:;()/_-]+$`; `signature` is a canonical Solana signature or `null`; `transactionSha256` is lowercase 64-character hex or `null`; `slot` is a nonnegative safe integer or `null`; `observedAt` is an exact UTC RFC 3339 timestamp with milliseconds; and `debitLamports` is a canonical unsigned decimal string. `visibleStatus` is exactly `not-submitted`, `submitted`, `pending`, `failed`, `finalized-success`, or `finalized-failed` and maps from `state` exactly as follows: `prepared -> not-submitted`, `submitted -> submitted`, `visible-pending -> pending`, `visible-failed -> failed`, `finalized-success -> finalized-success`, and `finalized-failed -> finalized-failed`.
+`creator`, `mint`, and `launchId` are the exact canonical public keys decoded from the preview. `costBaseline` has exactly `metadataPaymentSignature`, `metadataPaymentLamports`, `verifiedAt`: values are copied from the validated hashed `MetadataReadbackV1` and are necessarily null, `"0"`, and its verification timestamp; no nonzero branch or caller override exists in this iteration. `sequence` is a positive safe integer; `operationId` is 1–64 characters matching `^[a-z0-9]+(?:-[a-z0-9]+)*$`; `operationKind` is exactly `creation`, `recovery`, or `graduation`; `purpose` is 1–120 characters matching `^[A-Za-z0-9 .,:;()/_-]+$`; `signature` is a canonical Solana signature or `null`; `transactionSha256` is lowercase 64-character hex or `null`; `slot` is a nonnegative safe integer or `null`; `observedAt` is an exact UTC RFC 3339 timestamp with milliseconds; and `debitLamports` is a canonical unsigned decimal string. `visibleStatus` is exactly `not-submitted`, `submitted`, `pending`, `failed`, `finalized-success`, or `finalized-failed` and maps from `state` exactly as follows: `prepared -> not-submitted`, `submitted -> submitted`, `visible-pending -> pending`, `visible-failed -> failed`, `finalized-success -> finalized-success`, and `finalized-failed -> finalized-failed`.
 
 Prove that only these event states are accepted:
 
