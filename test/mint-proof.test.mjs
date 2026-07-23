@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import * as fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { evaluateMintEvidenceV2 } from "../src/mint-proof.mjs";
 import {
@@ -16,16 +19,33 @@ const { MINT_V2_SOURCE_FIXTURE: sourceFixture } = await import(
 );
 import { main, readOptions } from "../scripts/verify-token.mjs";
 import { createCanonicalMintProofV2 } from "../test-support/launch-fixtures.mjs";
+import { encodeBase58 } from "../src/solana-transaction.mjs";
+import { publishJsonProof, resolveCanonicalMintProofPath } from "../src/proof-output.mjs";
 
 function canonicalEvidence() {
   const proof = createCanonicalMintProofV2();
   const wireBytes = Buffer.from("signed-wire-fixture", "utf8");
   const metadataCpiBytes = Buffer.from("metadata-cpi-fixture", "utf8");
+  const cpiAccountKeys = [
+    proof.identities.metadataAccount,
+    proof.identities.mint,
+    proof.identities.launchlabAuthority,
+    proof.identities.creator,
+    proof.metadata.updateAuthority,
+    "11111111111111111111111111111111",
+  ];
+  const loadedAddresses = { writable: [], readonly: [] };
   const creationExecution = {
     slot: proof.observation.creationSlot,
     outerInstructionIndex: 0,
     innerInstructionIndex: 0,
     stackHeight: 2,
+    programId: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+    accountKeys: cpiAccountKeys,
+    dataBase58: encodeBase58(metadataCpiBytes),
+    metadataPreBalance: "0",
+    metadataPostBalance: "1461600",
+    loadedAddresses,
   };
   const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
   return {
@@ -37,6 +57,10 @@ function canonicalEvidence() {
     metadataAddress: proof.identities.metadataAccount,
     creationSignature: proof.observation.creationSignature,
     creation: {
+      slot: proof.observation.creationSlot,
+      outerInstructionIndex: 0,
+      metadataInnerInstructionIndex: 0,
+      loadedAddresses,
       wireBytes,
       metadataCpiBytes,
       creationExecution,
@@ -53,6 +77,7 @@ function canonicalEvidence() {
       metadataCpi: {
         data: { isMutable: false, uri: proof.metadata.uri },
         accounts: { updateAuthority: proof.metadata.updateAuthority },
+        accountKeys: cpiAccountKeys,
       },
       observation: {
         creationExecutionSha256: proof.observation.creationExecutionSha256,
@@ -133,6 +158,16 @@ test("mint evaluator fails closed on supply, authority, metadata, inventory, and
     mutate(evidence);
     assert.throws(() => evaluateMintEvidenceV2(evidence), /mint-/u);
   }
+});
+
+test("mint evaluator independently recomputes creator-account totals and ordering", () => {
+  const mismatched = canonicalEvidence();
+  mismatched.creatorBalance.accounts[0].amountBaseUnits = "1";
+  assert.throws(() => evaluateMintEvidenceV2(mismatched), /mint-creator-accounts/u);
+
+  const unsorted = canonicalEvidence();
+  unsorted.creatorBalance.accounts.reverse();
+  assert.throws(() => evaluateMintEvidenceV2(unsorted), /mint-creator-accounts/u);
 });
 
 test("safe RPC URL accepts only unauthenticated public HTTPS roots", () => {
@@ -331,6 +366,40 @@ test("mint/metadata collection binds one finalized batch to classic raw account 
   });
 });
 
+test("mint collection rejects noncanonical COption tags", async () => {
+  for (const [field, value] of [["mintAuthorityOption", 2], ["freezeAuthorityOption", 2]]) {
+    const mintBytes = Buffer.alloc(MintLayout.span);
+    MintLayout.encode({
+      mintAuthorityOption: field === "mintAuthorityOption" ? value : 1,
+      mintAuthority: new PublicKey(sourceFixture.identities.authority),
+      supply: 1_000_000_000_000n,
+      decimals: 6,
+      isInitialized: true,
+      freezeAuthorityOption: field === "freezeAuthorityOption" ? value : 0,
+      freezeAuthority: PublicKey.default,
+    }, mintBytes);
+    await assert.rejects(fetchFinalizedMintAccounts({
+      rpcClient: {
+        async call() {
+          return {
+            context: { slot: 302 },
+            value: [
+              { owner: TOKEN_PROGRAM_ID.toBase58(), data: [mintBytes.toString("base64"), "base64"] },
+              {
+                owner: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+                data: [sourceFixture.metadataAccountBase64, "base64"],
+              },
+            ],
+          };
+        },
+      },
+      mintAddress: sourceFixture.identities.mint,
+      metadataAddress: sourceFixture.identities.metadataAccount,
+      minContextSlot: 301,
+    }), /mint-account-coption/u, field);
+  }
+});
+
 test("CLI parser rejects aliases, duplicates, equals-form, path drift, and unsafe RPC before I/O", () => {
   const valid = [
     "--mint", "11111111111111111111111111111111",
@@ -371,4 +440,75 @@ test("CLI prints only proof JSON and keeps committed cleanup warning out of stdo
   assert.doesNotMatch(stdout, /publication|temporary|secret-temp/u);
   assert.match(stderr, /Do not retry/u);
   assert.doesNotMatch(stderr, /secret-temp/u);
+});
+
+test("CLI requires an explicit successful publication receipt", async () => {
+  let stdout = "";
+  const status = await main({
+    runVerifier: async () => ({
+      proof: createCanonicalMintProofV2(),
+      publication: { warnings: [] },
+    }),
+    stdout: { write(value) { stdout += value; } },
+    stderr: { write() {} },
+  });
+  assert.equal(status, 1);
+  assert.equal(stdout.length > 0, true);
+});
+
+test("fixed publisher commits exact bytes once and preserves an existing destination", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "hakky-mint-publish-"));
+  const outputPath = resolveCanonicalMintProofPath({ repositoryRoot: root });
+  const proof = createCanonicalMintProofV2();
+  const receipt = await publishJsonProof(outputPath, proof, {
+    repositoryRoot: root,
+    randomUUIDImpl: () => "first",
+  });
+  assert.deepEqual(receipt, { published: true, outputPath, warnings: [] });
+  const committed = await fs.readFile(outputPath, "utf8");
+  assert.deepEqual(JSON.parse(committed), proof);
+  await assert.rejects(publishJsonProof(outputPath, { replaced: true }, {
+    repositoryRoot: root,
+    randomUUIDImpl: () => "second",
+  }), { code: "EEXIST" });
+  assert.equal(await fs.readFile(outputPath, "utf8"), committed);
+});
+
+test("fixed publisher never unlinks an unowned temporary-name collision", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "hakky-mint-collision-"));
+  const directory = path.join(root, "proof");
+  await fs.mkdir(directory);
+  const collision = path.join(directory, ".mainnet-mint.fixed.tmp");
+  await fs.writeFile(collision, "owned by another run");
+  const outputPath = resolveCanonicalMintProofPath({ repositoryRoot: root });
+  await assert.rejects(publishJsonProof(outputPath, createCanonicalMintProofV2(), {
+    repositoryRoot: root,
+    randomUUIDImpl: () => "fixed",
+  }), { code: "EEXIST" });
+  assert.equal(await fs.readFile(collision, "utf8"), "owned by another run");
+  await assert.rejects(fs.readFile(outputPath), { code: "ENOENT" });
+});
+
+test("committed cleanup failure returns a no-retry warning while retaining exact proof", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "hakky-mint-warning-"));
+  const outputPath = resolveCanonicalMintProofPath({ repositoryRoot: root });
+  const receipt = await publishJsonProof(outputPath, createCanonicalMintProofV2(), {
+    repositoryRoot: root,
+    randomUUIDImpl: () => "warning",
+    fileSystem: {
+      ...fs,
+      async unlink(candidate) {
+        if (candidate.endsWith(".mainnet-mint.warning.tmp")) {
+          const error = new Error("injected cleanup failure");
+          error.code = "EACCES";
+          throw error;
+        }
+        return fs.unlink(candidate);
+      },
+    },
+  });
+  assert.equal(receipt.published, true);
+  assert.equal(receipt.warnings[0].code, "TEMP_UNLINK_FAILED");
+  assert.match(receipt.warnings[0].message, /Do not retry/u);
+  assert.deepEqual(JSON.parse(await fs.readFile(outputPath, "utf8")), createCanonicalMintProofV2());
 });

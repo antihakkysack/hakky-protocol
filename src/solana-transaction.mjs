@@ -29,8 +29,10 @@ export function sha256Hex(bytes) {
   return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
 }
 
-export function decodeBase58(value, { length, code = "base58" } = {}) {
+export function decodeBase58(value, { length, maxLength, code = "base58" } = {}) {
   if (typeof value !== "string" || value.length === 0) fail(`${code}-alphabet`);
+  const bound = maxLength ?? (length === 32 ? 44 : length === 64 ? 88 : 2_048);
+  if (!Number.isSafeInteger(bound) || bound < 1 || value.length > bound) fail(`${code}-length`);
   let number = 0n;
   for (const character of value) {
     const digit = BASE58_INDEX.get(character);
@@ -78,10 +80,11 @@ function exactBase64(value, code) {
 }
 
 function normalizeLoadedAddresses(value, required) {
-  if (value === undefined || value === null) {
+  if (value === undefined) {
     if (required) fail("transaction-loaded-addresses-missing");
     return { writable: [], readonly: [] };
   }
+  if (value === null) fail("transaction-loaded-addresses-shape");
   if (!value || typeof value !== "object" || Array.isArray(value)
     || Object.keys(value).sort().join(",") !== "readonly,writable"
     || !Array.isArray(value.writable) || !Array.isArray(value.readonly)) {
@@ -220,7 +223,7 @@ function exactExecutionHash({
   loadedAddresses,
 }) {
   const dataBase58 = instruction.data;
-  decodeBase58(dataBase58, { code: "metadata-cpi-data" });
+  decodeBase58(dataBase58, { code: "metadata-cpi-data", maxLength: 1_024 });
   const ordered = {
     slot,
     outerInstructionIndex,
@@ -257,6 +260,7 @@ export function resolveCreationTransaction({
   } catch {
     fail("transaction-wire");
   }
+  if (!Buffer.from(transaction.serialize()).equals(wireBytes)) fail("transaction-wire-trailing");
   const message = transaction.message;
   const resolvedVersion = message.version === "legacy" ? "legacy" : message.version;
   if (resolvedVersion !== version) fail("transaction-version");
@@ -285,6 +289,13 @@ export function resolveCreationTransaction({
   ];
   const privileges = keyPrivileges(message, staticKeys.length, resolvedLoaded.writable.length, allKeys.length);
   const instructions = message.compiledInstructions;
+  for (const instruction of instructions) {
+    if (!Number.isSafeInteger(instruction.programIdIndex)
+      || instruction.programIdIndex < 0 || instruction.programIdIndex >= allKeys.length
+      || !instruction.accountKeyIndexes
+      || [...instruction.accountKeyIndexes].some((index) => !Number.isSafeInteger(index)
+        || index < 0 || index >= allKeys.length)) fail("transaction-outer-index");
+  }
   const candidates = instructions.map((instruction, index) => ({ instruction, index }))
     .filter(({ instruction }) => allKeys[instruction.programIdIndex] === RAYDIUM_LAUNCHLAB_PROGRAM_ID
       && Buffer.from(instruction.data).subarray(0, 8).toString("hex") === "4399af27da102620");
@@ -303,12 +314,22 @@ export function resolveCreationTransaction({
   const group = meta.innerInstructions.filter((entry) => entry.index === outer.index);
   if (group.length !== 1 || !Array.isArray(group[0].instructions)) fail("metadata-inner-group");
   const metaplex = [];
+  for (const instruction of instructions) {
+    if (allKeys[instruction.programIdIndex] === METAPLEX_METADATA_PROGRAM_ID
+      && [...instruction.accountKeyIndexes].some((index) => allKeys[index] === creation.accounts.metadataAccount)) {
+      fail("metadata-outer-instruction");
+    }
+  }
   for (const entry of meta.innerInstructions) {
     if (!Number.isSafeInteger(entry.index) || !Array.isArray(entry.instructions)) fail("metadata-inner-group");
     for (let index = 0; index < entry.instructions.length; index += 1) {
       const instruction = entry.instructions[index];
       if (!instruction || !Number.isSafeInteger(instruction.programIdIndex)
-        || !Array.isArray(instruction.accounts) || typeof instruction.data !== "string"
+        || instruction.programIdIndex < 0 || instruction.programIdIndex >= allKeys.length
+        || !Array.isArray(instruction.accounts)
+        || instruction.accounts.some((keyIndex) => !Number.isSafeInteger(keyIndex)
+          || keyIndex < 0 || keyIndex >= allKeys.length)
+        || typeof instruction.data !== "string"
         || !Number.isSafeInteger(instruction.stackHeight)) fail("metadata-inner-instruction");
       const programId = allKeys[instruction.programIdIndex];
       const touched = instruction.accounts.some((keyIndex) => allKeys[keyIndex] === creation.accounts.metadataAccount);
@@ -319,7 +340,7 @@ export function resolveCreationTransaction({
   const selected = metaplex[0];
   if (selected.instruction.stackHeight !== 2) fail("metadata-cpi-stack-height");
   const innerKeys = selected.instruction.accounts.map((index) => allKeys[index]);
-  const cpiBytes = decodeBase58(selected.instruction.data, { code: "metadata-cpi-data" });
+  const cpiBytes = decodeBase58(selected.instruction.data, { code: "metadata-cpi-data", maxLength: 1_024 });
   const cpi = decodeCreateMetadataAccountV3({ instructionData: cpiBytes, accountKeys: innerKeys });
   if (cpi.accounts.metadata !== creation.accounts.metadataAccount
     || cpi.accounts.mint !== creation.accounts.mint

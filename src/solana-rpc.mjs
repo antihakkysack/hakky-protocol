@@ -45,6 +45,33 @@ function sha256Hex(bytes) {
   return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
 }
 
+function awaitWithAbort(promise, signal, stage) {
+  if (signal.aborted) return Promise.reject(new Error(`${stage}-timeout`));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(new Error(`${stage}-timeout`));
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function cancelBody(response, signal, stage) {
+  if (typeof response?.body?.cancel !== "function") return;
+  try {
+    await awaitWithAbort(response.body.cancel(), signal, stage);
+  } catch {
+    // Cleanup cannot replace or extend the fixed primary error.
+  }
+}
+
 export function parsePublicRpcUrl(rawUrl) {
   let parsed;
   try {
@@ -70,45 +97,29 @@ async function readResponseBody(response, signal, stage) {
   if (rawLength !== null && rawLength !== undefined) {
     if (!/^(?:0|[1-9][0-9]*)$/u.test(rawLength)) fail(`${stage}-content-length`);
     if (BigInt(rawLength) > BigInt(RPC_RESPONSE_CAP)) {
-      await response.body?.cancel?.();
+      await cancelBody(response, signal, stage);
       fail(`${stage}-response-too-large`);
     }
   }
   const reader = response?.body?.getReader?.();
   if (!reader) {
     if (rawLength === null || rawLength === undefined || typeof response?.arrayBuffer !== "function") fail(`${stage}-body`);
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = Buffer.from(await awaitWithAbort(response.arrayBuffer(), signal, stage));
     if (bytes.length > RPC_RESPONSE_CAP) fail(`${stage}-response-too-large`);
+    if (Number(rawLength) !== bytes.length) fail(`${stage}-content-length`);
     return bytes;
   }
   const chunks = [];
   let length = 0;
-  const withAbort = (promise) => {
-    if (signal.aborted) return Promise.reject(new Error(`${stage}-timeout`));
-    return new Promise((resolve, reject) => {
-      const onAbort = () => reject(new Error(`${stage}-timeout`));
-      signal.addEventListener("abort", onAbort, { once: true });
-      Promise.resolve(promise).then(
-        (value) => {
-          signal.removeEventListener("abort", onAbort);
-          resolve(value);
-        },
-        (error) => {
-          signal.removeEventListener("abort", onAbort);
-          reject(error);
-        },
-      );
-    });
-  };
   try {
     while (true) {
-      const result = await withAbort(reader.read());
+      const result = await awaitWithAbort(reader.read(), signal, stage);
       if (signal.aborted) fail(`${stage}-timeout`);
       if (result.done) break;
       if (!(result.value instanceof Uint8Array)) fail(`${stage}-body`);
       length += result.value.length;
       if (length > RPC_RESPONSE_CAP) {
-        await reader.cancel();
+        await awaitWithAbort(reader.cancel(), signal, stage);
         fail(`${stage}-response-too-large`);
       }
       chunks.push(Buffer.from(result.value));
@@ -133,24 +144,30 @@ export function createBoundedPublicRpcClient({ rawUrl = DEFAULT_PUBLIC_MAINNET_R
     try {
       let response;
       try {
-        response = await fetchImpl(url, {
+        response = await awaitWithAbort(fetchImpl(url, {
           method: "POST",
           redirect: "error",
           signal: controller.signal,
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", "accept-encoding": "identity" },
           body: JSON.stringify({ jsonrpc: "2.0", id, method, params }),
-        });
+        }), controller.signal, stage);
       } catch {
         fail(controller.signal.aborted ? `${stage}-timeout` : `${stage}-transport`);
       }
       if (response?.status !== 200 || response?.ok === false) {
-        await response?.body?.cancel?.();
+        await cancelBody(response, controller.signal, stage);
         fail(`${stage}-http`);
       }
       const contentType = response?.headers?.get?.("content-type");
       if (typeof contentType !== "string" || !/^application\/json(?:\s*;|$)/iu.test(contentType)) {
-        await response?.body?.cancel?.();
+        await cancelBody(response, controller.signal, stage);
         fail(`${stage}-content-type`);
+      }
+      const contentEncoding = response?.headers?.get?.("content-encoding");
+      if (contentEncoding !== null && contentEncoding !== undefined
+        && contentEncoding.toLowerCase() !== "identity") {
+        await cancelBody(response, controller.signal, stage);
+        fail(`${stage}-content-encoding`);
       }
       const bytes = await readResponseBody(response, controller.signal, stage);
       let envelope;
@@ -190,7 +207,7 @@ export async function fetchFinalizedCreationTransaction({ rpcClient, signature }
   ]);
   if (!transaction) fail("creation-transaction-unavailable");
   if (!Number.isSafeInteger(transaction.slot) || transaction.slot < 0
-    || !Number.isSafeInteger(transaction.blockTime)
+    || !Number.isSafeInteger(transaction.blockTime) || transaction.blockTime < 0
     || (transaction.version !== "legacy" && transaction.version !== 0)
     || !transaction.meta || transaction.meta.err !== null || !Array.isArray(transaction.meta.innerInstructions)
     || !Array.isArray(transaction.transaction) || transaction.transaction.length !== 2
@@ -240,7 +257,7 @@ function rawAccount(value, expectedOwner, code) {
 
 async function blockTime(rpcClient, slot, code) {
   const value = await rpcClient.call("getBlockTime", [slot]);
-  if (!Number.isSafeInteger(value)) fail(code);
+  if (!Number.isSafeInteger(value) || value < 0) fail(code);
   return new Date(value * 1000).toISOString();
 }
 
@@ -274,9 +291,10 @@ export async function fetchFinalizedCreatorAccounts({ rpcClient, creatorAddress,
     const decoded = AccountLayout.decode(bytes);
     const owner = new PublicKey(decoded.owner).toBase58();
     const mint = new PublicKey(decoded.mint).toBase58();
-    if (owner !== creatorAddress || mint !== mintAddress) continue;
+    if (owner !== creatorAddress) fail("creator-account-decoded-owner");
     if (decoded.state !== 1 && decoded.state !== 2) fail("creator-account-state");
-    if (previousTargetAddress !== null && address.localeCompare(previousTargetAddress) <= 0) fail("creator-account-order");
+    if (mint !== mintAddress) continue;
+    if (previousTargetAddress !== null && address <= previousTargetAddress) fail("creator-account-order");
     previousTargetAddress = address;
     accounts.push({
       address,
@@ -305,7 +323,8 @@ export async function fetchFinalizedMintAccounts({ rpcClient, mintAddress, metad
   const mintBytes = rawAccount(result.value[0], TOKEN_PROGRAM_ID.toBase58(), "mint-account");
   if (mintBytes.length !== MintLayout.span) fail("mint-account-length");
   const metadataBytes = rawAccount(result.value[1], METAPLEX_METADATA_PROGRAM_ID, "metadata-account");
-      const mint = MintLayout.decode(mintBytes);
+  const mint = MintLayout.decode(mintBytes);
+  if (mint.mintAuthorityOption !== 1 || mint.freezeAuthorityOption !== 0) fail("mint-account-coption");
   const metadataAccount = decodeMetadataAccountV1({
     accountBytes: metadataBytes,
     expectedMint: mintAddress,

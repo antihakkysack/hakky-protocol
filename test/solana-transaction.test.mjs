@@ -142,3 +142,22 @@ test("transaction resolution rejects signature, loaded-order, CPI-stack, and cre
     requestedSignature: fixture.v0Signature,
   }), /loaded-addresses/);
 });
+
+test("legacy resolution rejects null loaded addresses and trailing wire bytes", () => {
+  const nullLoaded = transactionResponse("legacy").response;
+  nullLoaded.meta.loadedAddresses = null;
+  assert.throws(() => resolveCreationTransaction({
+    transactionResponse: nullLoaded,
+    requestedSignature: fixture.legacySignature,
+  }), /loaded-addresses/u);
+
+  const trailing = transactionResponse("legacy").response;
+  trailing.transaction[0] = Buffer.concat([
+    Buffer.from(trailing.transaction[0], "base64"),
+    Buffer.from([0]),
+  ]).toString("base64");
+  assert.throws(() => resolveCreationTransaction({
+    transactionResponse: trailing,
+    requestedSignature: fixture.legacySignature,
+  }), /transaction-wire/u);
+});

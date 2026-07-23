@@ -30,6 +30,11 @@ function fail(code) {
   throw new Error(code);
 }
 
+function exactKeys(value, keys) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    && Object.keys(value).sort().join(",") === [...keys].sort().join(",");
+}
+
 function canonicalPublicKey(value, name) {
   try {
     if (typeof value !== "string" || new PublicKey(value).toBase58() !== value) fail(`cli-invalid-${name}`);
@@ -123,7 +128,16 @@ export async function runMintVerifier({
   const proof = evaluateMintEvidenceV2(evidence);
   const outputPath = resolveCanonicalMintProofPath({ repositoryRoot: root });
   await resolveRepositoryPath(root, "proof/mainnet-mint.json");
-  const publication = await publishProof(outputPath, proof);
+  const publication = await publishProof(outputPath, proof, { repositoryRoot: root });
+  if (!exactKeys(publication, ["published", "outputPath", "warnings"])
+    || publication.published !== true || publication.outputPath !== outputPath
+    || !Array.isArray(publication.warnings)) fail("publication-receipt");
+  for (const warning of publication.warnings) {
+    if (!exactKeys(warning, ["code", "message", "temporaryPath"])
+      || warning.code !== "TEMP_UNLINK_FAILED"
+      || typeof warning.message !== "string"
+      || typeof warning.temporaryPath !== "string") fail("publication-receipt");
+  }
   return Object.freeze({ proof, publication });
 }
 
@@ -145,7 +159,7 @@ export async function main({ runVerifier = runMintVerifier, stdout = process.std
         stderr.write("WARNING: Proof was committed, but owned temporary cleanup failed. Do not retry publication.\n");
       }
     }
-    return result.proof.ok && (result.publication?.published ?? true) ? 0 : 1;
+    return result.proof.ok === true && result.publication?.published === true ? 0 : 1;
   } catch (error) {
     stderr.write(`${sanitizeCliError(error)}\n`);
     return 1;

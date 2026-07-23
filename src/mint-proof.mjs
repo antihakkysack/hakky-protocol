@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { TOKEN_PROGRAM_ID } from "@solana/spl-token";
 import { assertSchema } from "./schema-validation.mjs";
 import { deriveLaunchlabAuthorityPda } from "./raydium-launchlab.mjs";
+import { encodeBase58 } from "./solana-transaction.mjs";
+import { METAPLEX_METADATA_PROGRAM_ID } from "./metaplex-metadata.mjs";
 
 const SUPPLY = "1000000000000";
 const DECIMALS = 6;
@@ -39,6 +41,64 @@ function digest(bytes) {
   return createHash("sha256").update(Buffer.from(bytes)).digest("hex");
 }
 
+function validateCreatorAccounts(evidence, mint, creator) {
+  const accounts = evidence.creatorBalance?.accounts;
+  if (!Array.isArray(accounts)) fail("mint-creator-accounts");
+  let previous = null;
+  let total = 0n;
+  const seen = new Set();
+  for (const account of accounts) {
+    if (!account || typeof account !== "object" || Array.isArray(account)
+      || canonicalKey(account.address, "mint-creator-accounts") !== account.address
+      || account.mint !== mint || account.owner !== creator
+      || !/^(?:0|[1-9][0-9]*)$/u.test(account.amountBaseUnits)
+      || !["initialized", "frozen"].includes(account.state)
+      || !/^[0-9a-f]{64}$/u.test(account.accountSha256)
+      || seen.has(account.address) || (previous !== null && account.address <= previous)) {
+      fail("mint-creator-accounts");
+    }
+    seen.add(account.address);
+    previous = account.address;
+    total += BigInt(account.amountBaseUnits);
+  }
+  if (evidence.creatorBalance.owner !== creator
+    || evidence.creatorBalance.totalAmountBaseUnits !== total.toString()) fail("mint-creator-accounts");
+  return total;
+}
+
+function validateExecution(evidence) {
+  const creation = evidence.creation;
+  const execution = creation?.creationExecution;
+  const expectedKeys = [
+    "slot",
+    "outerInstructionIndex",
+    "innerInstructionIndex",
+    "stackHeight",
+    "programId",
+    "accountKeys",
+    "dataBase58",
+    "metadataPreBalance",
+    "metadataPostBalance",
+    "loadedAddresses",
+  ];
+  if (!execution || Object.keys(execution).join(",") !== expectedKeys.join(",")
+    || execution.slot !== evidence.observation.creationSlot
+    || execution.slot !== creation.slot
+    || execution.outerInstructionIndex !== creation.outerInstructionIndex
+    || execution.innerInstructionIndex !== creation.metadataInnerInstructionIndex
+    || execution.stackHeight !== 2
+    || execution.programId !== METAPLEX_METADATA_PROGRAM_ID
+    || JSON.stringify(execution.accountKeys) !== JSON.stringify(creation.metadataCpi.accountKeys)
+    || execution.dataBase58 !== encodeBase58(creation.metadataCpiBytes)
+    || execution.metadataPreBalance !== "0"
+    || !/^[1-9][0-9]*$/u.test(execution.metadataPostBalance)
+    || !execution.loadedAddresses
+    || Object.keys(execution.loadedAddresses).join(",") !== "writable,readonly"
+    || JSON.stringify(execution.loadedAddresses) !== JSON.stringify(creation.loadedAddresses)) {
+    fail("mint-execution-record");
+  }
+}
+
 export function evaluateMintEvidenceV2(evidence) {
   if (!evidence || typeof evidence !== "object" || Array.isArray(evidence)) fail("mint-evidence");
   const mint = canonicalKey(evidence.mintAddress, "mint-address");
@@ -49,6 +109,7 @@ export function evaluateMintEvidenceV2(evidence) {
   const manifest = evidence.metadataManifest;
   const onchain = evidence.metadataAccount;
   exactChronology(evidence);
+  const creatorTotal = validateCreatorAccounts(evidence, mint, creator);
   requireTrue(
     Buffer.isBuffer(creation?.wireBytes) || creation?.wireBytes instanceof Uint8Array,
     "mint-transaction-bytes",
@@ -57,10 +118,7 @@ export function evaluateMintEvidenceV2(evidence) {
     Buffer.isBuffer(creation?.metadataCpiBytes) || creation?.metadataCpiBytes instanceof Uint8Array,
     "mint-cpi-bytes",
   );
-  requireTrue(
-    creation?.creationExecution && typeof creation.creationExecution === "object",
-    "mint-execution-record",
-  );
+  validateExecution(evidence);
   requireTrue(
     evidence.observation.creationTransactionSha256 === digest(creation.wireBytes)
       && evidence.observation.metadataCreateCpiSha256 === digest(creation.metadataCpiBytes)
@@ -88,7 +146,8 @@ export function evaluateMintEvidenceV2(evidence) {
       "mint-atomic-metadata",
     ),
     metadataAccountCreated: requireTrue(
-      typeof creation?.observation?.creationExecutionSha256 === "string",
+      creation.creationExecution.metadataPreBalance === "0"
+        && BigInt(creation.creationExecution.metadataPostBalance) > 0n,
       "mint-metadata-created",
     ),
     classicTokenProgram: requireTrue(
@@ -101,7 +160,7 @@ export function evaluateMintEvidenceV2(evidence) {
     ),
     launchlabAuthority: requireTrue(evidence.mint?.mintAuthority === launchlabAuthority, "mint-authority"),
     nullFreezeAuthority: requireTrue(evidence.mint?.freezeAuthority === null, "mint-freeze-authority"),
-    zeroCreatorBalance: requireTrue(evidence.creatorBalance?.totalAmountBaseUnits === "0", "mint-creator-balance"),
+    zeroCreatorBalance: requireTrue(creatorTotal === 0n, "mint-creator-balance"),
     immutableMetadataPostState: requireTrue(
       onchain?.isMutable === false && onchain?.primarySaleHappened === false
         && onchain?.name === "Hakky Protocol" && onchain?.symbol === "HAKKY"
