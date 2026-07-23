@@ -97,10 +97,10 @@ test("rejects signed bytes, base64 drift, lookup drift, and extra input", () => 
   }
 });
 
-test("exact target is approvable only through the reviewed source-covered disposition", () => {
+test("exact target semantics are covered but remain non-approvable while PlatformConfig is mutable", () => {
   const fixture = decodedFixture();
   const evaluation = evaluate(fixture);
-  assert.equal(evaluation.ok, true);
+  assert.equal(evaluation.ok, false);
   assert.deepEqual(evaluation.observed, HAKKY_TARGET_RAW_VALUES);
   assert.equal(evaluation.coverage.ok, true);
   assert.equal(evaluation.coverage.code, "source-coverage-verified");
@@ -113,73 +113,18 @@ test("exact target is approvable only through the reviewed source-covered dispos
     launchId: fixture.identities.launchId,
   });
   assert.equal(evaluation.observed.protocolBuyFeeRateMillionths, "10000");
-  const envelope = buildApprovalEnvelope(evaluation);
-  assert.equal(envelope.schemaVersion, "launchlab-approval-envelope-v1");
-  assert.equal(envelope.transactionSha256, fixture.preview.transactionSha256);
-  assert.equal(envelope.creator, fixture.creator);
-  assert.equal(envelope.mint, fixture.identities.mint);
-  assert.equal(envelope.launchId, fixture.identities.launchId);
-  assert.equal(envelope.selectedWallet, fixture.creator);
-  assert.deepEqual(envelope.signers, fixture.preview.signers);
-  assert.deepEqual(envelope.programs, fixture.preview.programs);
-  assert.deepEqual(envelope.transfers, []);
-  const platformConfigState = fixture.state.accounts.find(
-    (account) => account.role === "platform-config",
+  assert.deepEqual(
+    evaluation.checks.find((check) => check.code === "platform-config-immutability-unavailable"),
+    {
+      code: "platform-config-immutability-unavailable",
+      ok: false,
+      reason: "platform-admin-can-update-graduation-economics",
+    },
   );
-  assert.deepEqual(envelope.platformConfig, {
-    address: fixture.identities.platformId,
-    accountSha256: platformConfigState.dataSha256,
-    finalizedSlot: fixture.state.contextSlot,
-  });
-  assert.deepEqual(envelope.walletReadiness, {
-    finalizedBalanceLamports: fixture.walletReadinessReceipt.finalizedBalanceLamports,
-    finalizedSlot: fixture.walletReadinessReceipt.finalizedSlot,
-  });
-  assert.deepEqual(envelope.cost, {
-    metadataUploadLamports: "0",
-    maximumCreationDebitLamports: "1000000000",
-    cumulativeCreatorDebitCapLamports: "1000000000",
-    simulatedCreationDebitLamports: "100000",
-    simulatedCumulativeCreatorDebitLamports: "100000",
-  });
-  assert.deepEqual(envelope.fees, {
-    protocolBuyFeeRateMillionths: "10000",
-    protocolSellFeeRateMillionths: "10000",
-    feeRateDenominator: "1000000",
-    creatorTradingFeeRateMillionths: "0",
-    creatorFeeRights: false,
-  });
-  assert.deepEqual(envelope.migration, {
-    type: "cpmm",
-    lpPolicy: "burn-and-earn",
-    platformLpBps: 0,
-    creatorLpBps: 0,
-    irreversibleLpBps: 10000,
-    platformFeeKey: false,
-    creatorFeeKey: false,
-    withdrawalRights: false,
-    feeRecipients: [],
-  });
-  assert.match(envelope.receipts.officialOrigin.sha256, /^[0-9a-f]{64}$/u);
-  assert.equal(envelope.receipts.officialOrigin.expiresAt, "2026-07-23T01:30:00.000Z");
-  assert.match(envelope.receipts.walletReadiness.sha256, /^[0-9a-f]{64}$/u);
-  assert.equal(envelope.receipts.walletReadiness.expiresAt, "2026-07-23T01:05:00.000Z");
-  assert.equal(
-    envelope.authorization,
-    `Authorize only serialized transaction SHA-256 ${fixture.preview.transactionSha256} with maximum creation debit 1000000000 lamports.`,
+  assert.throws(
+    () => buildApprovalEnvelope(evaluation),
+    /launch-preview-platform-config-immutability-unavailable/u,
   );
-  assert.equal(assertApprovalEnvelopeV1(structuredClone(envelope)).mint, fixture.identities.mint);
-  for (const mutate of [
-    (value) => { value.platformConfig.accountSha256 = "bad"; },
-    (value) => { value.migration.creatorLpBps = 1; },
-    (value) => { value.signers.reverse(); },
-    (value) => { value.authorization = "Authorize something else."; },
-  ]) {
-    const invalid = structuredClone(envelope);
-    mutate(invalid);
-    assert.throws(() => assertApprovalEnvelopeV1(invalid), /approval-envelope-/u);
-  }
-  assert.equal(Object.isFrozen(envelope), true);
 });
 
 test("every economic target mutation is non-approvable and coverage cannot be injected", () => {
@@ -241,7 +186,7 @@ test("metadata, receipt, selected-wallet, simulation, and debit drift all fail c
   assert.equal(evaluate(mutableFixture).ok, false);
 });
 
-test("the operator CLI writes the covered preview and deterministic envelope only after all checks pass", async () => {
+test("the operator CLI writes no preview or envelope while PlatformConfig is mutable", async () => {
   const fixture = createLaunchlabPreviewFixture();
   const repositoryRoot = await mkdtemp(path.join(os.tmpdir(), "hakky-preview-cli-"));
   try {
@@ -293,32 +238,28 @@ test("the operator CLI writes the covered preview and deterministic envelope onl
       },
     };
     const writes = [];
-    const result = await runPreviewVerifier({
-      argv: [
-        "--transaction", MAINNET_SESSION_PATHS.unsignedTransaction,
-        "--creator", fixture.creator,
-        "--metadata-manifest", "artifacts/metadata/manifest.json",
-        "--metadata-readback", "artifacts/metadata/readback.json",
-        "--official-origin", MAINNET_SESSION_PATHS.officialOrigin,
-        "--wallet-readiness", MAINNET_SESSION_PATHS.walletReadiness,
-        "--out", MAINNET_SESSION_PATHS.preview,
-      ],
-      repositoryRoot,
-      createRpcClient: () => client,
-      now: () => new Date("2026-07-23T01:02:00.000Z"),
-      writeImpl: async (input) => {
-        writes.push(input);
-        return { outputPath: input.relativePath, warning: null };
-      },
-    });
-    assert.equal(result.evaluation.ok, true);
-    assert.equal(result.envelope.transactionSha256, result.evaluation.transactionSha256);
-    assert.deepEqual(
-      writes.map((entry) => entry.relativePath),
-      [MAINNET_SESSION_PATHS.preview, MAINNET_SESSION_PATHS.approvalEnvelope],
+    await assert.rejects(
+      runPreviewVerifier({
+        argv: [
+          "--transaction", MAINNET_SESSION_PATHS.unsignedTransaction,
+          "--creator", fixture.creator,
+          "--metadata-manifest", "artifacts/metadata/manifest.json",
+          "--metadata-readback", "artifacts/metadata/readback.json",
+          "--official-origin", MAINNET_SESSION_PATHS.officialOrigin,
+          "--wallet-readiness", MAINNET_SESSION_PATHS.walletReadiness,
+          "--out", MAINNET_SESSION_PATHS.preview,
+        ],
+        repositoryRoot,
+        createRpcClient: () => client,
+        now: () => new Date("2026-07-23T01:02:00.000Z"),
+        writeImpl: async (input) => {
+          writes.push(input);
+          return { outputPath: input.relativePath, warning: null };
+        },
+      }),
+      /launch-preview-platform-config-immutability-unavailable/u,
     );
-    assert.equal(writes[0].value, result.evaluation);
-    assert.equal(writes[1].value, result.envelope);
+    assert.deepEqual(writes, []);
     assert.throws(() => parsePreviewOptions([
       "--transaction", MAINNET_SESSION_PATHS.unsignedTransaction,
       "--creator", fixture.creator,

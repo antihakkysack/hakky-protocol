@@ -2,12 +2,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PublicKey } from "@solana/web3.js";
 import {
-  runLaunchlabVerifier,
-} from "../src/launchlab-proof.mjs";
-import {
-  publishJsonProof,
-  resolveCanonicalLaunchlabProofPath,
-} from "../src/proof-output.mjs";
+  HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE,
+} from "../src/raydium-launchlab.mjs";
 import {
   DEFAULT_PUBLIC_MAINNET_RPC,
   parsePublicRpcUrl,
@@ -27,7 +23,6 @@ const REPEATED = "--recovery-transaction";
 const OPTIONAL_ONCE = "--rpc";
 const MANIFEST_PATH = "artifacts/metadata/manifest.json";
 const READBACK_PATH = "artifacts/metadata/readback.json";
-const WORKTREE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 function fail(code) {
   throw new Error(code);
@@ -99,18 +94,9 @@ export function readOptions(argv) {
 
 export async function runFromCli({
   argv = process.argv.slice(2),
-  repositoryRoot = WORKTREE_ROOT,
-  publishProofImpl = publishJsonProof,
-  runVerifier = runLaunchlabVerifier,
 } = {}) {
-  const options = readOptions(argv);
-  const root = path.resolve(repositoryRoot);
-  const outputPath = resolveCanonicalLaunchlabProofPath({ repositoryRoot: root });
-  return runVerifier({
-    argv,
-    options,
-    publishProof: (proof) => publishProofImpl(outputPath, proof, { repositoryRoot: root }),
-  });
+  readOptions(argv);
+  return HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE;
 }
 
 export async function main({
@@ -120,6 +106,12 @@ export async function main({
 } = {}) {
   try {
     const result = await runVerifier();
+    if (result?.ok === false
+      && result?.code === HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE.code
+      && result?.reason === HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE.reason) {
+      stderr.write(`${result.code}\n`);
+      return 1;
+    }
     if (result?.proof?.ok === true && result?.publication?.published === true) {
       stdout.write(`${JSON.stringify(result.proof, null, 2)}\n`);
       for (const warning of result.publication.warnings ?? []) {

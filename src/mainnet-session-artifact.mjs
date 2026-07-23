@@ -25,7 +25,11 @@ function fail(code) {
   throw new Error(`mainnet-session-${code}`);
 }
 
-function assertPublicJson(value, seen = new Set()) {
+function assertPublicJson(
+  value,
+  seen = new Set(),
+  { allowRootAuthorization = false, depth = 0 } = {},
+) {
   if (value === null || typeof value === "string" || typeof value === "boolean") return;
   if (typeof value === "number") {
     if (!Number.isSafeInteger(value)) fail("unsafe-number");
@@ -34,18 +38,38 @@ function assertPublicJson(value, seen = new Set()) {
   if (!value || typeof value !== "object" || seen.has(value)) fail("json-value");
   seen.add(value);
   if (Array.isArray(value)) {
-    for (const child of value) assertPublicJson(child, seen);
+    for (const child of value) {
+      assertPublicJson(child, seen, {
+        allowRootAuthorization,
+        depth: depth + 1,
+      });
+    }
   } else {
     for (const [key, child] of Object.entries(value)) {
-      if (FORBIDDEN_KEY.test(key)) fail("private-field");
-      assertPublicJson(child, seen);
+      const approvedPublicSentence = allowRootAuthorization
+        && depth === 0
+        && key === "authorization"
+        && typeof child === "string"
+        && /^Authorize only serialized transaction SHA-256 [0-9a-f]{64} with maximum creation debit 1000000000 lamports\.$/u.test(child);
+      if (FORBIDDEN_KEY.test(key) && !approvedPublicSentence) {
+        fail("private-field");
+      }
+      assertPublicJson(child, seen, {
+        allowRootAuthorization,
+        depth: depth + 1,
+      });
     }
   }
   seen.delete(value);
 }
 
-export function serializeMainnetSessionJson(value) {
-  assertPublicJson(value);
+export function serializeMainnetSessionJson(value, {
+  relativePath = null,
+} = {}) {
+  assertPublicJson(value, new Set(), {
+    allowRootAuthorization:
+      relativePath === MAINNET_SESSION_PATHS.approvalEnvelope,
+  });
   return Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
@@ -71,7 +95,9 @@ export async function readMainnetSessionJson({
   } catch {
     fail("json");
   }
-  if (!source.equals(serializeMainnetSessionJson(value))) fail("canonical-json");
+  if (!source.equals(serializeMainnetSessionJson(value, { relativePath }))) {
+    fail("canonical-json");
+  }
   return Object.freeze({ value, outputPath });
 }
 
@@ -90,7 +116,10 @@ export async function writeMainnetSessionJson({
   if (path.dirname(outputPath) !== await resolveRepositoryPath(root, path.posix.dirname(relativePath))) {
     fail("path-drift");
   }
-  const result = await writeImpl(outputPath, serializeMainnetSessionJson(value));
+  const result = await writeImpl(
+    outputPath,
+    serializeMainnetSessionJson(value, { relativePath }),
+  );
   if (result?.committed !== true) fail("write");
   return Object.freeze({ outputPath, warning: result.warning ?? null });
 }

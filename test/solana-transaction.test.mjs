@@ -120,6 +120,14 @@ test("resolves and verifies the fully signed legacy launch transaction", () => {
     String(response.meta.preBalances[0] - response.meta.postBalances[0]),
   );
   assert.equal(result.feeLamports, String(response.meta.fee));
+  const unsigned = VersionedTransaction.deserialize(
+    Buffer.from(response.transaction[0], "base64"),
+  );
+  unsigned.signatures = unsigned.signatures.map(() => new Uint8Array(64));
+  assert.equal(
+    result.unsignedTransactionSha256,
+    sha256Hex(Buffer.from(unsigned.serialize())),
+  );
 });
 
 test("resolves signed v0 lookup addresses in exact message and RPC order", () => {

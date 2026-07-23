@@ -64,7 +64,7 @@ function platformConfig({ creation }) {
     ...(creation
       ? { creationAccountSha256: HASHES.platformCreation }
       : { verificationAccountSha256: HASHES.platformVerification }),
-    updateAuthorities: [IDS.platformConfig, IDS.creator].sort(),
+    updateAuthorities: [IDS.creator],
     mutableFields: [...MUTABLE_FIELDS],
     mutabilityClassification: "platform-mutable-per-launch-snapshot-verified",
     platformScaleRaw: "0",
@@ -73,7 +73,7 @@ function platformConfig({ creation }) {
     feeRateMillionths: "10000",
     creatorFeeRateMillionths: "0",
     platformVestingScaleRaw: "0",
-    immutableBinding: "verified-per-launch-snapshot",
+    immutableBinding: "platform-admin-mutable-until-graduation",
   };
 }
 
@@ -115,7 +115,7 @@ function fees() {
     creatorTradingFeeRateMillionths: "0",
     creatorFeeKey: null,
     creatorFeeRights: false,
-    snapshotImmutable: true,
+    snapshotImmutable: false,
   };
 }
 
@@ -148,11 +148,11 @@ function metadata() {
 
 function cost() {
   return {
-    metadataUploadLamports: "1000",
+    metadataUploadLamports: "0",
     creationDebitLamports: "2000",
     recoveryDebitLamports: "0",
     graduationDebitLamports: "0",
-    cumulativeCreatorDebitLamports: "3000",
+    cumulativeCreatorDebitLamports: "2000",
     capLamports: "1000000000",
     withinCap: true,
   };

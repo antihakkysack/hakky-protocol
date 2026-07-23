@@ -15,6 +15,7 @@ import {
   METAPLEX_METADATA_PROGRAM_ID,
 } from "./metaplex-metadata.mjs";
 import {
+  HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE,
   HAKKY_SOURCE_COVERAGE_VERIFIED,
   RAYDIUM_LAUNCHLAB_PROGRAM_ID,
   decodeLaunchlabCreationTransaction,
@@ -593,6 +594,12 @@ export function evaluateLaunchPreview(input) {
   } else {
     addCheck(checks, coverage.code, false, coverage.reason);
   }
+  addCheck(
+    checks,
+    HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE.code,
+    false,
+    HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE.reason,
+  );
   return recursivelyFreeze({
     schemaVersion: "launchlab-preview-evaluation-v1",
     transactionSha256: input.preview.transactionSha256,
@@ -624,6 +631,12 @@ export function evaluateLaunchPreview(input) {
         address: state.platform.address,
         accountSha256: state.platform.accountSha256,
         finalizedSlot: input.state.contextSlot,
+        platformScaleRaw: state.platform.platformScale.toString(),
+        creatorScaleRaw: state.platform.creatorScale.toString(),
+        burnScaleRaw: state.platform.burnScale.toString(),
+        feeRateMillionths: state.platform.feeRate.toString(),
+        creatorFeeRateMillionths: state.platform.creatorFeeRate.toString(),
+        platformVestingScaleRaw: state.platform.platformVestingScale.toString(),
       } : null,
       receipts: {
         officialOrigin: originOk
@@ -700,7 +713,11 @@ export function assertApprovalEnvelopeV1(value) {
 
   approvalEnvelopeKeys(
     value.platformConfig,
-    ["address", "accountSha256", "finalizedSlot"],
+    [
+      "address", "accountSha256", "finalizedSlot", "platformScaleRaw",
+      "creatorScaleRaw", "burnScaleRaw", "feeRateMillionths",
+      "creatorFeeRateMillionths", "platformVestingScaleRaw",
+    ],
     "platform-config",
   );
   try {
@@ -710,7 +727,13 @@ export function assertApprovalEnvelopeV1(value) {
   }
   if (!/^[0-9a-f]{64}$/u.test(value.platformConfig.accountSha256)
     || !Number.isSafeInteger(value.platformConfig.finalizedSlot)
-    || value.platformConfig.finalizedSlot < value.walletReadiness.finalizedSlot) {
+    || value.platformConfig.finalizedSlot < value.walletReadiness.finalizedSlot
+    || value.platformConfig.platformScaleRaw !== "0"
+    || value.platformConfig.creatorScaleRaw !== "0"
+    || value.platformConfig.burnScaleRaw !== "1000000"
+    || value.platformConfig.feeRateMillionths !== "10000"
+    || value.platformConfig.creatorFeeRateMillionths !== "0"
+    || value.platformConfig.platformVestingScaleRaw !== "0") {
     approvalEnvelopeFail("platform-config");
   }
 
@@ -779,8 +802,10 @@ export function assertApprovalEnvelopeV1(value) {
 
 export function buildApprovalEnvelope(evaluation) {
   if (!evaluation || evaluation.ok !== true) {
-    const coverageCode = evaluation?.coverage?.code ?? "evaluation-not-approved";
-    fail(coverageCode);
+    const failedCode = evaluation?.checks?.find((entry) => entry?.ok !== true)?.code
+      ?? evaluation?.coverage?.code
+      ?? "evaluation-not-approved";
+    fail(failedCode);
   }
   exactKeys(evaluation, [
     "schemaVersion", "transactionSha256", "creator", "identities", "observed", "diagnostic",
@@ -846,13 +871,23 @@ export function buildApprovalEnvelope(evaluation) {
     fail("approval-wallet");
   }
   exactKeys(platformConfig, [
-    "address", "accountSha256", "finalizedSlot",
+    "address", "accountSha256", "finalizedSlot", "platformScaleRaw",
+    "creatorScaleRaw", "burnScaleRaw", "feeRateMillionths",
+    "creatorFeeRateMillionths", "platformVestingScaleRaw",
   ], "approval-platform-config");
   if (canonicalKey(platformConfig.address, "approval-platform-config")
       !== platformConfig.address
     || !/^[0-9a-f]{64}$/u.test(platformConfig.accountSha256)
     || !Number.isSafeInteger(platformConfig.finalizedSlot)
-    || platformConfig.finalizedSlot < walletReadiness.finalizedSlot) {
+    || platformConfig.finalizedSlot < walletReadiness.finalizedSlot
+    || platformConfig.platformScaleRaw !== evaluation.observed.platformScaleRaw
+    || platformConfig.creatorScaleRaw !== evaluation.observed.creatorScaleRaw
+    || platformConfig.burnScaleRaw !== evaluation.observed.burnScaleRaw
+    || platformConfig.feeRateMillionths
+      !== evaluation.observed.protocolBuyFeeRateMillionths
+    || platformConfig.creatorFeeRateMillionths
+      !== evaluation.observed.creatorFeeRateMillionths
+    || platformConfig.platformVestingScaleRaw !== "0") {
     fail("approval-platform-config");
   }
   exactKeys(receipts, ["officialOrigin", "walletReadiness"], "approval-receipts");

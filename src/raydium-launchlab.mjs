@@ -60,6 +60,12 @@ export const HAKKY_SOURCE_COVERAGE_UNAVAILABLE = deepFreeze({
   reason: "cpmm-burn-scale-lp-rights-unmapped",
 });
 
+export const HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE = deepFreeze({
+  ok: false,
+  code: "platform-config-immutability-unavailable",
+  reason: "platform-admin-can-update-graduation-economics",
+});
+
 const PROGRAMS = Object.freeze({
   launchlab: RAYDIUM_LAUNCHLAB_PROGRAM_ID,
   authority: "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",
@@ -126,6 +132,22 @@ const UPDATE_VARIANTS = Object.freeze([
   "vesting-wallet",
   "platform-vesting-scale",
   "platform-cp-creator",
+]);
+
+export const RAYDIUM_PLATFORM_CONFIG_MUTABLE_FIELDS = Object.freeze([
+  "cpSwapConfig",
+  "creatorFeeRate",
+  "feeRate",
+  "feeWallet",
+  "image",
+  "migrateNftInfo",
+  "name",
+  "nftWallet",
+  "platformCpCreator",
+  "platformVestingScale",
+  "transferFeeExtensionAuth",
+  "vestingWallet",
+  "web",
 ]);
 
 const LAUNCH_STATUS = Object.freeze(["fund", "migrate", "trade"]);
@@ -526,6 +548,18 @@ function parseUpdateVariant(data) {
   }
   cursor.done();
   return { variantIndex, mutableVariant };
+}
+
+export function classifyPlatformConfigAuthorityInstruction(instructionBytes) {
+  const data = asBytes(instructionBytes, "instructionBytes");
+  requireRange(data, 0, 8, "platform authority instruction");
+  if (data.subarray(0, 8).equals(DISCRIMINATORS.createPlatformConfig)) {
+    return "create-platform-config";
+  }
+  if (data.subarray(0, 8).equals(DISCRIMINATORS.updatePlatformConfig)) {
+    return "update-platform-config";
+  }
+  return null;
 }
 
 export function decodePlatformConfigAuthorityInstruction(input) {

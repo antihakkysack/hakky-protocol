@@ -144,9 +144,19 @@ commit `10dd5f7d9f23f0be7daabd571fc9e7c65ce269dc`, path
 For the sole reviewed tuple (`cpmm`, platform `0`, creator `0`, burn
 `1000000`), those semantics bind 0/0/10000 basis points to Burn & Earn,
 no creator or platform Fee Key, no withdrawal right, and no fee recipient.
-Only an otherwise fully passing preview may therefore write `preview.json`
-and its deterministic `approval-envelope.json`; a different tuple, extra
-coverage input, or operator override still stops before signing.
+That source closes the semantic question only. The same pinned source confirms
+that the platform administrator can update the live migration scales, fee
+rates, wallets, and CPMM creator before migration, while the launch account
+stores only the PlatformConfig address. Stock LaunchLab exposes no on-chain
+freeze or authority-revocation operation for that account.
+
+The current preview therefore always includes the failed
+`platform-config-immutability-unavailable` check after validating the exact
+tuple. It writes neither `preview.json` nor `approval-envelope.json`. The
+LaunchLab proof CLI likewise returns that public control before RPC, artifact
+reads, or publication. Do not connect a wallet or sign a creation transaction
+unless a separately reviewed launch mechanism can prove these economics
+unchangeable on-chain.
 
 ## Public session and recovery evidence
 

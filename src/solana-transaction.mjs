@@ -270,7 +270,6 @@ export function resolveFinalizedTransactionInstructions({
   decodeBase58(requestedSignature, { length: 64, code: "transaction-requested-signature" });
   const messageBytes = Buffer.from(message.serialize());
   verifyRequiredSignatures(transaction, messageBytes, requestedSignature);
-
   const staticKeys = message.staticAccountKeys;
   let accountKeysFromLookups;
   if (resolvedVersion === 0) {
@@ -355,6 +354,11 @@ export function resolveCreationTransaction({
   decodeBase58(requestedSignature, { length: 64, code: "transaction-requested-signature" });
   const messageBytes = Buffer.from(message.serialize());
   verifyRequiredSignatures(transaction, messageBytes, requestedSignature);
+  const unsignedTransaction = VersionedTransaction.deserialize(wireBytes);
+  unsignedTransaction.signatures = unsignedTransaction.signatures.map(
+    () => new Uint8Array(64),
+  );
+  const unsignedTransactionSha256 = sha256Hex(unsignedTransaction.serialize());
 
   const staticKeys = message.staticAccountKeys;
   let accountKeysFromLookups;
@@ -474,6 +478,7 @@ export function resolveCreationTransaction({
     feePayer: allKeys[0],
     feePayerDebitLamports: String(feePayerDebitLamports),
     feeLamports: String(meta.fee),
+    unsignedTransactionSha256,
     wireBytes,
     messageBytes,
     accountKeys: Object.freeze(allKeys),

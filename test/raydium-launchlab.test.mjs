@@ -3,12 +3,15 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE,
   HAKKY_SOURCE_COVERAGE_VERIFIED,
   RAYDIUM_IDL_SOURCE_PROVEN\u0041NCE,
   RAYDIUM_LAUNCHLAB_PROGRAM_ID,
+  RAYDIUM_PLATFORM_CONFIG_MUTABLE_FIELDS,
   RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
   RAYDIUM_SOURCE_PROVEN\u0041NCE,
   SPL_TOKEN_SOURCE_PROVEN\u0041NCE,
+  classifyPlatformConfigAuthorityInstruction,
   decodeGraduationAccounts,
   decodeLaunchlabAccounts,
   decodeLaunchlabCreationTransaction,
@@ -307,6 +310,26 @@ test("graduation decoder rejects short/trailing data and every fixed-program dri
 test("platform create decoder enforces exact SDK message privileges and hashes only params", async () => {
   const source = await fixture("platform-config-instructions.json");
   const create = source.create;
+  assert.equal(
+    classifyPlatformConfigAuthorityInstruction(bytes(create.instructionBase64)),
+    "create-platform-config",
+  );
+  assert.deepEqual(RAYDIUM_PLATFORM_CONFIG_MUTABLE_FIELDS, [
+    "cpSwapConfig",
+    "creatorFeeRate",
+    "feeRate",
+    "feeWallet",
+    "image",
+    "migrateNftInfo",
+    "name",
+    "nftWallet",
+    "platformCpCreator",
+    "platformVestingScale",
+    "transferFeeExtensionAuth",
+    "vestingWallet",
+    "web",
+  ]);
+  assert.equal(Object.isFrozen(RAYDIUM_PLATFORM_CONFIG_MUTABLE_FIELDS), true);
   const result = decodePlatformConfigAuthorityInstruction({
     instructionBytes: bytes(create.instructionBase64),
     accountMetas: create.accountMetas,
@@ -330,6 +353,10 @@ test("platform update decoder covers indices 0..11 and only the documented fee-p
   const source = await fixture("platform-config-instructions.json");
   assert.deepEqual(source.updates.map((value) => value.index), [...Array(12).keys()]);
   for (const update of source.updates) {
+    assert.equal(
+      classifyPlatformConfigAuthorityInstruction(bytes(update.instructionBase64)),
+      "update-platform-config",
+    );
     const result = decodePlatformConfigAuthorityInstruction({
       instructionBytes: bytes(update.instructionBase64),
       accountMetas: update.accountMetas,
@@ -338,6 +365,12 @@ test("platform update decoder covers indices 0..11 and only the documented fee-p
     assert.deepEqual(result, update.expected);
     assertRecursivelyFrozen(result);
   }
+
+  assert.equal(classifyPlatformConfigAuthorityInstruction(Buffer.alloc(8)), null);
+  assert.throws(
+    () => classifyPlatformConfigAuthorityInstruction(Buffer.alloc(7)),
+    /short|length/i,
+  );
 
   const promoted = source.updates[3];
   assert.equal(promoted.accountMetas[0].isWritable, true);
@@ -505,6 +538,12 @@ test("the approved Raydium docs pin covers only the exact HAKKY CPMM disposition
     proven\u0041nce: RAYDIUM_PLATFORM_CONFIG_SOURCE_PROVEN\u0041NCE,
   });
   assertRecursivelyFrozen(HAKKY_SOURCE_COVERAGE_VERIFIED);
+  assert.deepEqual(HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE, {
+    ok: false,
+    code: "platform-config-immutability-unavailable",
+    reason: "platform-admin-can-update-graduation-economics",
+  });
+  assertRecursivelyFrozen(HAKKY_PLATFORM_CONFIG_IMMUTABILITY_UNAVAILABLE);
   const result = evaluateHakkyLaunchlabSourceCoverage({
     migrationType: "cpmm",
     platformScaleRaw: 0n,
