@@ -27,6 +27,21 @@ export const RELEASE_SCHEMA_VERSION = "hakky-release-config-v1";
 export const RELEASE_NETWORK = "devnet";
 const PUBLICATION_SCHEMA_VERSION = "hakky-release-publication-v1";
 const PUBLICATION_JOURNAL_NAME = ".hakky-release-publication-v1.json";
+const PUBLICATION_FAULT_PHASES = new Set([
+  "journal-linked",
+  "journal-pending-cleaned",
+  "backup-linked",
+  "promote-linked",
+  "destination-renamed",
+  "promote-cleaned",
+  "restore-linked",
+  "destination-restored",
+  "restore-cleaned",
+  "private-published",
+  "candidate-cleaned",
+  "backup-cleaned",
+  "journal-cleaned",
+]);
 export const FIXED_RELEASE_IDENTITIES = Object.freeze({
   systemProgram: "11111111111111111111111111111111",
   loaderProgram: "BPFLoaderUpgradeab1e11111111111111111111111",
@@ -1535,6 +1550,58 @@ export async function restrictPrivateFile(filePath) {
   }
 }
 
+async function validateWindowsPrivateAcl(candidate) {
+  if (process.platform !== "win32") {
+    return;
+  }
+  const encodedPath = Buffer.from(candidate, "utf8").toString("base64");
+  const script = `
+$privatePath = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('${encodedPath}')
+)
+$currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$expected = @(
+  $currentSid.Value,
+  'S-1-5-18',
+  'S-1-5-32-544'
+) | Sort-Object
+$acl = Get-Acl -LiteralPath $privatePath
+$owner = $acl.GetOwner(
+  [System.Security.Principal.SecurityIdentifier]
+).Value
+$actual = @($acl.Access | ForEach-Object {
+  $_.IdentityReference.Translate(
+    [System.Security.Principal.SecurityIdentifier]
+  ).Value
+} | Sort-Object)
+if (
+  $owner -ne $currentSid.Value -or
+  -not $acl.AreAccessRulesProtected -or
+  $actual.Count -ne $expected.Count -or
+  (Compare-Object -ReferenceObject $expected -DifferenceObject $actual)
+) {
+  throw 'private ACL identity validation failed'
+}
+foreach ($rule in $acl.Access) {
+  if (
+    $rule.AccessControlType -ne
+      [System.Security.AccessControl.AccessControlType]::Allow -or
+    $rule.IsInherited -or
+    ($rule.FileSystemRights -band
+      [System.Security.AccessControl.FileSystemRights]::FullControl) -ne
+      [System.Security.AccessControl.FileSystemRights]::FullControl
+  ) {
+    throw 'private ACL rule validation failed'
+  }
+}
+`;
+  await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { windowsHide: true },
+  );
+}
+
 export function instanceCommitment(instanceNonce) {
   if (!(instanceNonce instanceof Uint8Array) || instanceNonce.length !== 32) {
     throw new TypeError("instance nonce must be exactly 32 bytes");
@@ -1832,6 +1899,77 @@ async function validatePrivateFile(candidate, stagingReal, openedEntry) {
   }
 }
 
+async function validatePrivateIdentitySet(
+  directory,
+  directoryReal,
+  publicConfig,
+  beforeRead,
+) {
+  await beforeRead();
+  await validateWindowsPrivateAcl(directory);
+  const expectedNames = [
+    "initializer-keypair.json",
+    "instance-nonce.hex",
+    "program-keypair.json",
+  ];
+  const names = (await readdir(directory)).sort();
+  await beforeRead();
+  if (
+    names.length !== expectedNames.length ||
+    names.some((name, index) => name !== expectedNames[index])
+  ) {
+    throw new Error("private commit is not the exact identity set");
+  }
+  const contents = {};
+  for (const fileName of expectedNames) {
+    const candidate = path.join(directory, fileName);
+    const opened = await readBoundRegularFile(candidate, beforeRead);
+    await validatePrivateFile(candidate, directoryReal, opened.entry);
+    await validateWindowsPrivateAcl(candidate);
+    const rechecked = await readBoundRegularFile(candidate, beforeRead);
+    if (
+      rechecked.digest !== opened.digest ||
+      !sameFileIdentity(rechecked.entry, opened.identity)
+    ) {
+      throw new Error("private identity file changed during validation");
+    }
+    contents[fileName] = opened.contents;
+  }
+  try {
+    const parseKeypair = (serialized) => {
+      const parsed = JSON.parse(serialized);
+      if (
+        !Array.isArray(parsed) ||
+        parsed.length !== 64 ||
+        parsed.some(
+          (value) =>
+            !Number.isInteger(value) || value < 0 || value > 255,
+        )
+      ) {
+        throw new Error("invalid secret serialization");
+      }
+      return Keypair.fromSecretKey(Uint8Array.from(parsed));
+    };
+    const program = parseKeypair(contents["program-keypair.json"]);
+    const initializer = parseKeypair(contents["initializer-keypair.json"]);
+    const nonceText = contents["instance-nonce.hex"];
+    if (!/^[0-9a-f]{64}\n$/u.test(nonceText)) {
+      throw new Error("invalid nonce serialization");
+    }
+    const nonce = Buffer.from(nonceText.slice(0, -1), "hex");
+    if (
+      program.publicKey.toBase58() !== publicConfig.programId ||
+      initializer.publicKey.toBase58() !== publicConfig.initializer ||
+      instanceCommitment(nonce).toString("hex") !==
+        publicConfig.instanceCommitment
+    ) {
+      throw new Error("identity mismatch");
+    }
+  } catch {
+    throw new Error("private commit cryptographic correspondence failed");
+  }
+}
+
 async function writeExclusivePrivateFile(
   candidate,
   contents,
@@ -1940,6 +2078,78 @@ async function writeOwnedTemporaryFile(
   throw new Error("unable to allocate a public temporary path");
 }
 
+async function writeExclusiveOwnedFile(candidate, contents, beforeMutation) {
+  await beforeMutation();
+  const handle = await open(
+    candidate,
+    fsConstants.O_WRONLY |
+      fsConstants.O_CREAT |
+      fsConstants.O_EXCL |
+      (fsConstants.O_NOFOLLOW ?? 0),
+    0o600,
+  );
+  const created = await handle.stat({ bigint: true });
+  let failure;
+  try {
+    await beforeMutation();
+    await handle.writeFile(contents, "utf8");
+    await handle.sync();
+    const named = await lstat(candidate, { bigint: true });
+    const opened = await handle.stat({ bigint: true });
+    if (
+      !named.isFile() ||
+      named.isSymbolicLink() ||
+      opened.dev !== created.dev ||
+      opened.ino !== created.ino ||
+      named.dev !== opened.dev ||
+      named.ino !== opened.ino
+    ) {
+      throw new Error("exclusive owned file identity changed");
+    }
+  } catch (error) {
+    failure = error;
+  } finally {
+    try {
+      await handle.close();
+    } catch (closeError) {
+      failure = failure
+        ? new AggregateError(
+            [failure, closeError],
+            "exclusive owned file write and close failed",
+          )
+        : closeError;
+    }
+  }
+  if (failure) {
+    try {
+      await beforeMutation();
+      const named = await lstat(candidate, { bigint: true });
+      if (
+        named.dev !== created.dev ||
+        named.ino !== created.ino ||
+        !named.isFile() ||
+        named.isSymbolicLink()
+      ) {
+        throw new Error("exclusive owned file cleanup ownership changed");
+      }
+      await beforeMutation();
+      await unlink(candidate);
+    } catch (cleanupError) {
+      if (cleanupError?.code !== "ENOENT") {
+        throw new AggregateError(
+          [failure, cleanupError],
+          "exclusive owned file write and cleanup failed",
+        );
+      }
+    }
+    throw failure;
+  }
+  return Object.freeze({
+    digest: fileDigest(contents),
+    identity: fileIdentity(created),
+  });
+}
+
 function isOwnedTemporaryPath(temporaryPath, finalPath) {
   return (
     typeof temporaryPath === "string" &&
@@ -1951,6 +2161,20 @@ function isOwnedTemporaryPath(temporaryPath, finalPath) {
       "u",
     ).test(path.basename(temporaryPath))
   );
+}
+
+async function allocateOwnedTemporaryPath(finalPath, beforeRead) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const temporaryPath = path.join(
+      path.dirname(finalPath),
+      `.${path.basename(finalPath)}.${randomBytes(12).toString("hex")}.tmp`,
+    );
+    await beforeRead();
+    if (!(await lstatIfExists(temporaryPath))) {
+      return temporaryPath;
+    }
+  }
+  throw new Error("unable to allocate a public temporary path");
 }
 
 async function validateOwnedTemporaryFile(
@@ -2016,194 +2240,245 @@ async function readRegularFile(candidate, beforeRead) {
   }
 }
 
-async function createPublicBackupIfPresent(finalPath, beforeMutation) {
-  let existing;
+function fileDigest(contents) {
+  return createHash("sha256").update(contents, "utf8").digest("hex");
+}
+
+function fileIdentity(entry) {
+  return Object.freeze({
+    dev: entry.dev.toString(),
+    ino: entry.ino.toString(),
+  });
+}
+
+function sameFileIdentity(entry, identity) {
+  return (
+    identity &&
+    entry.dev.toString() === identity.dev &&
+    entry.ino.toString() === identity.ino
+  );
+}
+
+async function readBoundRegularFile(candidate, beforeRead) {
+  const result = await readRegularFile(candidate, beforeRead);
+  return {
+    ...result,
+    digest: fileDigest(result.contents),
+    identity: fileIdentity(result.entry),
+  };
+}
+
+async function lstatBoundIfExists(candidate, beforeRead) {
   try {
-    existing = await readRegularFile(finalPath, beforeMutation);
+    return await readBoundRegularFile(candidate, beforeRead);
   } catch (error) {
     if (error?.code === "ENOENT") {
       return null;
     }
     throw error;
   }
-  return writeOwnedTemporaryFile(
-    finalPath,
-    existing.contents,
-    beforeMutation,
-  );
 }
 
-async function publishOwnedTemporaryLinkNoReplace(
-  temporaryPath,
-  finalPath,
-  expectedContents,
+async function assertBoundFile(candidate, record, beforeRead, label) {
+  const current = await readBoundRegularFile(candidate, beforeRead);
+  if (
+    !sameFileIdentity(current.entry, record.identity) ||
+    current.digest !== record.digest
+  ) {
+    throw new Error(`${label} identity or digest changed`);
+  }
+  return current;
+}
+
+async function cleanupBoundSidecar(
+  sidecarPath,
+  sourceRecord,
   beforeMutation,
 ) {
-  const sourceEntry = await validateOwnedTemporaryFile(
-    temporaryPath,
-    finalPath,
-    expectedContents,
-    beforeMutation,
-  );
-  await beforeMutation();
-  await link(temporaryPath, finalPath);
-  try {
-    await beforeMutation();
-    const finalEntry = await lstat(finalPath, { bigint: true });
-    if (
-      !finalEntry.isFile() ||
-      finalEntry.isSymbolicLink() ||
-      finalEntry.dev !== sourceEntry.dev ||
-      finalEntry.ino !== sourceEntry.ino
-    ) {
-      throw new Error("published public view is not the owned temporary file");
-    }
-  } catch (error) {
-    try {
-      const finalEntry = await lstat(finalPath, { bigint: true });
-      if (
-        finalEntry.dev === sourceEntry.dev &&
-        finalEntry.ino === sourceEntry.ino
-      ) {
-        await beforeMutation();
-        await unlink(finalPath);
-      }
-    } catch (cleanupError) {
-      if (cleanupError?.code !== "ENOENT") {
-        throw new AggregateError(
-          [error, cleanupError],
-          "public link publication and rollback failed",
-        );
-      }
-    }
-    throw error;
+  if (!sidecarPath) {
+    return;
   }
+  if (!sourceRecord) {
+    throw new Error("publication sidecar ownership is unavailable");
+  }
+  const sidecar = await lstatBoundIfExists(sidecarPath, beforeMutation);
+  if (!sidecar) {
+    return;
+  }
+  if (
+    !sameFileIdentity(sidecar.entry, sourceRecord.identity) ||
+    sidecar.digest !== sourceRecord.digest
+  ) {
+    throw new Error("publication sidecar ownership changed");
+  }
+  await beforeMutation();
+  await unlink(sidecarPath);
 }
 
-async function publishPublicViewWithBackup(view, beforeMutation) {
-  if (!view.backupPath) {
-    await publishOwnedTemporaryLinkNoReplace(
-      view.temporaryPath,
-      view.finalPath,
-      view.contents,
+async function ensurePublicBackup(
+  view,
+  beforeMutation,
+  afterBoundary,
+) {
+  if (view.record.original === null) {
+    if (view.backupPath && (await lstatIfExists(view.backupPath))) {
+      throw new Error("unexpected backup for an originally absent destination");
+    }
+    return;
+  }
+  const backup = await lstatBoundIfExists(view.backupPath, beforeMutation);
+  if (backup) {
+    await assertBoundFile(
+      view.backupPath,
+      view.record.backup,
       beforeMutation,
+      "publication backup",
     );
     return;
   }
-  const backup = await readRegularFile(view.backupPath, beforeMutation);
-  const current = await readRegularFile(view.finalPath, beforeMutation);
-  const sourceEntry = await validateOwnedTemporaryFile(
-    view.temporaryPath,
+  await assertBoundFile(
     view.finalPath,
-    view.contents,
+    view.record.original,
     beforeMutation,
+    "original public destination",
   );
-  if (backup.contents !== current.contents) {
-    throw new Error(`public destination ${view.finalPath} changed before publication`);
-  }
-  const promotionPath = `${view.temporaryPath}.promote`;
   await beforeMutation();
-  await link(view.temporaryPath, promotionPath);
-  try {
-    await beforeMutation();
-    await rename(promotionPath, view.finalPath);
-    await beforeMutation();
-    const finalEntry = await lstat(view.finalPath, { bigint: true });
-    if (
-      finalEntry.dev !== sourceEntry.dev ||
-      finalEntry.ino !== sourceEntry.ino
-    ) {
-      throw new Error(`public destination ${view.finalPath} changed after publication`);
-    }
-  } finally {
-    try {
-      await beforeMutation();
-      await unlink(promotionPath);
-    } catch (error) {
-      if (error?.code !== "ENOENT") {
-        throw error;
-      }
-    }
-  }
+  await link(view.finalPath, view.backupPath);
+  await afterBoundary("backup-linked", view.view);
+  await assertBoundFile(
+    view.backupPath,
+    view.record.backup,
+    beforeMutation,
+    "publication backup",
+  );
 }
 
-async function rollbackPublicView(view, beforeMutation) {
-  let finalEntry;
-  let sourceEntry;
-  try {
-    finalEntry = await lstat(view.finalPath, { bigint: true });
-    sourceEntry = await lstat(view.temporaryPath, { bigint: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") {
-      if (!view.backupPath) {
-        return;
-      }
-      const backup = await readRegularFile(view.backupPath, beforeMutation);
-      const restorePath = `${view.backupPath}.restore`;
-      await beforeMutation();
-      await link(view.backupPath, restorePath);
-      try {
-        await beforeMutation();
-        await rename(restorePath, view.finalPath);
-      } finally {
-        await unlink(restorePath).catch((cleanupError) => {
-          if (cleanupError?.code !== "ENOENT") {
-            throw cleanupError;
-          }
-        });
-      }
-      const restored = await lstat(view.finalPath, { bigint: true });
-      if (
-        restored.dev !== backup.entry.dev ||
-        restored.ino !== backup.entry.ino
-      ) {
-        throw new Error(`public destination ${view.finalPath} was not restored`);
-      }
+async function publishPublicViewWithBackup(
+  view,
+  beforeMutation,
+  afterBoundary,
+) {
+  const candidate = await assertBoundFile(
+    view.temporaryPath,
+    view.record.candidate,
+    beforeMutation,
+    "publication candidate",
+  );
+  await ensurePublicBackup(view, beforeMutation, afterBoundary);
+  const promotionPath = path.join(
+    path.dirname(view.finalPath),
+    view.record.promoteName,
+  );
+  const promotion = await lstatBoundIfExists(promotionPath, beforeMutation);
+  if (promotion) {
+    if (
+      !sameFileIdentity(promotion.entry, candidate.identity) ||
+      promotion.digest !== candidate.digest
+    ) {
+      throw new Error("publication promote sidecar ownership changed");
+    }
+  } else {
+    await beforeMutation();
+    await link(view.temporaryPath, promotionPath);
+    await afterBoundary("promote-linked", view.view);
+  }
+
+  const current = await lstatBoundIfExists(view.finalPath, beforeMutation);
+  const isCandidate =
+    current &&
+    sameFileIdentity(current.entry, view.record.candidate.identity) &&
+    current.digest === view.record.candidate.digest;
+  const isOriginal =
+    current &&
+    view.record.original &&
+    sameFileIdentity(current.entry, view.record.original.identity) &&
+    current.digest === view.record.original.digest;
+  if (!isCandidate) {
+    if (!isOriginal && !(current === null && view.record.original === null)) {
+      throw new Error("public destination identity or digest changed");
+    }
+    await beforeMutation();
+    await rename(promotionPath, view.finalPath);
+    await afterBoundary("destination-renamed", view.view);
+  }
+  await assertBoundFile(
+    view.finalPath,
+    view.record.candidate,
+    beforeMutation,
+    "published public destination",
+  );
+  await cleanupBoundSidecar(
+    promotionPath,
+    view.record.candidate,
+    beforeMutation,
+  );
+  await afterBoundary("promote-cleaned", view.view);
+}
+
+async function rollbackPublicView(view, beforeMutation, afterBoundary) {
+  await ensurePublicBackup(view, beforeMutation, afterBoundary);
+  const promotionPath = path.join(
+    path.dirname(view.finalPath),
+    view.record.promoteName,
+  );
+  await cleanupBoundSidecar(
+    promotionPath,
+    view.record.candidate,
+    beforeMutation,
+  );
+  const current = await lstatBoundIfExists(view.finalPath, beforeMutation);
+  const isCandidate =
+    current &&
+    sameFileIdentity(current.entry, view.record.candidate.identity) &&
+    current.digest === view.record.candidate.digest;
+  const isOriginal =
+    current &&
+    view.record.original &&
+    sameFileIdentity(current.entry, view.record.original.identity) &&
+    current.digest === view.record.original.digest;
+  if (!isCandidate) {
+    if (isOriginal || (current === null && view.record.original === null)) {
       return;
     }
-    throw error;
+    throw new Error("public destination identity or digest changed");
   }
-  const isPublished =
-    finalEntry.dev === sourceEntry.dev && finalEntry.ino === sourceEntry.ino;
-  if (!isPublished) {
-    if (!view.backupPath) {
-      return;
-    }
-    const backup = await readRegularFile(view.backupPath, beforeMutation);
-    const current = await readRegularFile(view.finalPath, beforeMutation);
-    if (backup.contents !== current.contents) {
-      throw new Error(
-        `public destination ${view.finalPath} is neither published nor the retained original`,
-      );
-    }
-    return;
-  }
-  if (!view.backupPath) {
+  if (view.record.original === null) {
     await beforeMutation();
     await unlink(view.finalPath);
     return;
   }
-  const backup = await readRegularFile(view.backupPath, beforeMutation);
-  const restorePath = `${view.backupPath}.restore`;
-  await beforeMutation();
-  await link(view.backupPath, restorePath);
-  try {
+  const restorePath = path.join(
+    path.dirname(view.finalPath),
+    view.record.restoreName,
+  );
+  const restore = await lstatBoundIfExists(restorePath, beforeMutation);
+  if (restore) {
+    if (
+      !sameFileIdentity(restore.entry, view.record.backup.identity) ||
+      restore.digest !== view.record.backup.digest
+    ) {
+      throw new Error("publication restore sidecar ownership changed");
+    }
+  } else {
     await beforeMutation();
-    await rename(restorePath, view.finalPath);
-  } finally {
-    await unlink(restorePath).catch((cleanupError) => {
-      if (cleanupError?.code !== "ENOENT") {
-        throw cleanupError;
-      }
-    });
+    await link(view.backupPath, restorePath);
+    await afterBoundary("restore-linked", view.view);
   }
-  const restored = await lstat(view.finalPath, { bigint: true });
-  if (
-    restored.dev !== backup.entry.dev ||
-    restored.ino !== backup.entry.ino
-  ) {
-    throw new Error(`public destination ${view.finalPath} was not restored`);
-  }
+  await beforeMutation();
+  await rename(restorePath, view.finalPath);
+  await afterBoundary("destination-restored", view.view);
+  await assertBoundFile(
+    view.finalPath,
+    view.record.original,
+    beforeMutation,
+    "restored public destination",
+  );
+  await cleanupBoundSidecar(
+    restorePath,
+    view.record.backup,
+    beforeMutation,
+  );
+  await afterBoundary("restore-cleaned", view.view);
 }
 
 function assertPublicationJournal(journal, publicFinalPaths) {
@@ -2212,7 +2487,7 @@ function assertPublicationJournal(journal, publicFinalPaths) {
     typeof journal !== "object" ||
     Array.isArray(journal) ||
     Object.keys(journal).sort().join(",") !==
-      "backupFiles,publicConfig,schemaVersion,stagingName,temporaryFiles" ||
+      "backupFiles,fileRecords,publicConfig,schemaVersion,stagingName,temporaryFiles" ||
     journal.schemaVersion !== PUBLICATION_SCHEMA_VERSION ||
     typeof journal.stagingName !== "string" ||
     path.basename(journal.stagingName) !== journal.stagingName ||
@@ -2226,6 +2501,11 @@ function assertPublicationJournal(journal, publicFinalPaths) {
     typeof journal.backupFiles !== "object" ||
     Array.isArray(journal.backupFiles) ||
     Object.keys(journal.backupFiles).sort().join(",") !==
+      "javascriptConfig,publicConfig,rustConfig" ||
+    journal.fileRecords === null ||
+    typeof journal.fileRecords !== "object" ||
+    Array.isArray(journal.fileRecords) ||
+    Object.keys(journal.fileRecords).sort().join(",") !==
       "javascriptConfig,publicConfig,rustConfig"
   ) {
     throw new Error("publication journal has an invalid closed schema");
@@ -2255,6 +2535,53 @@ function assertPublicationJournal(journal, publicFinalPaths) {
         backupName === temporaryName)
     ) {
       throw new Error("publication journal has an invalid backup file name");
+    }
+    const record = journal.fileRecords[key];
+    const identityIsValid = (identity) =>
+      identity !== null &&
+      typeof identity === "object" &&
+      !Array.isArray(identity) &&
+      Object.keys(identity).sort().join(",") === "dev,ino" &&
+      /^(?:0|[1-9][0-9]*)$/u.test(identity.dev) &&
+      /^(?:0|[1-9][0-9]*)$/u.test(identity.ino);
+    const digestIsValid = (digest) => /^[0-9a-f]{64}$/u.test(digest);
+    if (
+      record === null ||
+      typeof record !== "object" ||
+      Array.isArray(record) ||
+      Object.keys(record).sort().join(",") !==
+        "backup,candidate,original,promoteName,restoreName" ||
+      record.candidate === null ||
+      typeof record.candidate !== "object" ||
+      Object.keys(record.candidate).sort().join(",") !==
+        "digest,identity,name" ||
+      record.candidate.name !== temporaryName ||
+      !identityIsValid(record.candidate.identity) ||
+      !digestIsValid(record.candidate.digest) ||
+      record.promoteName !== `${temporaryName}.promote` ||
+      record.restoreName !==
+        (backupName === null ? null : `${backupName}.restore`)
+    ) {
+      throw new Error("publication journal has an invalid ownership record");
+    }
+    if (backupName === null) {
+      if (record.original !== null || record.backup !== null) {
+        throw new Error("publication journal absence record is invalid");
+      }
+    } else if (
+      record.original === null ||
+      record.backup === null ||
+      Object.keys(record.original).sort().join(",") !== "digest,identity" ||
+      Object.keys(record.backup).sort().join(",") !== "digest,identity,name" ||
+      record.backup.name !== backupName ||
+      !identityIsValid(record.original.identity) ||
+      !identityIsValid(record.backup.identity) ||
+      record.original.identity.dev !== record.backup.identity.dev ||
+      record.original.identity.ino !== record.backup.identity.ino ||
+      !digestIsValid(record.original.digest) ||
+      record.original.digest !== record.backup.digest
+    ) {
+      throw new Error("publication journal backup ownership record is invalid");
     }
   }
 }
@@ -2410,6 +2737,7 @@ export async function generateDevnetReleaseConfig(options) {
     "postSecretFileWriteHook",
     "postStagingPinReleaseHook",
     "postPublicPromotionHook",
+    "publicationFaultHook",
   ];
   if (
     options === null ||
@@ -2436,6 +2764,7 @@ export async function generateDevnetReleaseConfig(options) {
     postSecretFileWriteHook,
     postStagingPinReleaseHook,
     postPublicPromotionHook,
+    publicationFaultHook,
   } = options;
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new TypeError("repository root must be an absolute path");
@@ -2487,6 +2816,12 @@ export async function generateDevnetReleaseConfig(options) {
     typeof postPublicPromotionHook !== "function"
   ) {
     throw new TypeError("post-public-promotion hook must be a function");
+  }
+  if (
+    publicationFaultHook !== undefined &&
+    typeof publicationFaultHook !== "function"
+  ) {
+    throw new TypeError("publication-fault hook must be a function");
   }
   const root = path.resolve(repositoryRoot);
   const rootEntry = await lstat(root);
@@ -2542,6 +2877,11 @@ export async function generateDevnetReleaseConfig(options) {
         "private identity path already exists and is redirected by a reparse point",
       );
     }
+    if (!existingPrivateEntry.isDirectory()) {
+      throw new Error(
+        "private identity path already exists and is not a directory",
+      );
+    }
   }
 
   const publicConfigPath = path.join(
@@ -2570,7 +2910,11 @@ export async function generateDevnetReleaseConfig(options) {
       rootReal,
       "publication journal",
     );
-    const journalBytes = await readFile(publicationJournalPath, "utf8");
+    const journalFile = await readBoundRegularFile(
+      publicationJournalPath,
+      async () => {},
+    );
+    const journalBytes = journalFile.contents;
     try {
       publicationJournal = JSON.parse(journalBytes);
     } catch (error) {
@@ -2599,9 +2943,6 @@ export async function generateDevnetReleaseConfig(options) {
           incompleteStagingNames[0],
         )}; explicit recovery required`,
       );
-    }
-    if (existingPrivateEntry) {
-      throw new Error("private identity path already exists");
     }
   }
   await assertSafeOptionalFile(
@@ -2633,6 +2974,9 @@ export async function generateDevnetReleaseConfig(options) {
       path.join(devnetDirectory, publicationJournal.stagingName),
     );
   }
+  if (existingPrivateEntry) {
+    parentPaths.push(privateDirectory);
+  }
   const validatedParentIdentities =
     await readDirectoryIdentitySnapshot(parentPaths);
   if (preParentPinHook) {
@@ -2657,6 +3001,8 @@ export async function generateDevnetReleaseConfig(options) {
   let rustBackupPath;
   let javascriptBackupPath;
   let publicationJournalTemporaryPath;
+  let publicationJournalTemporaryBinding;
+  let publicationJournalBinding;
   let publicationRecoveryActive = Boolean(publicationJournal);
   let privatePublished = Boolean(publicationJournal && existingPrivateEntry);
 
@@ -2698,6 +3044,39 @@ export async function generateDevnetReleaseConfig(options) {
     }
   }
 
+  async function invokePublicationFaultHook(phase, view = null) {
+    if (!PUBLICATION_FAULT_PHASES.has(phase)) {
+      throw new Error("unknown internal publication phase");
+    }
+    if (publicationFaultHook) {
+      await publicationFaultHook(
+        Object.freeze({
+          phase,
+          view,
+        }),
+      );
+    }
+  }
+
+  async function verifyPublishedPrivateIdentity(publicConfig, pinnedDevnetReal) {
+    const verifyPublished = async () => {
+      await verifyParentPin();
+      await stagingIdentityPin.verifyPublished(privateDirectory, 1);
+    };
+    await verifyPublished();
+    const privateReal = await validatePrivateDirectory(
+      privateDirectory,
+      pinnedDevnetReal,
+      "private commit directory",
+    );
+    await validatePrivateIdentitySet(
+      privateDirectory,
+      privateReal,
+      publicConfig,
+      verifyPublished,
+    );
+  }
+
   function publicViews(publicConfig) {
     return [
       {
@@ -2706,6 +3085,7 @@ export async function generateDevnetReleaseConfig(options) {
         finalPath: publicConfigPath,
         temporaryPath: publicTemporaryPath,
         backupPath: publicBackupPath,
+        record: publicationJournal?.fileRecords.publicConfig,
         contents: `${JSON.stringify(publicConfig)}\n`,
       },
       {
@@ -2714,6 +3094,7 @@ export async function generateDevnetReleaseConfig(options) {
         finalPath: rustConfigPath,
         temporaryPath: rustTemporaryPath,
         backupPath: rustBackupPath,
+        record: publicationJournal?.fileRecords.rustConfig,
         contents: renderRustReleaseConfig(publicConfig),
       },
       {
@@ -2722,14 +3103,19 @@ export async function generateDevnetReleaseConfig(options) {
         finalPath: javascriptConfigPath,
         temporaryPath: javascriptTemporaryPath,
         backupPath: javascriptBackupPath,
+        record: publicationJournal?.fileRecords.javascriptConfig,
         contents: renderJavaScriptReleaseConfig(publicConfig),
       },
     ];
   }
 
   async function rollbackPublicViews(views) {
-    for (const view of [...views].reverse()) {
-      await rollbackPublicView(view, verifyParentPin);
+    for (const view of views) {
+      await rollbackPublicView(
+        view,
+        verifyParentPin,
+        invokePublicationFaultHook,
+      );
     }
   }
 
@@ -2738,7 +3124,11 @@ export async function generateDevnetReleaseConfig(options) {
     await invokeStagingHandoffHook("publication");
     await verifyRetainedPins();
     for (const view of views) {
-      await publishPublicViewWithBackup(view, verifyRetainedPins);
+      await publishPublicViewWithBackup(
+        view,
+        verifyRetainedPins,
+        invokePublicationFaultHook,
+      );
       if (postPublicPromotionHook) {
         await postPublicPromotionHook(
           Object.freeze({
@@ -2752,19 +3142,47 @@ export async function generateDevnetReleaseConfig(options) {
 
   async function finalizePublicationFiles(views) {
     for (const view of views) {
-      await cleanupOwnedTemporaryFile(
-        view.temporaryPath,
-        view.finalPath,
-        verifyParentPin,
-      );
-      await cleanupOwnedTemporaryFile(
-        view.backupPath,
-        view.finalPath,
-        verifyParentPin,
-      );
+      if (await lstatIfExists(view.temporaryPath)) {
+        await assertBoundFile(
+          view.temporaryPath,
+          view.record.candidate,
+          verifyParentPin,
+          "publication candidate",
+        );
+        await verifyParentPin();
+        await unlink(view.temporaryPath);
+        await invokePublicationFaultHook("candidate-cleaned", view.view);
+      }
+      if (view.backupPath) {
+        if (await lstatIfExists(view.backupPath)) {
+          await assertBoundFile(
+            view.backupPath,
+            view.record.backup,
+            verifyParentPin,
+            "publication backup",
+          );
+          await verifyParentPin();
+          await unlink(view.backupPath);
+          await invokePublicationFaultHook("backup-cleaned", view.view);
+        }
+      }
     }
     await verifyParentPin();
+    if (!publicationJournalBinding) {
+      throw new Error("publication journal ownership is unavailable");
+    }
+    await assertBoundFile(
+      publicationJournalPath,
+      {
+        digest: publicationJournalBinding.digest,
+        identity: publicationJournalBinding.identity,
+      },
+      verifyParentPin,
+      "publication journal",
+    );
+    await verifyParentPin();
     await unlink(publicationJournalPath);
+    await invokePublicationFaultHook("journal-cleaned");
     publicTemporaryPath = null;
     rustTemporaryPath = null;
     javascriptTemporaryPath = null;
@@ -2777,13 +3195,34 @@ export async function generateDevnetReleaseConfig(options) {
 
   async function validatePublishedViews(views) {
     for (const view of views) {
-      const published = await readRegularFile(
+      const published = await readBoundRegularFile(
         view.finalPath,
         verifyParentPin,
       );
-      if (published.contents !== view.contents) {
+      if (
+        published.contents !== view.contents ||
+        published.digest !== view.record.candidate.digest ||
+        !sameFileIdentity(
+          published.entry,
+          view.record.candidate.identity,
+        )
+      ) {
+        const mismatch = [
+          published.contents !== view.contents ? "contents" : null,
+          published.digest !== view.record.candidate.digest
+            ? "digest"
+            : null,
+          !sameFileIdentity(
+            published.entry,
+            view.record.candidate.identity,
+          )
+            ? "identity"
+            : null,
+        ]
+          .filter(Boolean)
+          .join(",");
         throw new Error(
-          `committed public view ${view.finalPath} does not match the journal`,
+          `committed public view ${view.finalPath} does not match the journal (${mismatch})`,
         );
       }
       if (await lstatIfExists(view.temporaryPath)) {
@@ -2845,6 +3284,28 @@ export async function generateDevnetReleaseConfig(options) {
     );
     await verifyParentPin();
     parentIdentityPin.assertMatches(validatedParentIdentities);
+    if (publicationRecoveryActive) {
+      const journal = await readBoundRegularFile(
+        publicationJournalPath,
+        verifyParentPin,
+      );
+      if (`${JSON.stringify(publicationJournal)}\n` !== journal.contents) {
+        throw new Error("publication journal identity or digest changed");
+      }
+      publicationJournalBinding = journal;
+      const pendingPath = `${publicationJournalPath}.pending`;
+      const pending = await lstatBoundIfExists(pendingPath, verifyParentPin);
+      if (pending) {
+        if (
+          pending.digest !== journal.digest ||
+          !sameFileIdentity(pending.entry, journal.identity)
+        ) {
+          throw new Error("publication journal pending ownership changed");
+        }
+        await verifyParentPin();
+        await unlink(pendingPath);
+      }
+    }
 
     const currentPrivateEntry = await lstatIfExists(privateDirectory);
     if (currentPrivateEntry && !publicationRecoveryActive) {
@@ -2856,7 +3317,50 @@ export async function generateDevnetReleaseConfig(options) {
           "private identity path already exists and is redirected by a reparse point",
         );
       }
-      throw new Error("private identity path already exists");
+      try {
+        const publicLeaf = await readBoundRegularFile(
+          publicConfigPath,
+          verifyParentPin,
+        );
+        const publicConfig = JSON.parse(publicLeaf.contents);
+        assertReleaseConfig(publicConfig);
+        const canonicalPublicJson = `${JSON.stringify(publicConfig)}\n`;
+        if (
+          publicLeaf.contents !== canonicalPublicJson ||
+          (await readBoundRegularFile(rustConfigPath, verifyParentPin))
+            .contents !== renderRustReleaseConfig(publicConfig) ||
+          (
+            await readBoundRegularFile(
+              javascriptConfigPath,
+              verifyParentPin,
+            )
+          ).contents !== renderJavaScriptReleaseConfig(publicConfig)
+        ) {
+          throw new Error("completed public views do not match");
+        }
+        const privateReal = await validatePrivateDirectory(
+          privateDirectory,
+          pinnedDevnetReal,
+          "private commit directory",
+        );
+        await validatePrivateIdentitySet(
+          privateDirectory,
+          privateReal,
+          publicConfig,
+          verifyParentPin,
+        );
+        await parentIdentityPin.release();
+        parentIdentityPin = null;
+        return {
+          canonicalPublicJson,
+          publicConfig,
+          repositoryRoot: root,
+        };
+      } catch (error) {
+        throw new Error(
+          `private identity path already exists without a valid completed release: ${error.message}`,
+        );
+      }
     }
 
     if (publicationRecoveryActive) {
@@ -2898,6 +3402,17 @@ export async function generateDevnetReleaseConfig(options) {
       const views = publicViews(publicConfig);
 
       if (currentPrivateEntry) {
+        const privateReal = await validatePrivateDirectory(
+          privateDirectory,
+          pinnedDevnetReal,
+          "private commit directory",
+        );
+        await validatePrivateIdentitySet(
+          privateDirectory,
+          privateReal,
+          publicConfig,
+          verifyParentPin,
+        );
         await validatePublishedViews(views);
         await finalizePublicationFiles(views);
         await parentIdentityPin.release();
@@ -2910,14 +3425,22 @@ export async function generateDevnetReleaseConfig(options) {
       }
 
       for (const view of views) {
-        await validateOwnedTemporaryFile(
+        await assertBoundFile(
           view.temporaryPath,
-          view.finalPath,
-          view.contents,
+          view.record.candidate,
           verifyParentPin,
+          "publication candidate",
         );
         if (view.backupPath) {
-          await readRegularFile(view.backupPath, verifyParentPin);
+          const backup = await lstatIfExists(view.backupPath);
+          if (backup) {
+            await assertBoundFile(
+              view.backupPath,
+              view.record.backup,
+              verifyParentPin,
+              "publication backup",
+            );
+          }
         }
       }
 
@@ -2970,7 +3493,8 @@ export async function generateDevnetReleaseConfig(options) {
       }
       stagingDirectory = null;
       privatePublished = true;
-      await verifyParentPin();
+      await verifyPublishedPrivateIdentity(publicConfig, pinnedDevnetReal);
+      await invokePublicationFaultHook("private-published");
       await finalizePublicationFiles(views);
       await stagingIdentityPin.release();
       stagingIdentityPin = null;
@@ -3126,18 +3650,49 @@ export async function generateDevnetReleaseConfig(options) {
       renderJavaScriptReleaseConfig(publicConfig),
       verifyRetainedPins,
     );
-    publicBackupPath = await createPublicBackupIfPresent(
-      publicConfigPath,
-      verifyRetainedPins,
-    );
-    rustBackupPath = await createPublicBackupIfPresent(
-      rustConfigPath,
-      verifyRetainedPins,
-    );
-    javascriptBackupPath = await createPublicBackupIfPresent(
-      javascriptConfigPath,
-      verifyRetainedPins,
-    );
+    const candidateBindings = {
+      publicConfig: await readBoundRegularFile(
+        publicTemporaryPath,
+        verifyRetainedPins,
+      ),
+      rustConfig: await readBoundRegularFile(
+        rustTemporaryPath,
+        verifyRetainedPins,
+      ),
+      javascriptConfig: await readBoundRegularFile(
+        javascriptTemporaryPath,
+        verifyRetainedPins,
+      ),
+    };
+    const originalBindings = {
+      publicConfig: await lstatBoundIfExists(
+        publicConfigPath,
+        verifyRetainedPins,
+      ),
+      rustConfig: await lstatBoundIfExists(
+        rustConfigPath,
+        verifyRetainedPins,
+      ),
+      javascriptConfig: await lstatBoundIfExists(
+        javascriptConfigPath,
+        verifyRetainedPins,
+      ),
+    };
+    publicBackupPath = originalBindings.publicConfig
+      ? await allocateOwnedTemporaryPath(
+          publicConfigPath,
+          verifyRetainedPins,
+        )
+      : null;
+    rustBackupPath = originalBindings.rustConfig
+      ? await allocateOwnedTemporaryPath(rustConfigPath, verifyRetainedPins)
+      : null;
+    javascriptBackupPath = originalBindings.javascriptConfig
+      ? await allocateOwnedTemporaryPath(
+          javascriptConfigPath,
+          verifyRetainedPins,
+        )
+      : null;
 
     publicationJournal = {
       schemaVersion: PUBLICATION_SCHEMA_VERSION,
@@ -3157,26 +3712,75 @@ export async function generateDevnetReleaseConfig(options) {
           ? path.basename(javascriptBackupPath)
           : null,
       },
+      fileRecords: {},
     };
+    for (const [key, finalPath] of Object.entries(publicFinalPaths)) {
+      const candidate = candidateBindings[key];
+      const original = originalBindings[key];
+      const candidateName = publicationJournal.temporaryFiles[key];
+      const backupName = publicationJournal.backupFiles[key];
+      publicationJournal.fileRecords[key] = {
+        candidate: {
+          name: candidateName,
+          digest: candidate.digest,
+          identity: candidate.identity,
+        },
+        original: original
+          ? {
+              digest: original.digest,
+              identity: original.identity,
+            }
+          : null,
+        backup: original
+          ? {
+              name: backupName,
+              digest: original.digest,
+              identity: original.identity,
+            }
+          : null,
+        promoteName: `${candidateName}.promote`,
+        restoreName: original ? `${backupName}.restore` : null,
+      };
+      if (path.dirname(finalPath) !== path.dirname(
+        path.join(path.dirname(finalPath), candidateName),
+      )) {
+        throw new Error("publication candidate escaped its parent");
+      }
+    }
     const publicationJournalBytes = `${JSON.stringify(publicationJournal)}\n`;
-    publicationJournalTemporaryPath = await writeOwnedTemporaryFile(
-      publicationJournalPath,
-      publicationJournalBytes,
-      verifyRetainedPins,
-    );
-    await publishOwnedTemporaryLinkNoReplace(
+    publicationJournalTemporaryPath = `${publicationJournalPath}.pending`;
+    publicationJournalTemporaryBinding = await writeExclusiveOwnedFile(
       publicationJournalTemporaryPath,
-      publicationJournalPath,
       publicationJournalBytes,
       verifyRetainedPins,
     );
+    await verifyRetainedPins();
+    await link(publicationJournalTemporaryPath, publicationJournalPath);
     publicationRecoveryActive = true;
-    await cleanupOwnedTemporaryFile(
-      publicationJournalTemporaryPath,
+    await invokePublicationFaultHook("journal-linked");
+    const journalBinding = await readBoundRegularFile(
       publicationJournalPath,
       verifyRetainedPins,
     );
+    publicationJournalBinding = journalBinding;
+    const pendingBinding = await readBoundRegularFile(
+      publicationJournalTemporaryPath,
+      verifyRetainedPins,
+    );
+    if (
+      journalBinding.digest !== pendingBinding.digest ||
+      !sameFileIdentity(
+        pendingBinding.entry,
+        journalBinding.identity,
+      )
+    ) {
+      throw new Error("publication journal pending ownership changed");
+    }
+    await verifyRetainedPins();
+    await unlink(publicationJournalTemporaryPath);
+    await invokePublicationFaultHook("journal-pending-cleaned");
     publicationJournalTemporaryPath = null;
+    publicationJournalTemporaryBinding = null;
 
     const views = publicViews(publicConfig);
     await publishPublicViews(views);
@@ -3189,7 +3793,8 @@ export async function generateDevnetReleaseConfig(options) {
     }
     stagingDirectory = null;
     privatePublished = true;
-    await verifyParentPin();
+    await verifyPublishedPrivateIdentity(publicConfig, pinnedDevnetReal);
+    await invokePublicationFaultHook("private-published");
     await finalizePublicationFiles(views);
 
     const result = {
@@ -3234,7 +3839,7 @@ export async function generateDevnetReleaseConfig(options) {
       if (cleanupErrors.length > 0) {
         throw new AggregateError(
           [error, ...cleanupErrors],
-          `protected incomplete staging retained at ${retainedLocation}; recoverable publication rollback or pin release failed`,
+          `protected incomplete staging retained at ${retainedLocation}; recoverable publication ownership hard stop; rollback or pin release failed`,
         );
       }
       throw new Error(
@@ -3291,9 +3896,9 @@ export async function generateDevnetReleaseConfig(options) {
             verifyParentPin,
           ),
         () =>
-          cleanupOwnedTemporaryFile(
+          cleanupBoundSidecar(
             publicationJournalTemporaryPath,
-            publicationJournalPath,
+            publicationJournalTemporaryBinding,
             verifyParentPin,
           ),
       ]) {
@@ -3388,9 +3993,9 @@ export async function generateDevnetReleaseConfig(options) {
           verifyParentPin,
         ),
       () =>
-        cleanupOwnedTemporaryFile(
+        cleanupBoundSidecar(
           publicationJournalTemporaryPath,
-          publicationJournalPath,
+          publicationJournalTemporaryBinding,
           verifyParentPin,
         ),
     ];

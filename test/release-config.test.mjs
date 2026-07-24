@@ -332,6 +332,235 @@ await generateDevnetReleaseConfig({
   await assertNoWindowsDirectoryPinHelper();
 });
 
+test("every internal publication boundary survives a real process restart", async (t) => {
+  const phases = [
+    "journal-linked",
+    "journal-pending-cleaned",
+    "backup-linked",
+    "promote-linked",
+    "destination-renamed",
+    "promote-cleaned",
+    "restore-linked",
+    "destination-restored",
+    "restore-cleaned",
+    "private-published",
+    "candidate-cleaned",
+    "backup-cleaned",
+    "journal-cleaned",
+  ];
+  const moduleUrl = new URL("../src/devnet-release-config.mjs", import.meta.url)
+    .href;
+
+  async function crashAt(root, phase) {
+    const childSource = `
+import { generateDevnetReleaseConfig } from ${JSON.stringify(moduleUrl)};
+await generateDevnetReleaseConfig({
+  repositoryRoot: ${JSON.stringify(root)},
+  publicationFaultHook(context) {
+    if (context.phase === ${JSON.stringify(phase)}) {
+      process.exit(47);
+    }
+  },
+});
+`;
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        "--input-type=module",
+        "--eval",
+        childSource,
+      ]),
+      (error) => error?.code === 47,
+    );
+  }
+
+  for (const phase of phases) {
+    await t.test(phase, async (t) => {
+      const root = await isolatedRepository(t);
+      const publicPaths = [
+        path.join(root, "config", "hakky-release-v1.json"),
+        path.join(root, "programs", "hakky-market", "src", "constants.rs"),
+        path.join(root, "src", "hakky-release-config.generated.mjs"),
+      ];
+      for (const [index, publicPath] of publicPaths.entries()) {
+        await writeFile(publicPath, `original public view ${index}\n`, "utf8");
+      }
+
+      if (
+        ["restore-linked", "destination-restored", "restore-cleaned"].includes(
+          phase,
+        )
+      ) {
+        await crashAt(root, "destination-renamed");
+      }
+      await crashAt(root, phase);
+
+      const devnetDirectory = path.join(root, "artifacts", "devnet");
+      const journalPath = path.join(
+        devnetDirectory,
+        ".hakky-release-publication-v1.json",
+      );
+      const journalEntry = await lstatIfExistsForTest(journalPath);
+      let retainedProgramId;
+      if (journalEntry) {
+        retainedProgramId = JSON.parse(
+          await readFile(journalPath, "utf8"),
+        ).publicConfig.programId;
+      } else {
+        retainedProgramId = JSON.parse(
+          await readFile(publicPaths[0], "utf8"),
+        ).programId;
+      }
+
+      let regenerated = false;
+      const recovered = await generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async beforeKeyGenerationHook() {
+          regenerated = true;
+          throw new Error("internal crash recovery must not regenerate");
+        },
+      });
+      assert.equal(regenerated, false);
+      assert.equal(recovered.publicConfig.programId, retainedProgramId);
+      assert.deepEqual((await readdir(devnetDirectory)).sort(), ["private"]);
+      for (const directory of [
+        path.dirname(publicPaths[0]),
+        path.dirname(publicPaths[1]),
+        path.dirname(publicPaths[2]),
+      ]) {
+        assert.equal(
+          (await readdir(directory)).some((name) =>
+            /\.(?:tmp|promote|restore|pending)$/u.test(name),
+          ),
+          false,
+        );
+      }
+      await assertNoWindowsDirectoryPinHelper();
+    });
+  }
+});
+
+test("recovery preserves foreign candidates, backups, destinations, and private markers", async (t) => {
+  const moduleUrl = new URL("../src/devnet-release-config.mjs", import.meta.url)
+    .href;
+  async function crashAt(root, phase) {
+    const childSource = `
+import { generateDevnetReleaseConfig } from ${JSON.stringify(moduleUrl)};
+await generateDevnetReleaseConfig({
+  repositoryRoot: ${JSON.stringify(root)},
+  publicationFaultHook({ phase: currentPhase }) {
+    if (currentPhase === ${JSON.stringify(phase)}) process.exit(47);
+  },
+});
+`;
+    await assert.rejects(
+      execFileAsync(process.execPath, [
+        "--input-type=module",
+        "--eval",
+        childSource,
+      ]),
+      (error) => error?.code === 47,
+    );
+  }
+  async function preparedRoot(t, phase) {
+    const root = await isolatedRepository(t);
+    const publicPaths = [
+      path.join(root, "config", "hakky-release-v1.json"),
+      path.join(root, "programs", "hakky-market", "src", "constants.rs"),
+      path.join(root, "src", "hakky-release-config.generated.mjs"),
+    ];
+    for (const [index, publicPath] of publicPaths.entries()) {
+      await writeFile(publicPath, `original public view ${index}\n`, "utf8");
+    }
+    await crashAt(root, phase);
+    const journalPath = path.join(
+      root,
+      "artifacts",
+      "devnet",
+      ".hakky-release-publication-v1.json",
+    );
+    return {
+      journal: JSON.parse(await readFile(journalPath, "utf8")),
+      journalPath,
+      publicPaths,
+      root,
+    };
+  }
+  function journalName(journal, kind) {
+    if (kind === "candidate") {
+      return (
+        journal.views?.publicConfig?.candidate?.name ??
+        journal.temporaryFiles.publicConfig
+      );
+    }
+    return (
+      journal.views?.publicConfig?.backup?.name ??
+      journal.backupFiles.publicConfig
+    );
+  }
+
+  for (const attack of ["candidate", "backup", "destination", "private"]) {
+    await t.test(attack, async (t) => {
+      const phase =
+        attack === "candidate"
+          ? "promote-linked"
+          : attack === "backup"
+            ? "backup-linked"
+            : attack === "destination"
+              ? "destination-renamed"
+              : "private-published";
+      const prepared = await preparedRoot(t, phase);
+      let attackedPath;
+      let replacementBytes;
+      if (attack === "candidate" || attack === "backup") {
+        attackedPath = path.join(
+          path.dirname(prepared.publicPaths[0]),
+          journalName(prepared.journal, attack),
+        );
+        replacementBytes = await readFile(attackedPath, "utf8");
+      } else if (attack === "destination") {
+        attackedPath = prepared.publicPaths[0];
+        replacementBytes = await readFile(attackedPath, "utf8");
+      } else {
+        attackedPath = path.join(
+          prepared.root,
+          "artifacts",
+          "devnet",
+          "private",
+          "program-keypair.json",
+        );
+        replacementBytes = `${JSON.stringify([
+          ...Keypair.generate().secretKey,
+        ])}\n`;
+      }
+      await unlink(attackedPath);
+      await writeFile(attackedPath, replacementBytes, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
+      if (attack === "private") {
+        await restrictPrivateFile(attackedPath);
+      }
+      const attackerIdentity = await lstat(attackedPath, { bigint: true });
+
+      let regenerated = false;
+      await assert.rejects(
+        generateDevnetReleaseConfig({
+          repositoryRoot: prepared.root,
+          async beforeKeyGenerationHook() {
+            regenerated = true;
+          },
+        }),
+        /identity|digest|ownership|private commit|journal/i,
+      );
+      assert.equal(regenerated, false);
+      const retainedAttacker = await lstat(attackedPath, { bigint: true });
+      assert.equal(retainedAttacker.dev, attackerIdentity.dev);
+      assert.equal(retainedAttacker.ino, attackerIdentity.ino);
+      await assertNoWindowsDirectoryPinHelper();
+    });
+  }
+});
+
 test("candidate views exclude the hermetic fixture identities and hashes", async () => {
   const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
   const candidatePaths = [
