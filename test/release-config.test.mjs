@@ -972,34 +972,21 @@ test("no-overwrite publication preserves a destination created after staging", a
   );
   await writeFile(rustConfigPath, "existing public binding\n", "utf8");
 
-  const generation = generateDevnetReleaseConfig({ repositoryRoot: root });
-  let stagingDirectory;
-  for (let attempt = 0; attempt < 500; attempt += 1) {
-    const entries = await readdir(devnetDirectory).catch((error) => {
-      if (error?.code === "ENOENT") {
-        return [];
-      }
-      throw error;
-    });
-    const stagingName = entries.find((entry) =>
-      entry.startsWith(".private-stage-"),
-    );
-    if (stagingName) {
-      stagingDirectory = path.join(devnetDirectory, stagingName);
-      break;
-    }
-    await delay(10);
-  }
-  assert.ok(stagingDirectory, "private staging must be observable");
-
-  await mkdir(privateDirectory);
   const sentinelPath = path.join(privateDirectory, "existing-sentinel.txt");
-  await writeFile(sentinelPath, "race winner\n", "utf8");
-
+  let stagingDirectory;
   await assert.rejects(
-    generation,
+    generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async postStagingPinReleaseHook(context) {
+        assert.equal(context.phase, "publication");
+        stagingDirectory = context.stagingDirectory;
+        await mkdir(privateDirectory);
+        await writeFile(sentinelPath, "race winner\n", "utf8");
+      },
+    }),
     /protected incomplete staging retained|explicit recovery required/i,
   );
+  assert.ok(stagingDirectory, "publication hook must observe private staging");
   assert.equal(await readFile(sentinelPath, "utf8"), "race winner\n");
   assert.equal(
     await readFile(rustConfigPath, "utf8"),
