@@ -3140,6 +3140,65 @@ export async function generateDevnetReleaseConfig(options) {
     }
   }
 
+  async function reconcilePublicationSidecars(views) {
+    for (const view of views) {
+      await cleanupBoundSidecar(
+        path.join(
+          path.dirname(view.finalPath),
+          view.record.promoteName,
+        ),
+        view.record.candidate,
+        verifyParentPin,
+      );
+      if (view.record.restoreName) {
+        await cleanupBoundSidecar(
+          path.join(
+            path.dirname(view.finalPath),
+            view.record.restoreName,
+          ),
+          view.record.backup,
+          verifyParentPin,
+        );
+      }
+    }
+    await cleanupBoundSidecar(
+      `${publicationJournalPath}.pending`,
+      {
+        digest: publicationJournalBinding.digest,
+        identity: publicationJournalBinding.identity,
+      },
+      verifyParentPin,
+    );
+  }
+
+  async function assertNoJournalLessPublicationResidue() {
+    for (const finalPath of Object.values(publicFinalPaths)) {
+      await verifyParentPin();
+      const names = await readdir(path.dirname(finalPath));
+      await verifyParentPin();
+      const escapedBaseName = path
+        .basename(finalPath)
+        .replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+      const residuePattern = new RegExp(
+        `^\\.${escapedBaseName}\\.[0-9a-f]{24}\\.tmp(?:\\.(?:promote|restore))?$`,
+        "u",
+      );
+      if (names.some((name) => residuePattern.test(name))) {
+        throw new Error(
+          "journal-less completed release has publication transaction residue",
+        );
+      }
+    }
+    await verifyParentPin();
+    const devnetNames = await readdir(devnetDirectory);
+    await verifyParentPin();
+    if (devnetNames.includes(`${PUBLICATION_JOURNAL_NAME}.pending`)) {
+      throw new Error(
+        "journal-less completed release has publication transaction residue",
+      );
+    }
+  }
+
   async function finalizePublicationFiles(views) {
     for (const view of views) {
       if (await lstatIfExists(view.temporaryPath)) {
@@ -3171,6 +3230,16 @@ export async function generateDevnetReleaseConfig(options) {
     if (!publicationJournalBinding) {
       throw new Error("publication journal ownership is unavailable");
     }
+    await assertBoundFile(
+      publicationJournalPath,
+      {
+        digest: publicationJournalBinding.digest,
+        identity: publicationJournalBinding.identity,
+      },
+      verifyParentPin,
+      "publication journal",
+    );
+    await reconcilePublicationSidecars(views);
     await assertBoundFile(
       publicationJournalPath,
       {
@@ -3349,6 +3418,7 @@ export async function generateDevnetReleaseConfig(options) {
           publicConfig,
           verifyParentPin,
         );
+        await assertNoJournalLessPublicationResidue();
         await parentIdentityPin.release();
         parentIdentityPin = null;
         return {

@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
+  link,
   lstat,
   mkdir,
   mkdtemp,
@@ -559,6 +560,228 @@ await generateDevnetReleaseConfig({
       await assertNoWindowsDirectoryPinHelper();
     });
   }
+});
+
+test("late publication sidecars are ownership-gated before journal deletion", async (t) => {
+  const sidecarKinds = ["promote", "restore", "pending"];
+  for (const sidecarKind of sidecarKinds) {
+    await t.test(sidecarKind, async (t) => {
+      const root = await isolatedRepository(t);
+      const publicPaths = {
+        publicConfig: path.join(root, "config", "hakky-release-v1.json"),
+        rustConfig: path.join(
+          root,
+          "programs",
+          "hakky-market",
+          "src",
+          "constants.rs",
+        ),
+        javascriptConfig: path.join(
+          root,
+          "src",
+          "hakky-release-config.generated.mjs",
+        ),
+      };
+      for (const [index, publicPath] of Object.values(publicPaths).entries()) {
+        await writeFile(publicPath, `original public view ${index}\n`, "utf8");
+      }
+      const journalPath = path.join(
+        root,
+        "artifacts",
+        "devnet",
+        ".hakky-release-publication-v1.json",
+      );
+      let attackedPath;
+      let attackerIdentity;
+      let injected = false;
+      await assert.rejects(
+        generateDevnetReleaseConfig({
+          repositoryRoot: root,
+          async publicationFaultHook({ phase, view }) {
+            if (
+              injected ||
+              phase !== "promote-cleaned" ||
+              view !== "javascript-config"
+            ) {
+              return;
+            }
+            injected = true;
+            const journalBytes = await readFile(journalPath, "utf8");
+            const journal = JSON.parse(journalBytes);
+            const record = journal.fileRecords.publicConfig;
+            if (sidecarKind === "promote") {
+              attackedPath = path.join(
+                path.dirname(publicPaths.publicConfig),
+                record.promoteName,
+              );
+              await writeFile(
+                attackedPath,
+                await readFile(
+                  path.join(
+                    path.dirname(publicPaths.publicConfig),
+                    record.candidate.name,
+                  ),
+                  "utf8",
+                ),
+                "utf8",
+              );
+            } else if (sidecarKind === "restore") {
+              attackedPath = path.join(
+                path.dirname(publicPaths.publicConfig),
+                record.restoreName,
+              );
+              await writeFile(
+                attackedPath,
+                await readFile(
+                  path.join(
+                    path.dirname(publicPaths.publicConfig),
+                    record.backup.name,
+                  ),
+                  "utf8",
+                ),
+                "utf8",
+              );
+            } else {
+              attackedPath = `${journalPath}.pending`;
+              await writeFile(attackedPath, journalBytes, "utf8");
+            }
+            attackerIdentity = await lstat(attackedPath, { bigint: true });
+          },
+        }),
+        /ownership|identity|digest|sidecar|pending|journal/i,
+      );
+      assert.equal(injected, true);
+      assert.equal(
+        (await lstat(journalPath, { bigint: true })).isFile(),
+        true,
+      );
+      const retainedAttacker = await lstat(attackedPath, { bigint: true });
+      assert.equal(retainedAttacker.dev, attackerIdentity.dev);
+      assert.equal(retainedAttacker.ino, attackerIdentity.ino);
+      await assertNoWindowsDirectoryPinHelper();
+    });
+  }
+});
+
+test("exact journal-owned late sidecars are removed before success", async (t) => {
+  const root = await isolatedRepository(t);
+  const publicPaths = {
+    publicConfig: path.join(root, "config", "hakky-release-v1.json"),
+    rustConfig: path.join(
+      root,
+      "programs",
+      "hakky-market",
+      "src",
+      "constants.rs",
+    ),
+    javascriptConfig: path.join(
+      root,
+      "src",
+      "hakky-release-config.generated.mjs",
+    ),
+  };
+  for (const [index, publicPath] of Object.values(publicPaths).entries()) {
+    await writeFile(publicPath, `original public view ${index}\n`, "utf8");
+  }
+  const journalPath = path.join(
+    root,
+    "artifacts",
+    "devnet",
+    ".hakky-release-publication-v1.json",
+  );
+  let ownedSidecars;
+  const result = await generateDevnetReleaseConfig({
+    repositoryRoot: root,
+    async publicationFaultHook({ phase, view }) {
+      if (
+        ownedSidecars ||
+        phase !== "promote-cleaned" ||
+        view !== "javascript-config"
+      ) {
+        return;
+      }
+      const journal = JSON.parse(await readFile(journalPath, "utf8"));
+      const record = journal.fileRecords.publicConfig;
+      const parent = path.dirname(publicPaths.publicConfig);
+      ownedSidecars = [
+        path.join(parent, record.promoteName),
+        path.join(parent, record.restoreName),
+        `${journalPath}.pending`,
+      ];
+      await link(
+        path.join(parent, record.candidate.name),
+        ownedSidecars[0],
+      );
+      await link(path.join(parent, record.backup.name), ownedSidecars[1]);
+      await link(journalPath, ownedSidecars[2]);
+    },
+  });
+  assert.equal(result.publicConfig.network, "devnet");
+  assert.ok(ownedSidecars);
+  for (const sidecarPath of ownedSidecars) {
+    assert.equal(await lstatIfExistsForTest(sidecarPath), null);
+  }
+  assert.equal(await lstatIfExistsForTest(journalPath), null);
+  await assertNoWindowsDirectoryPinHelper();
+});
+
+test("journal-less completed release rejects enumerable transaction residue", async (t) => {
+  const root = await isolatedRepository(t);
+  const completed = await generateDevnetReleaseConfig({
+    repositoryRoot: root,
+  });
+  const residues = [
+    path.join(
+      root,
+      "config",
+      ".hakky-release-v1.json.aaaaaaaaaaaaaaaaaaaaaaaa.tmp.promote",
+    ),
+    path.join(
+      root,
+      "programs",
+      "hakky-market",
+      "src",
+      ".constants.rs.bbbbbbbbbbbbbbbbbbbbbbbb.tmp.restore",
+    ),
+    path.join(
+      root,
+      "artifacts",
+      "devnet",
+      ".hakky-release-publication-v1.json.pending",
+    ),
+  ];
+  for (const residuePath of residues) {
+    await writeFile(residuePath, "foreign transaction residue\n", "utf8");
+    const foreignIdentity = await lstat(residuePath, { bigint: true });
+    let regenerated = false;
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async beforeKeyGenerationHook() {
+          regenerated = true;
+        },
+      }),
+      /residue|publication|transaction|private identity path/i,
+    );
+    assert.equal(regenerated, false);
+    assert.equal(
+      (await readFile(residuePath, "utf8")),
+      "foreign transaction residue\n",
+    );
+    const retainedIdentity = await lstat(residuePath, { bigint: true });
+    assert.equal(retainedIdentity.dev, foreignIdentity.dev);
+    assert.equal(retainedIdentity.ino, foreignIdentity.ino);
+    await unlink(residuePath);
+  }
+  assert.equal(
+    (
+      await generateDevnetReleaseConfig({
+        repositoryRoot: root,
+      })
+    ).publicConfig.programId,
+    completed.publicConfig.programId,
+  );
+  await assertNoWindowsDirectoryPinHelper();
 });
 
 test("candidate views exclude the hermetic fixture identities and hashes", async () => {
