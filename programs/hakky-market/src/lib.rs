@@ -10,17 +10,14 @@ solana_program::entrypoint!(process_instruction);
 pub mod constants;
 pub mod error;
 pub mod instruction;
+pub mod math;
 pub mod pda;
 pub mod state;
 
 #[cfg(feature = "test-release-config")]
 mod test_release_config;
 
-use solana_program::{
-    account_info::AccountInfo,
-    entrypoint::ProgramResult,
-    pubkey::Pubkey,
-};
+use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubkey::Pubkey};
 
 pub fn process_instruction(
     _program_id: &Pubkey,
