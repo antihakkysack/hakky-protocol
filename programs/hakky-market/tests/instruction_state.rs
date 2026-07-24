@@ -242,6 +242,58 @@ fn state_fixture_hashes_and_phase_rules_are_frozen() {
 }
 
 #[test]
+fn every_state_invariant_branch_returns_invalid_market_state() {
+    let curve_initial = MarketStateV1::initial_fixture();
+    let mut pool_initial = curve_initial.clone();
+    pool_initial.phase = 1;
+    pool_initial.curve_sold = CURVE_MAX;
+    pool_initial.accounted_hakky = POOL_SEED;
+    pool_initial.accounted_wsol = TERMINAL_QUOTE;
+
+    let mut cases = Vec::new();
+
+    let mut curve_sold_bound = curve_initial.clone();
+    curve_sold_bound.curve_sold = CURVE_MAX + 1;
+    cases.push(("curve sold bound", curve_sold_bound));
+
+    let mut curve_base_equation = curve_initial.clone();
+    curve_base_equation.accounted_hakky -= 1;
+    cases.push(("curve base equation", curve_base_equation));
+
+    let mut curve_quote_equation = curve_initial;
+    curve_quote_equation.accounted_wsol = 1;
+    cases.push(("curve quote equation", curve_quote_equation));
+
+    let mut pool_sold_equality = pool_initial.clone();
+    pool_sold_equality.curve_sold -= 1;
+    cases.push(("pool sold equality", pool_sold_equality));
+
+    let mut pool_zero_base = pool_initial.clone();
+    pool_zero_base.accounted_hakky = 0;
+    cases.push(("pool zero base", pool_zero_base));
+
+    let mut pool_base_upper_bound = pool_initial.clone();
+    pool_base_upper_bound.accounted_hakky = TOTAL_SUPPLY + 1;
+    cases.push(("pool base upper bound", pool_base_upper_bound));
+
+    let mut pool_zero_quote = pool_initial.clone();
+    pool_zero_quote.accounted_wsol = 0;
+    cases.push(("pool zero quote", pool_zero_quote));
+
+    let mut pool_product_floor = pool_initial;
+    pool_product_floor.accounted_wsol -= 1;
+    cases.push(("pool product floor", pool_product_floor));
+
+    for (label, state) in cases {
+        assert_eq!(
+            state.validate(),
+            Err(custom(HakkyErrorV1::InvalidMarketState)),
+            "{label}"
+        );
+    }
+}
+
+#[test]
 fn wrong_nonce_is_rejected_before_pda_derivation() {
     assert_eq!(
         MarketPdasV1::derive_canonical(&[8_u8; 32]),

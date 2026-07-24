@@ -3,10 +3,12 @@ import { createHash, randomBytes } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import {
   chmod,
+  link,
   lstat,
   mkdir,
   mkdtemp,
   open,
+  readFile,
   readdir,
   realpath,
   rename,
@@ -23,6 +25,8 @@ export const INSTANCE_DOMAIN = "HAKKY_INSTANCE_V1";
 export const METADATA_URI = "https://hakky.xyz/metadata/hakky-v1.json";
 export const RELEASE_SCHEMA_VERSION = "hakky-release-config-v1";
 export const RELEASE_NETWORK = "devnet";
+const PUBLICATION_SCHEMA_VERSION = "hakky-release-publication-v1";
+const PUBLICATION_JOURNAL_NAME = ".hakky-release-publication-v1.json";
 export const FIXED_RELEASE_IDENTITIES = Object.freeze({
   systemProgram: "11111111111111111111111111111111",
   loaderProgram: "BPFLoaderUpgradeab1e11111111111111111111111",
@@ -827,7 +831,7 @@ foreach ($rule in $applied.Access) {
 
 function windowsPinScript(
   paths,
-  { holdOpen = false, createStaging = null } = {},
+  { holdOpen = false, createStaging = null, attachStaging = null } = {},
 ) {
   const encodedPaths = paths
     .map(
@@ -835,9 +839,11 @@ function windowsPinScript(
         `'${Buffer.from(candidate, "utf8").toString("base64")}'`,
     )
     .join(", ");
-  const createRootIndex = createStaging?.rootIndex ?? -1;
-  const encodedPrivatePath = createStaging
-    ? Buffer.from(createStaging.destination, "utf8").toString("base64")
+  const stagingOptions = createStaging ?? attachStaging;
+  const createRootIndex = stagingOptions?.rootIndex ?? -1;
+  const attachStagingIndex = attachStaging?.stagingIndex ?? -1;
+  const encodedPrivatePath = stagingOptions
+    ? Buffer.from(stagingOptions.destination, "utf8").toString("base64")
     : "";
   return `
 Add-Type -TypeDefinition @'
@@ -845,8 +851,9 @@ ${WINDOWS_PIN_TYPE}
 '@
 $encodedPaths = @(${encodedPaths})
 $createRootIndex = ${createRootIndex}
+$attachStagingIndex = ${attachStagingIndex}
 $privatePath = ${
-    createStaging
+    stagingOptions
       ? `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPrivatePath}'))`
       : "$null"
   }
@@ -861,11 +868,14 @@ try {
     )
     $pin = [HakkyDirectoryPin]::new(
       $candidate,
-      $false,
+      $index -eq $attachStagingIndex,
       $index -eq $createRootIndex
     )
     [void]$pins.Add($pin)
     $identities += $pin.Identity
+  }
+  if ($attachStagingIndex -ge 0) {
+    $stagingPin = $pins[$attachStagingIndex]
   }
   [Console]::Out.WriteLine(
     (ConvertTo-Json -Compress -InputObject ([string[]]$identities))
@@ -1061,7 +1071,7 @@ function withDeadline(promise, message) {
 async function createWindowsDirectoryIdentityPin(
   paths,
   label,
-  { createStaging } = {},
+  { createStaging, attachStaging } = {},
 ) {
   const retainedPaths = [...paths];
   const child = spawn(
@@ -1073,6 +1083,7 @@ async function createWindowsDirectoryIdentityPin(
       windowsPinScript(paths, {
         holdOpen: true,
         createStaging,
+        attachStaging,
       }),
     ],
     {
@@ -1235,33 +1246,51 @@ async function createWindowsDirectoryIdentityPin(
       await this.verify();
     },
     async createStagingPin(stagingName) {
-      if (!createStaging) {
+      if (!createStaging && !attachStaging) {
         throw new Error(`${label} identity pin cannot create staging`);
       }
       if (stagingFacade) {
         throw new Error(`${label} staging identity is already retained`);
       }
-      const response = await sendCommand(
-        "CREATE_STAGING",
-        Buffer.from(stagingName, "utf8").toString("base64"),
-      );
-      const expectedPath = path.join(
-        retainedPaths[createStaging.rootIndex],
-        stagingName,
-      );
-      const stagingIndex = identities.length;
-      const expectedIdentities = [...identities, response.identity];
-      if (
-        response.name !== stagingName ||
-        typeof response.identity !== "string" ||
-        !sameIdentities(expectedIdentities, response.identities)
-      ) {
-        throw new Error(
-          `${label} identity pin returned invalid staging identity data`,
+      let response;
+      let expectedPath;
+      let stagingIndex;
+      if (attachStaging) {
+        stagingIndex = attachStaging.stagingIndex;
+        expectedPath = retainedPaths[stagingIndex];
+        if (
+          stagingIndex !== retainedPaths.length - 1 ||
+          path.basename(expectedPath) !== stagingName
+        ) {
+          throw new Error(`${label} attached staging identity is invalid`);
+        }
+        response = {
+          identity: identities[stagingIndex],
+          name: stagingName,
+        };
+      } else {
+        response = await sendCommand(
+          "CREATE_STAGING",
+          Buffer.from(stagingName, "utf8").toString("base64"),
         );
+        expectedPath = path.join(
+          retainedPaths[createStaging.rootIndex],
+          stagingName,
+        );
+        stagingIndex = identities.length;
+        const expectedIdentities = [...identities, response.identity];
+        if (
+          response.name !== stagingName ||
+          typeof response.identity !== "string" ||
+          !sameIdentities(expectedIdentities, response.identities)
+        ) {
+          throw new Error(
+            `${label} identity pin returned invalid staging identity data`,
+          );
+        }
+        retainedPaths.push(expectedPath);
+        identities.push(response.identity);
       }
-      retainedPaths.push(expectedPath);
-      identities.push(response.identity);
       let stagingReleased = false;
       stagingFacade = {
         retainedIdentity: response.identity,
@@ -1911,6 +1940,325 @@ async function writeOwnedTemporaryFile(
   throw new Error("unable to allocate a public temporary path");
 }
 
+function isOwnedTemporaryPath(temporaryPath, finalPath) {
+  return (
+    typeof temporaryPath === "string" &&
+    path.dirname(temporaryPath) === path.dirname(finalPath) &&
+    new RegExp(
+      `^\\.${path
+        .basename(finalPath)
+        .replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}\\.[0-9a-f]{24}\\.tmp$`,
+      "u",
+    ).test(path.basename(temporaryPath))
+  );
+}
+
+async function validateOwnedTemporaryFile(
+  temporaryPath,
+  finalPath,
+  expectedContents,
+  beforeRead,
+) {
+  if (!isOwnedTemporaryPath(temporaryPath, finalPath)) {
+    throw new Error("publication journal names an invalid temporary path");
+  }
+  await beforeRead();
+  const namedEntry = await lstat(temporaryPath, { bigint: true });
+  if (!namedEntry.isFile() || namedEntry.isSymbolicLink()) {
+    throw new Error("publication temporary path is not a regular file");
+  }
+  const handle = await open(
+    temporaryPath,
+    fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const openedEntry = await handle.stat({ bigint: true });
+    if (
+      openedEntry.dev !== namedEntry.dev ||
+      openedEntry.ino !== namedEntry.ino
+    ) {
+      throw new Error("publication temporary path changed while opening");
+    }
+    const contents = await handle.readFile("utf8");
+    if (contents !== expectedContents) {
+      throw new Error("publication temporary contents do not match the journal");
+    }
+  } finally {
+    await handle.close();
+  }
+  return namedEntry;
+}
+
+async function readRegularFile(candidate, beforeRead) {
+  await beforeRead();
+  const namedEntry = await lstat(candidate, { bigint: true });
+  if (!namedEntry.isFile() || namedEntry.isSymbolicLink()) {
+    throw new Error(`${candidate} is not a regular file`);
+  }
+  const handle = await open(
+    candidate,
+    fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0),
+  );
+  try {
+    const openedEntry = await handle.stat({ bigint: true });
+    if (
+      openedEntry.dev !== namedEntry.dev ||
+      openedEntry.ino !== namedEntry.ino
+    ) {
+      throw new Error(`${candidate} changed while opening`);
+    }
+    return {
+      contents: await handle.readFile("utf8"),
+      entry: namedEntry,
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+async function createPublicBackupIfPresent(finalPath, beforeMutation) {
+  let existing;
+  try {
+    existing = await readRegularFile(finalPath, beforeMutation);
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+  return writeOwnedTemporaryFile(
+    finalPath,
+    existing.contents,
+    beforeMutation,
+  );
+}
+
+async function publishOwnedTemporaryLinkNoReplace(
+  temporaryPath,
+  finalPath,
+  expectedContents,
+  beforeMutation,
+) {
+  const sourceEntry = await validateOwnedTemporaryFile(
+    temporaryPath,
+    finalPath,
+    expectedContents,
+    beforeMutation,
+  );
+  await beforeMutation();
+  await link(temporaryPath, finalPath);
+  try {
+    await beforeMutation();
+    const finalEntry = await lstat(finalPath, { bigint: true });
+    if (
+      !finalEntry.isFile() ||
+      finalEntry.isSymbolicLink() ||
+      finalEntry.dev !== sourceEntry.dev ||
+      finalEntry.ino !== sourceEntry.ino
+    ) {
+      throw new Error("published public view is not the owned temporary file");
+    }
+  } catch (error) {
+    try {
+      const finalEntry = await lstat(finalPath, { bigint: true });
+      if (
+        finalEntry.dev === sourceEntry.dev &&
+        finalEntry.ino === sourceEntry.ino
+      ) {
+        await beforeMutation();
+        await unlink(finalPath);
+      }
+    } catch (cleanupError) {
+      if (cleanupError?.code !== "ENOENT") {
+        throw new AggregateError(
+          [error, cleanupError],
+          "public link publication and rollback failed",
+        );
+      }
+    }
+    throw error;
+  }
+}
+
+async function publishPublicViewWithBackup(view, beforeMutation) {
+  if (!view.backupPath) {
+    await publishOwnedTemporaryLinkNoReplace(
+      view.temporaryPath,
+      view.finalPath,
+      view.contents,
+      beforeMutation,
+    );
+    return;
+  }
+  const backup = await readRegularFile(view.backupPath, beforeMutation);
+  const current = await readRegularFile(view.finalPath, beforeMutation);
+  const sourceEntry = await validateOwnedTemporaryFile(
+    view.temporaryPath,
+    view.finalPath,
+    view.contents,
+    beforeMutation,
+  );
+  if (backup.contents !== current.contents) {
+    throw new Error(`public destination ${view.finalPath} changed before publication`);
+  }
+  const promotionPath = `${view.temporaryPath}.promote`;
+  await beforeMutation();
+  await link(view.temporaryPath, promotionPath);
+  try {
+    await beforeMutation();
+    await rename(promotionPath, view.finalPath);
+    await beforeMutation();
+    const finalEntry = await lstat(view.finalPath, { bigint: true });
+    if (
+      finalEntry.dev !== sourceEntry.dev ||
+      finalEntry.ino !== sourceEntry.ino
+    ) {
+      throw new Error(`public destination ${view.finalPath} changed after publication`);
+    }
+  } finally {
+    try {
+      await beforeMutation();
+      await unlink(promotionPath);
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+}
+
+async function rollbackPublicView(view, beforeMutation) {
+  let finalEntry;
+  let sourceEntry;
+  try {
+    finalEntry = await lstat(view.finalPath, { bigint: true });
+    sourceEntry = await lstat(view.temporaryPath, { bigint: true });
+  } catch (error) {
+    if (error?.code === "ENOENT") {
+      if (!view.backupPath) {
+        return;
+      }
+      const backup = await readRegularFile(view.backupPath, beforeMutation);
+      const restorePath = `${view.backupPath}.restore`;
+      await beforeMutation();
+      await link(view.backupPath, restorePath);
+      try {
+        await beforeMutation();
+        await rename(restorePath, view.finalPath);
+      } finally {
+        await unlink(restorePath).catch((cleanupError) => {
+          if (cleanupError?.code !== "ENOENT") {
+            throw cleanupError;
+          }
+        });
+      }
+      const restored = await lstat(view.finalPath, { bigint: true });
+      if (
+        restored.dev !== backup.entry.dev ||
+        restored.ino !== backup.entry.ino
+      ) {
+        throw new Error(`public destination ${view.finalPath} was not restored`);
+      }
+      return;
+    }
+    throw error;
+  }
+  const isPublished =
+    finalEntry.dev === sourceEntry.dev && finalEntry.ino === sourceEntry.ino;
+  if (!isPublished) {
+    if (!view.backupPath) {
+      return;
+    }
+    const backup = await readRegularFile(view.backupPath, beforeMutation);
+    const current = await readRegularFile(view.finalPath, beforeMutation);
+    if (backup.contents !== current.contents) {
+      throw new Error(
+        `public destination ${view.finalPath} is neither published nor the retained original`,
+      );
+    }
+    return;
+  }
+  if (!view.backupPath) {
+    await beforeMutation();
+    await unlink(view.finalPath);
+    return;
+  }
+  const backup = await readRegularFile(view.backupPath, beforeMutation);
+  const restorePath = `${view.backupPath}.restore`;
+  await beforeMutation();
+  await link(view.backupPath, restorePath);
+  try {
+    await beforeMutation();
+    await rename(restorePath, view.finalPath);
+  } finally {
+    await unlink(restorePath).catch((cleanupError) => {
+      if (cleanupError?.code !== "ENOENT") {
+        throw cleanupError;
+      }
+    });
+  }
+  const restored = await lstat(view.finalPath, { bigint: true });
+  if (
+    restored.dev !== backup.entry.dev ||
+    restored.ino !== backup.entry.ino
+  ) {
+    throw new Error(`public destination ${view.finalPath} was not restored`);
+  }
+}
+
+function assertPublicationJournal(journal, publicFinalPaths) {
+  if (
+    journal === null ||
+    typeof journal !== "object" ||
+    Array.isArray(journal) ||
+    Object.keys(journal).sort().join(",") !==
+      "backupFiles,publicConfig,schemaVersion,stagingName,temporaryFiles" ||
+    journal.schemaVersion !== PUBLICATION_SCHEMA_VERSION ||
+    typeof journal.stagingName !== "string" ||
+    path.basename(journal.stagingName) !== journal.stagingName ||
+    !journal.stagingName.startsWith(".private-stage-") ||
+    journal.temporaryFiles === null ||
+    typeof journal.temporaryFiles !== "object" ||
+    Array.isArray(journal.temporaryFiles) ||
+    Object.keys(journal.temporaryFiles).sort().join(",") !==
+      "javascriptConfig,publicConfig,rustConfig" ||
+    journal.backupFiles === null ||
+    typeof journal.backupFiles !== "object" ||
+    Array.isArray(journal.backupFiles) ||
+    Object.keys(journal.backupFiles).sort().join(",") !==
+      "javascriptConfig,publicConfig,rustConfig"
+  ) {
+    throw new Error("publication journal has an invalid closed schema");
+  }
+  assertReleaseConfig(journal.publicConfig);
+  for (const [key, finalPath] of Object.entries(publicFinalPaths)) {
+    const temporaryName = journal.temporaryFiles[key];
+    if (
+      typeof temporaryName !== "string" ||
+      path.basename(temporaryName) !== temporaryName ||
+      !isOwnedTemporaryPath(
+        path.join(path.dirname(finalPath), temporaryName),
+        finalPath,
+      )
+    ) {
+      throw new Error("publication journal has an invalid temporary file name");
+    }
+    const backupName = journal.backupFiles[key];
+    if (
+      backupName !== null &&
+      (typeof backupName !== "string" ||
+        path.basename(backupName) !== backupName ||
+        !isOwnedTemporaryPath(
+          path.join(path.dirname(finalPath), backupName),
+          finalPath,
+        ) ||
+        backupName === temporaryName)
+    ) {
+      throw new Error("publication journal has an invalid backup file name");
+    }
+  }
+}
+
 async function directoryRenameNoReplace(source, destination) {
   if (process.platform === "win32") {
     const encodedSource = Buffer.from(source, "utf8").toString("base64");
@@ -2061,6 +2409,7 @@ export async function generateDevnetReleaseConfig(options) {
     "postValidationHook",
     "postSecretFileWriteHook",
     "postStagingPinReleaseHook",
+    "postPublicPromotionHook",
   ];
   if (
     options === null ||
@@ -2086,6 +2435,7 @@ export async function generateDevnetReleaseConfig(options) {
     postValidationHook,
     postSecretFileWriteHook,
     postStagingPinReleaseHook,
+    postPublicPromotionHook,
   } = options;
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new TypeError("repository root must be an absolute path");
@@ -2132,6 +2482,12 @@ export async function generateDevnetReleaseConfig(options) {
   ) {
     throw new TypeError("post-staging-pin-release hook must be a function");
   }
+  if (
+    postPublicPromotionHook !== undefined &&
+    typeof postPublicPromotionHook !== "function"
+  ) {
+    throw new TypeError("post-public-promotion hook must be a function");
+  }
   const root = path.resolve(repositoryRoot);
   const rootEntry = await lstat(root);
   await assertNotRedirected(root, rootEntry, "repository root");
@@ -2152,17 +2508,9 @@ export async function generateDevnetReleaseConfig(options) {
     rootReal,
     "devnet directory",
   );
-  const incompleteStagingName = (await readdir(devnetDirectory))
+  const incompleteStagingNames = (await readdir(devnetDirectory))
     .filter((entry) => entry.startsWith(".private-stage-"))
-    .sort()[0];
-  if (incompleteStagingName) {
-    throw new Error(
-      `protected incomplete staging retained at ${path.join(
-        devnetDirectory,
-        incompleteStagingName,
-      )}; explicit recovery required`,
-    );
-  }
+    .sort();
 
   const programsDirectory = path.join(root, "programs");
   await assertSafeDirectory(programsDirectory, rootReal, "programs directory");
@@ -2194,7 +2542,6 @@ export async function generateDevnetReleaseConfig(options) {
         "private identity path already exists and is redirected by a reparse point",
       );
     }
-    throw new Error("private identity path already exists");
   }
 
   const publicConfigPath = path.join(
@@ -2206,6 +2553,57 @@ export async function generateDevnetReleaseConfig(options) {
     generatedSourceDirectory,
     "hakky-release-config.generated.mjs",
   );
+  const publicationJournalPath = path.join(
+    devnetDirectory,
+    PUBLICATION_JOURNAL_NAME,
+  );
+  const publicFinalPaths = {
+    publicConfig: publicConfigPath,
+    rustConfig: rustConfigPath,
+    javascriptConfig: javascriptConfigPath,
+  };
+  let publicationJournal;
+  const existingJournalEntry = await lstatIfExists(publicationJournalPath);
+  if (existingJournalEntry) {
+    await assertSafeOptionalFile(
+      publicationJournalPath,
+      rootReal,
+      "publication journal",
+    );
+    const journalBytes = await readFile(publicationJournalPath, "utf8");
+    try {
+      publicationJournal = JSON.parse(journalBytes);
+    } catch (error) {
+      throw new Error("publication journal is not valid JSON", { cause: error });
+    }
+    assertPublicationJournal(publicationJournal, publicFinalPaths);
+    if (`${JSON.stringify(publicationJournal)}\n` !== journalBytes) {
+      throw new Error("publication journal is not canonical");
+    }
+    const stagingMatches =
+      incompleteStagingNames.length === 1 &&
+      incompleteStagingNames[0] === publicationJournal.stagingName;
+    if (
+      (!existingPrivateEntry && !stagingMatches) ||
+      (existingPrivateEntry && incompleteStagingNames.length !== 0)
+    ) {
+      throw new Error(
+        "publication journal does not match the retained identity state",
+      );
+    }
+  } else {
+    if (incompleteStagingNames.length > 0) {
+      throw new Error(
+        `protected incomplete staging retained at ${path.join(
+          devnetDirectory,
+          incompleteStagingNames[0],
+        )}; explicit recovery required`,
+      );
+    }
+    if (existingPrivateEntry) {
+      throw new Error("private identity path already exists");
+    }
+  }
   await assertSafeOptionalFile(
     publicConfigPath,
     rootReal,
@@ -2230,6 +2628,11 @@ export async function generateDevnetReleaseConfig(options) {
     generatedSourceDirectory,
     sourceDirectory,
   ];
+  if (publicationJournal && !existingPrivateEntry) {
+    parentPaths.push(
+      path.join(devnetDirectory, publicationJournal.stagingName),
+    );
+  }
   const validatedParentIdentities =
     await readDirectoryIdentitySnapshot(parentPaths);
   if (preParentPinHook) {
@@ -2250,6 +2653,12 @@ export async function generateDevnetReleaseConfig(options) {
   let publicTemporaryPath;
   let rustTemporaryPath;
   let javascriptTemporaryPath;
+  let publicBackupPath;
+  let rustBackupPath;
+  let javascriptBackupPath;
+  let publicationJournalTemporaryPath;
+  let publicationRecoveryActive = Boolean(publicationJournal);
+  let privatePublished = Boolean(publicationJournal && existingPrivateEntry);
 
   async function verifyParentPin() {
     if (!parentIdentityPin) {
@@ -2289,12 +2698,130 @@ export async function generateDevnetReleaseConfig(options) {
     }
   }
 
+  function publicViews(publicConfig) {
+    return [
+      {
+        key: "publicConfig",
+        view: "public-config",
+        finalPath: publicConfigPath,
+        temporaryPath: publicTemporaryPath,
+        backupPath: publicBackupPath,
+        contents: `${JSON.stringify(publicConfig)}\n`,
+      },
+      {
+        key: "rustConfig",
+        view: "rust-config",
+        finalPath: rustConfigPath,
+        temporaryPath: rustTemporaryPath,
+        backupPath: rustBackupPath,
+        contents: renderRustReleaseConfig(publicConfig),
+      },
+      {
+        key: "javascriptConfig",
+        view: "javascript-config",
+        finalPath: javascriptConfigPath,
+        temporaryPath: javascriptTemporaryPath,
+        backupPath: javascriptBackupPath,
+        contents: renderJavaScriptReleaseConfig(publicConfig),
+      },
+    ];
+  }
+
+  async function rollbackPublicViews(views) {
+    for (const view of [...views].reverse()) {
+      await rollbackPublicView(view, verifyParentPin);
+    }
+  }
+
+  async function publishPublicViews(views) {
+    await verifyRetainedPins();
+    await invokeStagingHandoffHook("publication");
+    await verifyRetainedPins();
+    for (const view of views) {
+      await publishPublicViewWithBackup(view, verifyRetainedPins);
+      if (postPublicPromotionHook) {
+        await postPublicPromotionHook(
+          Object.freeze({
+            finalPath: view.finalPath,
+            view: view.view,
+          }),
+        );
+      }
+    }
+  }
+
+  async function finalizePublicationFiles(views) {
+    for (const view of views) {
+      await cleanupOwnedTemporaryFile(
+        view.temporaryPath,
+        view.finalPath,
+        verifyParentPin,
+      );
+      await cleanupOwnedTemporaryFile(
+        view.backupPath,
+        view.finalPath,
+        verifyParentPin,
+      );
+    }
+    await verifyParentPin();
+    await unlink(publicationJournalPath);
+    publicTemporaryPath = null;
+    rustTemporaryPath = null;
+    javascriptTemporaryPath = null;
+    publicBackupPath = null;
+    rustBackupPath = null;
+    javascriptBackupPath = null;
+    publicationJournal = null;
+    publicationRecoveryActive = false;
+  }
+
+  async function validatePublishedViews(views) {
+    for (const view of views) {
+      const published = await readRegularFile(
+        view.finalPath,
+        verifyParentPin,
+      );
+      if (published.contents !== view.contents) {
+        throw new Error(
+          `committed public view ${view.finalPath} does not match the journal`,
+        );
+      }
+      if (await lstatIfExists(view.temporaryPath)) {
+        const sourceEntry = await validateOwnedTemporaryFile(
+          view.temporaryPath,
+          view.finalPath,
+          view.contents,
+          verifyParentPin,
+        );
+        if (
+          published.entry.dev !== sourceEntry.dev ||
+          published.entry.ino !== sourceEntry.ino
+        ) {
+          throw new Error(
+            `committed public view ${view.finalPath} is not the journaled file`,
+          );
+        }
+      }
+      if (view.backupPath && (await lstatIfExists(view.backupPath))) {
+        await readRegularFile(view.backupPath, verifyParentPin);
+      }
+    }
+  }
+
   try {
     parentIdentityPin = await createDirectoryIdentityPin(
       parentPaths,
       "parent",
       process.platform === "win32"
-        ? {
+        ? publicationRecoveryActive && !privatePublished
+          ? {
+              attachStaging: {
+                destination: privateDirectory,
+                rootIndex: 2,
+                stagingIndex: parentPaths.length - 1,
+              },
+            }
+          : {
             createStaging: {
               destination: privateDirectory,
               rootIndex: 2,
@@ -2320,7 +2847,7 @@ export async function generateDevnetReleaseConfig(options) {
     parentIdentityPin.assertMatches(validatedParentIdentities);
 
     const currentPrivateEntry = await lstatIfExists(privateDirectory);
-    if (currentPrivateEntry) {
+    if (currentPrivateEntry && !publicationRecoveryActive) {
       if (
         currentPrivateEntry.isSymbolicLink() ||
         (await isWindowsReparsePoint(privateDirectory))
@@ -2330,6 +2857,130 @@ export async function generateDevnetReleaseConfig(options) {
         );
       }
       throw new Error("private identity path already exists");
+    }
+
+    if (publicationRecoveryActive) {
+      const publicConfig = publicationJournal.publicConfig;
+      const canonicalPublicJson = `${JSON.stringify(publicConfig)}\n`;
+      stagingDirectory = currentPrivateEntry
+        ? null
+        : path.join(devnetDirectory, publicationJournal.stagingName);
+      publicTemporaryPath = path.join(
+        path.dirname(publicConfigPath),
+        publicationJournal.temporaryFiles.publicConfig,
+      );
+      rustTemporaryPath = path.join(
+        path.dirname(rustConfigPath),
+        publicationJournal.temporaryFiles.rustConfig,
+      );
+      javascriptTemporaryPath = path.join(
+        path.dirname(javascriptConfigPath),
+        publicationJournal.temporaryFiles.javascriptConfig,
+      );
+      publicBackupPath = publicationJournal.backupFiles.publicConfig
+        ? path.join(
+            path.dirname(publicConfigPath),
+            publicationJournal.backupFiles.publicConfig,
+          )
+        : null;
+      rustBackupPath = publicationJournal.backupFiles.rustConfig
+        ? path.join(
+            path.dirname(rustConfigPath),
+            publicationJournal.backupFiles.rustConfig,
+          )
+        : null;
+      javascriptBackupPath = publicationJournal.backupFiles.javascriptConfig
+        ? path.join(
+            path.dirname(javascriptConfigPath),
+            publicationJournal.backupFiles.javascriptConfig,
+          )
+        : null;
+      const views = publicViews(publicConfig);
+
+      if (currentPrivateEntry) {
+        await validatePublishedViews(views);
+        await finalizePublicationFiles(views);
+        await parentIdentityPin.release();
+        parentIdentityPin = null;
+        return {
+          canonicalPublicJson,
+          publicConfig,
+          repositoryRoot: root,
+        };
+      }
+
+      for (const view of views) {
+        await validateOwnedTemporaryFile(
+          view.temporaryPath,
+          view.finalPath,
+          view.contents,
+          verifyParentPin,
+        );
+        if (view.backupPath) {
+          await readRegularFile(view.backupPath, verifyParentPin);
+        }
+      }
+
+      const pinnedStagingParentReal = await validatePrivateDirectory(
+        devnetDirectory,
+        pinnedArtifactsReal,
+        "devnet recovery parent",
+      );
+      stagingIdentityPin =
+        process.platform === "win32"
+          ? await parentIdentityPin.createStagingPin(
+              publicationJournal.stagingName,
+            )
+          : await createDirectoryIdentityPin(
+              [devnetDirectory, stagingDirectory],
+              "staging recovery",
+            );
+      const stagingReal = await validatePrivateDirectory(
+        stagingDirectory,
+        pinnedStagingParentReal,
+        "retained private staging",
+      );
+      await verifyRetainedPins();
+      const expectedNames = [
+        "initializer-keypair.json",
+        "instance-nonce.hex",
+        "program-keypair.json",
+      ];
+      const stagedNames = (await readdir(stagingDirectory)).sort();
+      if (
+        stagedNames.length !== expectedNames.length ||
+        stagedNames.some((name, index) => name !== expectedNames[index])
+      ) {
+        throw new Error("retained private staging is not the exact identity set");
+      }
+      for (const fileName of expectedNames) {
+        await validatePrivateFile(
+          path.join(stagingDirectory, fileName),
+          stagingReal,
+        );
+      }
+      await rollbackPublicViews(views);
+      await publishPublicViews(views);
+      await verifyRetainedPins();
+      if (process.platform === "win32") {
+        await stagingIdentityPin.publishPrivate();
+      } else {
+        await directoryRenameNoReplace(stagingDirectory, privateDirectory);
+        await stagingIdentityPin.verifyPublished(privateDirectory, 1);
+      }
+      stagingDirectory = null;
+      privatePublished = true;
+      await verifyParentPin();
+      await finalizePublicationFiles(views);
+      await stagingIdentityPin.release();
+      stagingIdentityPin = null;
+      await parentIdentityPin.release();
+      parentIdentityPin = null;
+      return {
+        canonicalPublicJson,
+        publicConfig,
+        repositoryRoot: root,
+      };
     }
 
     let stagingReal;
@@ -2475,9 +3126,60 @@ export async function generateDevnetReleaseConfig(options) {
       renderJavaScriptReleaseConfig(publicConfig),
       verifyRetainedPins,
     );
+    publicBackupPath = await createPublicBackupIfPresent(
+      publicConfigPath,
+      verifyRetainedPins,
+    );
+    rustBackupPath = await createPublicBackupIfPresent(
+      rustConfigPath,
+      verifyRetainedPins,
+    );
+    javascriptBackupPath = await createPublicBackupIfPresent(
+      javascriptConfigPath,
+      verifyRetainedPins,
+    );
 
-    await verifyRetainedPins();
-    await invokeStagingHandoffHook("publication");
+    publicationJournal = {
+      schemaVersion: PUBLICATION_SCHEMA_VERSION,
+      stagingName: path.basename(stagingDirectory),
+      publicConfig,
+      temporaryFiles: {
+        publicConfig: path.basename(publicTemporaryPath),
+        rustConfig: path.basename(rustTemporaryPath),
+        javascriptConfig: path.basename(javascriptTemporaryPath),
+      },
+      backupFiles: {
+        publicConfig: publicBackupPath
+          ? path.basename(publicBackupPath)
+          : null,
+        rustConfig: rustBackupPath ? path.basename(rustBackupPath) : null,
+        javascriptConfig: javascriptBackupPath
+          ? path.basename(javascriptBackupPath)
+          : null,
+      },
+    };
+    const publicationJournalBytes = `${JSON.stringify(publicationJournal)}\n`;
+    publicationJournalTemporaryPath = await writeOwnedTemporaryFile(
+      publicationJournalPath,
+      publicationJournalBytes,
+      verifyRetainedPins,
+    );
+    await publishOwnedTemporaryLinkNoReplace(
+      publicationJournalTemporaryPath,
+      publicationJournalPath,
+      publicationJournalBytes,
+      verifyRetainedPins,
+    );
+    publicationRecoveryActive = true;
+    await cleanupOwnedTemporaryFile(
+      publicationJournalTemporaryPath,
+      publicationJournalPath,
+      verifyRetainedPins,
+    );
+    publicationJournalTemporaryPath = null;
+
+    const views = publicViews(publicConfig);
+    await publishPublicViews(views);
     await verifyRetainedPins();
     if (process.platform === "win32") {
       await stagingIdentityPin.publishPrivate();
@@ -2486,15 +3188,9 @@ export async function generateDevnetReleaseConfig(options) {
       await stagingIdentityPin.verifyPublished(privateDirectory, 1);
     }
     stagingDirectory = null;
+    privatePublished = true;
     await verifyParentPin();
-    await rename(publicTemporaryPath, publicConfigPath);
-    publicTemporaryPath = null;
-    await verifyParentPin();
-    await rename(rustTemporaryPath, rustConfigPath);
-    rustTemporaryPath = null;
-    await verifyParentPin();
-    await rename(javascriptTemporaryPath, javascriptConfigPath);
-    javascriptTemporaryPath = null;
+    await finalizePublicationFiles(views);
 
     const result = {
       canonicalPublicJson,
@@ -2508,6 +3204,44 @@ export async function generateDevnetReleaseConfig(options) {
     return result;
   } catch (error) {
     const cleanupErrors = [];
+    if (publicationRecoveryActive && publicationJournal) {
+      if (!privatePublished) {
+        try {
+          await rollbackPublicViews(publicViews(publicationJournal.publicConfig));
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (stagingIdentityPin) {
+        try {
+          await releaseStagingPin();
+          stagingIdentityPin = null;
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      if (parentIdentityPin) {
+        try {
+          await parentIdentityPin.release();
+          parentIdentityPin = null;
+        } catch (cleanupError) {
+          cleanupErrors.push(cleanupError);
+        }
+      }
+      const retainedLocation = privatePublished
+        ? privateDirectory
+        : stagingDirectory;
+      if (cleanupErrors.length > 0) {
+        throw new AggregateError(
+          [error, ...cleanupErrors],
+          `protected incomplete staging retained at ${retainedLocation}; recoverable publication rollback or pin release failed`,
+        );
+      }
+      throw new Error(
+        `protected incomplete staging retained at ${retainedLocation}; recoverable publication retained; retry generation to resume: ${error.message}`,
+        { cause: error },
+      );
+    }
     if (
       privateHandleCreated &&
       stagingDirectory &&
@@ -2536,6 +3270,30 @@ export async function generateDevnetReleaseConfig(options) {
           cleanupOwnedTemporaryFile(
             javascriptTemporaryPath,
             javascriptConfigPath,
+            verifyParentPin,
+          ),
+        () =>
+          cleanupOwnedTemporaryFile(
+            publicBackupPath,
+            publicConfigPath,
+            verifyParentPin,
+          ),
+        () =>
+          cleanupOwnedTemporaryFile(
+            rustBackupPath,
+            rustConfigPath,
+            verifyParentPin,
+          ),
+        () =>
+          cleanupOwnedTemporaryFile(
+            javascriptBackupPath,
+            javascriptConfigPath,
+            verifyParentPin,
+          ),
+        () =>
+          cleanupOwnedTemporaryFile(
+            publicationJournalTemporaryPath,
+            publicationJournalPath,
             verifyParentPin,
           ),
       ]) {
@@ -2609,6 +3367,30 @@ export async function generateDevnetReleaseConfig(options) {
         cleanupOwnedTemporaryFile(
           javascriptTemporaryPath,
           javascriptConfigPath,
+          verifyParentPin,
+        ),
+      () =>
+        cleanupOwnedTemporaryFile(
+          publicBackupPath,
+          publicConfigPath,
+          verifyParentPin,
+        ),
+      () =>
+        cleanupOwnedTemporaryFile(
+          rustBackupPath,
+          rustConfigPath,
+          verifyParentPin,
+        ),
+      () =>
+        cleanupOwnedTemporaryFile(
+          javascriptBackupPath,
+          javascriptConfigPath,
+          verifyParentPin,
+        ),
+      () =>
+        cleanupOwnedTemporaryFile(
+          publicationJournalTemporaryPath,
+          publicationJournalPath,
           verifyParentPin,
         ),
     ];

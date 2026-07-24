@@ -177,6 +177,161 @@ test("generation rejects identity overrides before key generation", async (t) =>
   assert.equal(keyGenerationReached, false);
 });
 
+test("every public-view promotion failure rolls back and resumes the retained identity", async (t) => {
+  for (const failedView of [
+    "public-config",
+    "rust-config",
+    "javascript-config",
+  ]) {
+    await t.test(failedView, async (t) => {
+      const root = await isolatedRepository(t);
+      const devnetDirectory = path.join(root, "artifacts", "devnet");
+      const publicPaths = [
+        path.join(root, "config", "hakky-release-v1.json"),
+        path.join(
+          root,
+          "programs",
+          "hakky-market",
+          "src",
+          "constants.rs",
+        ),
+        path.join(root, "src", "hakky-release-config.generated.mjs"),
+      ];
+      let retainedProgramId;
+
+      await assert.rejects(
+        generateDevnetReleaseConfig({
+          repositoryRoot: root,
+          async postPublicPromotionHook({ view }) {
+            if (view === failedView) {
+              retainedProgramId = JSON.parse(
+                await readFile(publicPaths[0], "utf8"),
+              ).programId;
+              throw new Error(`injected ${view} promotion failure`);
+            }
+          },
+        }),
+        new RegExp(
+          `injected ${failedView} promotion failure|recoverable publication`,
+          "iu",
+        ),
+      );
+
+      assert.ok(retainedProgramId, "failure must observe the promoted identity");
+      for (const publicPath of publicPaths) {
+        assert.equal(
+          await lstatIfExistsForTest(publicPath),
+          null,
+          `${failedView} must roll back every public view`,
+        );
+      }
+      const recoveryNames = await readdir(devnetDirectory);
+      assert.equal(
+        recoveryNames.filter((name) => name.startsWith(".private-stage-"))
+          .length,
+        1,
+      );
+      assert.equal(
+        recoveryNames.includes(".hakky-release-publication-v1.json"),
+        true,
+      );
+
+      let regenerated = false;
+      const recovered = await generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async beforeKeyGenerationHook() {
+          regenerated = true;
+          throw new Error("recovery must not generate another identity");
+        },
+      });
+      assert.equal(regenerated, false);
+      assert.equal(recovered.publicConfig.programId, retainedProgramId);
+      assert.equal(
+        await readFile(publicPaths[0], "utf8"),
+        recovered.canonicalPublicJson,
+      );
+      assert.equal(
+        await readFile(publicPaths[1], "utf8"),
+        renderRustReleaseConfig(recovered.publicConfig),
+      );
+      assert.equal(
+        await readFile(publicPaths[2], "utf8"),
+        renderJavaScriptReleaseConfig(recovered.publicConfig),
+      );
+      assert.deepEqual(
+        (await readdir(devnetDirectory)).sort(),
+        ["private"],
+      );
+      assert.deepEqual(
+        (await readdir(path.join(devnetDirectory, "private"))).sort(),
+        [
+          "initializer-keypair.json",
+          "instance-nonce.hex",
+          "program-keypair.json",
+        ],
+      );
+    });
+  }
+});
+
+test("a process crash during publication resumes from the durable journal", async (t) => {
+  const root = await isolatedRepository(t);
+  const moduleUrl = new URL("../src/devnet-release-config.mjs", import.meta.url)
+    .href;
+  const childSource = `
+import { generateDevnetReleaseConfig } from ${JSON.stringify(moduleUrl)};
+await generateDevnetReleaseConfig({
+  repositoryRoot: ${JSON.stringify(root)},
+  postPublicPromotionHook({ view }) {
+    if (view === "rust-config") {
+      process.exit(47);
+    }
+  },
+});
+`;
+  await assert.rejects(
+    execFileAsync(process.execPath, [
+      "--input-type=module",
+      "--eval",
+      childSource,
+    ]),
+    (error) => error?.code === 47,
+  );
+
+  const devnetDirectory = path.join(root, "artifacts", "devnet");
+  assert.equal(
+    (await readdir(devnetDirectory)).includes(
+      ".hakky-release-publication-v1.json",
+    ),
+    true,
+  );
+  assert.equal(
+    (await readdir(devnetDirectory)).filter((name) =>
+      name.startsWith(".private-stage-"),
+    ).length,
+    1,
+  );
+  const retainedProgramId = JSON.parse(
+    await readFile(
+      path.join(root, "config", "hakky-release-v1.json"),
+      "utf8",
+    ),
+  ).programId;
+
+  let regenerated = false;
+  const recovered = await generateDevnetReleaseConfig({
+    repositoryRoot: root,
+    async beforeKeyGenerationHook() {
+      regenerated = true;
+      throw new Error("crash recovery must not generate another identity");
+    },
+  });
+  assert.equal(regenerated, false);
+  assert.equal(recovered.publicConfig.programId, retainedProgramId);
+  assert.deepEqual((await readdir(devnetDirectory)).sort(), ["private"]);
+  await assertNoWindowsDirectoryPinHelper();
+});
+
 test("candidate views exclude the hermetic fixture identities and hashes", async () => {
   const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
   const candidatePaths = [
