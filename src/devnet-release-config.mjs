@@ -28,6 +28,8 @@ using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
@@ -36,13 +38,24 @@ public sealed class HakkyDirectoryPin : IDisposable
     private const uint FILE_SHARE_READ = 0x00000001;
     private const uint FILE_SHARE_WRITE = 0x00000002;
     private const uint FILE_LIST_DIRECTORY = 0x00000001;
+    private const uint FILE_ADD_SUBDIRECTORY = 0x00000004;
     private const uint FILE_READ_ATTRIBUTES = 0x00000080;
+    private const uint READ_CONTROL = 0x00020000;
+    private const uint WRITE_DAC = 0x00040000;
+    private const uint WRITE_OWNER = 0x00080000;
     private const uint DELETE = 0x00010000;
     private const uint OPEN_EXISTING = 3;
     private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
     private const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
     private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
     private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    private const uint OBJ_CASE_INSENSITIVE = 0x00000040;
+    private const uint FILE_CREATE = 2;
+    private const uint FILE_DIRECTORY_FILE = 0x00000001;
+    private const uint FILE_OPEN_REPARSE_POINT = 0x00200000;
+    private const uint OWNER_SECURITY_INFORMATION = 0x00000001;
+    private const uint DACL_SECURITY_INFORMATION = 0x00000004;
+    private const uint SDDL_REVISION_1 = 1;
     private const int FILE_RENAME_INFORMATION_CLASS = 10;
 
     [StructLayout(LayoutKind.Sequential)]
@@ -67,6 +80,25 @@ public sealed class HakkyDirectoryPin : IDisposable
         public IntPtr Information;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ObjectAttributes
+    {
+        public int Length;
+        public IntPtr RootDirectory;
+        public IntPtr ObjectName;
+        public uint Attributes;
+        public IntPtr SecurityDescriptor;
+        public IntPtr SecurityQualityOfService;
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(
         string fileName,
@@ -85,6 +117,21 @@ public sealed class HakkyDirectoryPin : IDisposable
     );
 
     [DllImport("ntdll.dll")]
+    private static extern int NtCreateFile(
+        out SafeFileHandle fileHandle,
+        uint desiredAccess,
+        ref ObjectAttributes objectAttributes,
+        out IoStatusBlock ioStatusBlock,
+        IntPtr allocationSize,
+        uint fileAttributes,
+        uint shareAccess,
+        uint createDisposition,
+        uint createOptions,
+        IntPtr eaBuffer,
+        uint eaLength
+    );
+
+    [DllImport("ntdll.dll")]
     private static extern int NtSetInformationFile(
         SafeFileHandle handle,
         out IoStatusBlock ioStatusBlock,
@@ -98,10 +145,43 @@ public sealed class HakkyDirectoryPin : IDisposable
         int status
     );
 
+    [DllImport(
+        "advapi32.dll",
+        CharSet = CharSet.Unicode,
+        SetLastError = true
+    )]
+    private static extern bool ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        string stringSecurityDescriptor,
+        uint stringSDRevision,
+        out IntPtr securityDescriptor,
+        out uint securityDescriptorSize
+    );
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint GetSecurityInfo(
+        IntPtr handle,
+        int objectType,
+        uint securityInfo,
+        out IntPtr owner,
+        out IntPtr group,
+        out IntPtr dacl,
+        out IntPtr sacl,
+        out IntPtr securityDescriptor
+    );
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint GetSecurityDescriptorLength(
+        IntPtr securityDescriptor
+    );
+
+    [DllImport("kernel32.dll")]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
     private SafeFileHandle handle;
     private readonly string originalPath;
     private readonly bool renameSource;
     private readonly bool renameRoot;
+    private readonly bool verifyPrivateDirectorySecurity;
     private string publishedPath;
 
     public string Identity { get; private set; }
@@ -115,6 +195,7 @@ public sealed class HakkyDirectoryPin : IDisposable
         originalPath = Path.GetFullPath(directoryPath);
         renameSource = allowRenameSource;
         renameRoot = allowRenameRoot;
+        verifyPrivateDirectorySecurity = false;
         uint desiredAccess = FILE_READ_ATTRIBUTES;
         if (renameSource)
         {
@@ -122,7 +203,8 @@ public sealed class HakkyDirectoryPin : IDisposable
         }
         if (renameRoot)
         {
-            desiredAccess |= FILE_LIST_DIRECTORY;
+            desiredAccess |=
+                FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY;
         }
         handle = CreateFileW(
             originalPath,
@@ -139,6 +221,21 @@ public sealed class HakkyDirectoryPin : IDisposable
         }
 
         Identity = ReadIdentity(handle);
+        VerifyPathIdentity(originalPath);
+    }
+
+    private HakkyDirectoryPin(
+        string directoryPath,
+        SafeFileHandle retainedHandle
+    )
+    {
+        originalPath = Path.GetFullPath(directoryPath);
+        renameSource = true;
+        renameRoot = false;
+        verifyPrivateDirectorySecurity = true;
+        handle = retainedHandle;
+        Identity = ReadIdentity(handle);
+        VerifyPrivateDirectorySecurity(handle);
         VerifyPathIdentity(originalPath);
     }
 
@@ -168,6 +265,269 @@ public sealed class HakkyDirectoryPin : IDisposable
             information.FileIndexHigh,
             information.FileIndexLow
         );
+    }
+
+    private static bool IsValidStagingName(string childName)
+    {
+        const string prefix = ".private-stage-";
+        if (
+            childName == null ||
+            childName.Length != prefix.Length + 24 ||
+            !childName.StartsWith(prefix, StringComparison.Ordinal)
+        )
+        {
+            return false;
+        }
+        for (int index = prefix.Length; index < childName.Length; index++)
+        {
+            char value = childName[index];
+            if (
+                (value < '0' || value > '9') &&
+                (value < 'a' || value > 'f')
+            )
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static IntPtr CreatePrivateDirectorySecurityDescriptor()
+    {
+        SecurityIdentifier currentSid =
+            WindowsIdentity.GetCurrent().User;
+        string sddl =
+            "O:" + currentSid.Value +
+            "D:P" +
+            "(A;OICI;FA;;;" + currentSid.Value + ")" +
+            "(A;OICI;FA;;;SY)" +
+            "(A;OICI;FA;;;BA)";
+        IntPtr securityDescriptor;
+        uint securityDescriptorSize;
+        if (
+            !ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl,
+                SDDL_REVISION_1,
+                out securityDescriptor,
+                out securityDescriptorSize
+            )
+        )
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return securityDescriptor;
+    }
+
+    private static void VerifyPrivateDirectorySecurity(
+        SafeFileHandle candidate
+    )
+    {
+        IntPtr owner;
+        IntPtr group;
+        IntPtr dacl;
+        IntPtr sacl;
+        IntPtr securityDescriptor;
+        uint result = GetSecurityInfo(
+            candidate.DangerousGetHandle(),
+            1,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            out owner,
+            out group,
+            out dacl,
+            out sacl,
+            out securityDescriptor
+        );
+        if (result != 0)
+        {
+            throw new Win32Exception(
+                (int)result,
+                "private directory handle security read failed"
+            );
+        }
+        try
+        {
+            uint descriptorLength =
+                GetSecurityDescriptorLength(securityDescriptor);
+            if (descriptorLength == 0 || descriptorLength > int.MaxValue)
+            {
+                throw new InvalidOperationException(
+                    "private directory security descriptor is invalid"
+                );
+            }
+            byte[] descriptorBytes = new byte[(int)descriptorLength];
+            Marshal.Copy(
+                securityDescriptor,
+                descriptorBytes,
+                0,
+                descriptorBytes.Length
+            );
+            RawSecurityDescriptor descriptor =
+                new RawSecurityDescriptor(descriptorBytes, 0);
+            SecurityIdentifier currentSid =
+                WindowsIdentity.GetCurrent().User;
+            if (
+                descriptor.Owner == null ||
+                !descriptor.Owner.Equals(currentSid) ||
+                (descriptor.ControlFlags &
+                    ControlFlags.DiscretionaryAclProtected) == 0 ||
+                descriptor.DiscretionaryAcl == null ||
+                descriptor.DiscretionaryAcl.Count != 3
+            )
+            {
+                throw new InvalidOperationException(
+                    "private directory handle ACL validation failed"
+                );
+            }
+
+            string[] expectedSids = new string[] {
+                currentSid.Value,
+                "S-1-5-18",
+                "S-1-5-32-544"
+            };
+            bool[] observedSids = new bool[expectedSids.Length];
+            for (
+                int index = 0;
+                index < descriptor.DiscretionaryAcl.Count;
+                index++
+            )
+            {
+                CommonAce ace =
+                    descriptor.DiscretionaryAcl[index] as CommonAce;
+                if (
+                    ace == null ||
+                    ace.AceQualifier != AceQualifier.AccessAllowed ||
+                    ace.AccessMask !=
+                        (int)FileSystemRights.FullControl ||
+                    ace.AceFlags !=
+                        (AceFlags.ContainerInherit |
+                            AceFlags.ObjectInherit)
+                )
+                {
+                    throw new InvalidOperationException(
+                        "private directory handle ACL rule validation failed"
+                    );
+                }
+                int sidIndex = Array.IndexOf(
+                    expectedSids,
+                    ace.SecurityIdentifier.Value
+                );
+                if (sidIndex < 0 || observedSids[sidIndex])
+                {
+                    throw new InvalidOperationException(
+                        "private directory handle ACL SID validation failed"
+                    );
+                }
+                observedSids[sidIndex] = true;
+            }
+        }
+        finally
+        {
+            LocalFree(securityDescriptor);
+        }
+    }
+
+    public HakkyDirectoryPin CreateStaging(string childName)
+    {
+        if (!renameRoot)
+        {
+            throw new InvalidOperationException(
+                "directory pin is not configured for staging creation"
+            );
+        }
+        if (!IsValidStagingName(childName))
+        {
+            throw new InvalidOperationException(
+                "invalid private staging name"
+            );
+        }
+
+        Verify();
+        IntPtr nameBuffer = Marshal.StringToHGlobalUni(childName);
+        IntPtr namePointer = IntPtr.Zero;
+        IntPtr securityDescriptor = IntPtr.Zero;
+        SafeFileHandle stagingHandle = null;
+        try
+        {
+            UnicodeString name = new UnicodeString {
+                Length = checked((ushort)(childName.Length * 2)),
+                MaximumLength = checked(
+                    (ushort)((childName.Length + 1) * 2)
+                ),
+                Buffer = nameBuffer
+            };
+            namePointer = Marshal.AllocHGlobal(
+                Marshal.SizeOf(typeof(UnicodeString))
+            );
+            Marshal.StructureToPtr(name, namePointer, false);
+            securityDescriptor =
+                CreatePrivateDirectorySecurityDescriptor();
+            ObjectAttributes attributes = new ObjectAttributes {
+                Length = Marshal.SizeOf(typeof(ObjectAttributes)),
+                RootDirectory = handle.DangerousGetHandle(),
+                ObjectName = namePointer,
+                Attributes = OBJ_CASE_INSENSITIVE,
+                SecurityDescriptor = securityDescriptor,
+                SecurityQualityOfService = IntPtr.Zero
+            };
+            IoStatusBlock ioStatusBlock;
+            int status = NtCreateFile(
+                out stagingHandle,
+                DELETE |
+                    FILE_READ_ATTRIBUTES |
+                    READ_CONTROL |
+                    WRITE_DAC |
+                    WRITE_OWNER,
+                ref attributes,
+                out ioStatusBlock,
+                IntPtr.Zero,
+                FILE_ATTRIBUTE_DIRECTORY,
+                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_CREATE,
+                FILE_DIRECTORY_FILE | FILE_OPEN_REPARSE_POINT,
+                IntPtr.Zero,
+                0
+            );
+            if (status != 0)
+            {
+                uint error = RtlNtStatusToDosError(status);
+                if (stagingHandle != null)
+                {
+                    stagingHandle.Dispose();
+                    stagingHandle = null;
+                }
+                throw new Win32Exception(
+                    (int)error,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "native private staging creation failed ({0})",
+                        error
+                    )
+                );
+            }
+            HakkyDirectoryPin staging = new HakkyDirectoryPin(
+                Path.Combine(originalPath, childName),
+                stagingHandle
+            );
+            stagingHandle = null;
+            Verify();
+            return staging;
+        }
+        finally
+        {
+            if (stagingHandle != null)
+            {
+                stagingHandle.Dispose();
+            }
+            if (securityDescriptor != IntPtr.Zero)
+            {
+                LocalFree(securityDescriptor);
+            }
+            if (namePointer != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(namePointer);
+            }
+            Marshal.FreeHGlobal(nameBuffer);
+        }
     }
 
     private void VerifyPathIdentity(string candidatePath)
@@ -206,6 +566,10 @@ public sealed class HakkyDirectoryPin : IDisposable
             throw new InvalidOperationException(
                 "opened directory pin identity changed"
             );
+        }
+        if (verifyPrivateDirectorySecurity)
+        {
+            VerifyPrivateDirectorySecurity(handle);
         }
         VerifyPathIdentity(publishedPath ?? originalPath);
     }
@@ -389,7 +753,7 @@ foreach ($rule in $applied.Access) {
 
 function windowsPinScript(
   paths,
-  { holdOpen = false, publishPrivate = null } = {},
+  { holdOpen = false, createStaging = null } = {},
 ) {
   const encodedPaths = paths
     .map(
@@ -397,24 +761,23 @@ function windowsPinScript(
         `'${Buffer.from(candidate, "utf8").toString("base64")}'`,
     )
     .join(", ");
-  const publishRootIndex = publishPrivate?.rootIndex ?? -1;
-  const publishSourceIndex = publishPrivate?.sourceIndex ?? -1;
-  const encodedPrivatePath = publishPrivate
-    ? Buffer.from(publishPrivate.destination, "utf8").toString("base64")
+  const createRootIndex = createStaging?.rootIndex ?? -1;
+  const encodedPrivatePath = createStaging
+    ? Buffer.from(createStaging.destination, "utf8").toString("base64")
     : "";
   return `
 Add-Type -TypeDefinition @'
 ${WINDOWS_PIN_TYPE}
 '@
 $encodedPaths = @(${encodedPaths})
-$publishRootIndex = ${publishRootIndex}
-$publishSourceIndex = ${publishSourceIndex}
+$createRootIndex = ${createRootIndex}
 $privatePath = ${
-    publishPrivate
+    createStaging
       ? `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encodedPrivatePath}'))`
       : "$null"
   }
 $pins = [System.Collections.ArrayList]::new()
+$stagingPin = $null
 try {
   $identities = @()
   for ($index = 0; $index -lt $encodedPaths.Count; $index++) {
@@ -424,8 +787,8 @@ try {
     )
     $pin = [HakkyDirectoryPin]::new(
       $candidate,
-      $index -eq $publishSourceIndex,
-      $index -eq $publishRootIndex
+      $false,
+      $index -eq $createRootIndex
     )
     [void]$pins.Add($pin)
     $identities += $pin.Identity
@@ -438,6 +801,40 @@ try {
     holdOpen
       ? `
   while (($command = [Console]::In.ReadLine()) -ne $null) {
+    $commandName = @($command.Split(' ', 2))[0]
+    try {
+    if ($command.StartsWith('CREATE_STAGING ')) {
+      if ($createRootIndex -lt 0 -or $createRootIndex -ge $pins.Count) {
+        throw 'directory pin is not configured for staging creation'
+      }
+      if ($stagingPin -ne $null) {
+        throw 'private staging identity is already retained'
+      }
+      $encodedName = $command.Substring('CREATE_STAGING '.Length)
+      try {
+        $stagingName = [Text.Encoding]::UTF8.GetString(
+          [Convert]::FromBase64String($encodedName)
+        )
+      } catch {
+        throw 'invalid private staging name encoding'
+      }
+      $stagingPin = $pins[$createRootIndex].CreateStaging($stagingName)
+      [void]$pins.Add($stagingPin)
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{
+            command = 'CREATE_STAGING'
+            name = $stagingName
+            identity = $stagingPin.Identity
+            identities = [string[]]@(
+              $pins | ForEach-Object { $_.Identity }
+            )
+          }
+        ))
+      )
+      [Console]::Out.Flush()
+      continue
+    }
     if ($command -eq 'VERIFY') {
       foreach ($pin in $pins) {
         $pin.Verify()
@@ -455,11 +852,11 @@ try {
     }
     if (
       $command -eq 'PUBLISH_PRIVATE' -and
-      $publishRootIndex -ge 0 -and
-      $publishSourceIndex -ge 0
+      $createRootIndex -ge 0 -and
+      $stagingPin -ne $null
     ) {
-      $publishedIdentity = $pins[$publishSourceIndex].PublishPrivate(
-        $pins[$publishRootIndex],
+      $publishedIdentity = $stagingPin.PublishPrivate(
+        $pins[$createRootIndex],
         $privatePath
       )
       [Console]::Out.WriteLine(
@@ -467,6 +864,23 @@ try {
           [PSCustomObject]@{
             command = 'PUBLISH_PRIVATE'
             identity = $publishedIdentity
+          }
+        ))
+      )
+      [Console]::Out.Flush()
+      continue
+    }
+    if ($command -eq 'RELEASE_STAGING' -and $stagingPin -ne $null) {
+      $stagingPin.Dispose()
+      $pins.RemoveAt($pins.Count - 1)
+      $stagingPin = $null
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{
+            command = 'RELEASE_STAGING'
+            identities = [string[]]@(
+              $pins | ForEach-Object { $_.Identity }
+            )
           }
         ))
       )
@@ -483,6 +897,18 @@ try {
       break
     }
     throw "unsupported directory pin command"
+    } catch {
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{
+            command = 'ERROR'
+            requestedCommand = $commandName
+            message = $_.Exception.Message
+          }
+        ))
+      )
+      [Console]::Out.Flush()
+    }
   }
 `
       : ""
@@ -530,8 +956,9 @@ function withDeadline(promise, message) {
 async function createWindowsDirectoryIdentityPin(
   paths,
   label,
-  { publishPrivate } = {},
+  { createStaging } = {},
 ) {
+  const retainedPaths = [...paths];
   const child = spawn(
     "powershell.exe",
     [
@@ -540,7 +967,7 @@ async function createWindowsDirectoryIdentityPin(
       "-Command",
       windowsPinScript(paths, {
         holdOpen: true,
-        publishPrivate,
+        createStaging,
       }),
     ],
     {
@@ -602,7 +1029,7 @@ async function createWindowsDirectoryIdentityPin(
     await completion.catch(() => {});
     lines.close();
   }
-  async function sendCommand(command) {
+  async function sendCommand(command, payload) {
     if (released) {
       throw new Error(`${label} identity pin is already released`);
     }
@@ -616,13 +1043,17 @@ async function createWindowsDirectoryIdentityPin(
     try {
       await withDeadline(
         new Promise((resolve, reject) => {
-          child.stdin.write(`${command}\n`, "utf8", (error) => {
-            if (error) {
-              reject(error);
-            } else {
-              resolve();
-            }
-          });
+          child.stdin.write(
+            `${command}${payload === undefined ? "" : ` ${payload}`}\n`,
+            "utf8",
+            (error) => {
+              if (error) {
+                reject(error);
+              } else {
+                resolve();
+              }
+            },
+          );
         }),
         `Windows directory pin ${command} write timed out`,
       );
@@ -637,6 +1068,17 @@ async function createWindowsDirectoryIdentityPin(
         );
       }
       const response = JSON.parse(nextLine.value);
+      if (
+        response.command === "ERROR" &&
+        response.requestedCommand === command &&
+        typeof response.message === "string"
+      ) {
+        const commandError = new Error(
+          `Windows directory pin ${command} failed: ${response.message}`,
+        );
+        commandError.recoverableWindowsPinCommand = true;
+        throw commandError;
+      }
       if (response.command !== command) {
         throw new Error(
           `Windows directory pin returned an invalid ${command} acknowledgement`,
@@ -644,7 +1086,9 @@ async function createWindowsDirectoryIdentityPin(
       }
       return response;
     } catch (error) {
-      await terminateHelper();
+      if (!error?.recoverableWindowsPinCommand) {
+        await terminateHelper();
+      }
       throw error;
     } finally {
       commandPending = false;
@@ -653,7 +1097,7 @@ async function createWindowsDirectoryIdentityPin(
   async function verifyPaths() {
     let current;
     try {
-      current = await readWindowsDirectoryIdentities(paths);
+      current = await readWindowsDirectoryIdentities(retainedPaths);
     } catch (error) {
       throw new Error(`${label} identity changed`, { cause: error });
     }
@@ -661,7 +1105,8 @@ async function createWindowsDirectoryIdentityPin(
       throw new Error(`${label} identity changed`);
     }
   }
-  return {
+  let stagingFacade;
+  const pin = {
     assertMatches(expected) {
       if (!sameIdentities(expected, identities)) {
         throw new Error(`${label} identity changed`);
@@ -684,15 +1129,89 @@ async function createWindowsDirectoryIdentityPin(
       }
       await this.verify();
     },
-    async publishPrivate() {
-      if (!publishPrivate) {
-        throw new Error(`${label} identity pin cannot publish private`);
+    async createStagingPin(stagingName) {
+      if (!createStaging) {
+        throw new Error(`${label} identity pin cannot create staging`);
       }
-      const response = await sendCommand("PUBLISH_PRIVATE");
-      if (response.identity !== identities[publishPrivate.sourceIndex]) {
-        throw new Error(`${label} published identity changed`);
+      if (stagingFacade) {
+        throw new Error(`${label} staging identity is already retained`);
       }
-      return response.identity;
+      const response = await sendCommand(
+        "CREATE_STAGING",
+        Buffer.from(stagingName, "utf8").toString("base64"),
+      );
+      const expectedPath = path.join(
+        retainedPaths[createStaging.rootIndex],
+        stagingName,
+      );
+      const stagingIndex = identities.length;
+      const expectedIdentities = [...identities, response.identity];
+      if (
+        response.name !== stagingName ||
+        typeof response.identity !== "string" ||
+        !sameIdentities(expectedIdentities, response.identities)
+      ) {
+        throw new Error(
+          `${label} identity pin returned invalid staging identity data`,
+        );
+      }
+      retainedPaths.push(expectedPath);
+      identities.push(response.identity);
+      let stagingReleased = false;
+      stagingFacade = {
+        retainedIdentity: response.identity,
+        async verify() {
+          if (stagingReleased) {
+            throw new Error(`${label} staging identity pin is already released`);
+          }
+          await pin.verify();
+        },
+        async verifyPath() {
+          const current = await readWindowsDirectoryIdentities([expectedPath]);
+          if (current[0] !== response.identity) {
+            throw new Error(`${label} staging identity changed`);
+          }
+        },
+        async verifyPublished(candidate) {
+          const current = await readWindowsDirectoryIdentities([candidate]);
+          if (current[0] !== response.identity) {
+            throw new Error(`${label} published identity changed`);
+          }
+          await this.verify();
+        },
+        async publishPrivate() {
+          if (stagingReleased) {
+            throw new Error(`${label} staging identity pin is already released`);
+          }
+          const publishResponse = await sendCommand("PUBLISH_PRIVATE");
+          if (publishResponse.identity !== response.identity) {
+            throw new Error(`${label} published identity changed`);
+          }
+          return publishResponse.identity;
+        },
+        async release() {
+          if (stagingReleased) {
+            return;
+          }
+          if (released) {
+            stagingReleased = true;
+            stagingFacade = null;
+            return;
+          }
+          const releaseResponse = await sendCommand("RELEASE_STAGING");
+          const parentIdentities = identities.slice(0, stagingIndex);
+          if (!sameIdentities(parentIdentities, releaseResponse.identities)) {
+            throw new Error(
+              `${label} identity pin returned invalid staging release data`,
+            );
+          }
+          retainedPaths.pop();
+          identities.pop();
+          stagingReleased = true;
+          stagingFacade = null;
+        },
+      };
+      return stagingFacade;
     },
     async release() {
       if (released) {
@@ -717,6 +1236,7 @@ async function createWindowsDirectoryIdentityPin(
       }
     },
   };
+  return pin;
 }
 
 function linuxIdentity(entry) {
@@ -1281,14 +1801,22 @@ export function repositoryRootFromModule(moduleUrl) {
 
 export async function generateDevnetReleaseConfig({
   repositoryRoot,
+  beforeKeyGenerationHook,
   beforeSecretFirstByteHook,
   preParentPinHook,
+  preStagingCreateHook,
   postValidationHook,
   postSecretFileWriteHook,
   postStagingPinReleaseHook,
 }) {
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new TypeError("repository root must be an absolute path");
+  }
+  if (
+    beforeKeyGenerationHook !== undefined &&
+    typeof beforeKeyGenerationHook !== "function"
+  ) {
+    throw new TypeError("before-key-generation hook must be a function");
   }
   if (
     beforeSecretFirstByteHook !== undefined &&
@@ -1301,6 +1829,12 @@ export async function generateDevnetReleaseConfig({
     typeof preParentPinHook !== "function"
   ) {
     throw new TypeError("pre-parent-pin hook must be a function");
+  }
+  if (
+    preStagingCreateHook !== undefined &&
+    typeof preStagingCreateHook !== "function"
+  ) {
+    throw new TypeError("pre-staging-create hook must be a function");
   }
   if (
     postValidationHook !== undefined &&
@@ -1456,6 +1990,14 @@ export async function generateDevnetReleaseConfig({
     parentIdentityPin = await createDirectoryIdentityPin(
       parentPaths,
       "parent",
+      process.platform === "win32"
+        ? {
+            createStaging: {
+              destination: privateDirectory,
+              rootIndex: 2,
+            },
+          }
+        : {},
     );
     await restrictPrivateDirectory(artifactsDirectory);
     await verifyParentPin();
@@ -1487,39 +2029,78 @@ export async function generateDevnetReleaseConfig({
       throw new Error("private identity path already exists");
     }
 
-    await verifyParentPin();
-    stagingDirectory = await mkdtemp(
-      path.join(devnetDirectory, ".private-stage-"),
-    );
-    await verifyParentPin();
-    await restrictPrivateDirectory(stagingDirectory);
-    const stagingReal = await validatePrivateDirectory(
-      stagingDirectory,
-      pinnedDevnetReal,
-    );
-    await verifyParentPin();
-    stagingIdentityPin = await createDirectoryIdentityPin(
-      [devnetDirectory, stagingDirectory],
-      "staging",
-      {
-        publishPrivate: {
-          destination: privateDirectory,
-          rootIndex: 0,
-          sourceIndex: 1,
-        },
-      },
-    );
+    let stagingReal;
+    if (process.platform === "win32") {
+      let stagingName = `.private-stage-${randomBytes(12).toString("hex")}`;
+      stagingDirectory = path.join(devnetDirectory, stagingName);
+      await verifyParentPin();
+      if (preStagingCreateHook) {
+        const stagingNameOverride = await preStagingCreateHook(
+          Object.freeze({
+            devnetDirectory,
+            stagingDirectory,
+            stagingName,
+          }),
+        );
+        if (stagingNameOverride !== undefined) {
+          if (typeof stagingNameOverride !== "string") {
+            throw new TypeError(
+              "pre-staging-create hook must return a string or undefined",
+            );
+          }
+          stagingName = stagingNameOverride;
+          stagingDirectory = path.join(devnetDirectory, stagingName);
+        }
+      }
+      stagingIdentityPin =
+        await parentIdentityPin.createStagingPin(stagingName);
+      await restrictPrivateDirectory(stagingDirectory);
+      await verifyRetainedPins();
+      stagingReal = await validatePrivateDirectory(
+        stagingDirectory,
+        pinnedDevnetReal,
+      );
+    } else {
+      await verifyParentPin();
+      stagingDirectory = await mkdtemp(
+        path.join(devnetDirectory, ".private-stage-"),
+      );
+      await verifyParentPin();
+      await restrictPrivateDirectory(stagingDirectory);
+      stagingReal = await validatePrivateDirectory(
+        stagingDirectory,
+        pinnedDevnetReal,
+      );
+      await verifyParentPin();
+      stagingIdentityPin = await createDirectoryIdentityPin(
+        [devnetDirectory, stagingDirectory],
+        "staging",
+      );
+    }
     if (postValidationHook) {
       await postValidationHook(
         Object.freeze({
           artifactsDirectory,
           devnetDirectory,
+          retainedStagingIdentity:
+            stagingIdentityPin.retainedIdentity,
           stagingDirectory,
         }),
       );
     }
     await verifyRetainedPins();
 
+    if (beforeKeyGenerationHook) {
+      await beforeKeyGenerationHook(
+        Object.freeze({
+          devnetDirectory,
+          retainedStagingIdentity:
+            stagingIdentityPin.retainedIdentity,
+          stagingDirectory,
+        }),
+      );
+    }
+    await verifyRetainedPins();
     const program = Keypair.generate();
     const initializer = Keypair.generate();
     const nonce = randomBytes(32);

@@ -86,6 +86,103 @@ $entries = @($acl.Access | ForEach-Object {
   return JSON.parse(stdout);
 }
 
+async function windowsDirectoryIdentity(targetPath) {
+  assert.equal(process.platform, "win32");
+  const encodedPath = Buffer.from(targetPath, "utf8").toString("base64");
+  const script = `
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+public static class HakkyTestDirectoryIdentity
+{
+    private const uint FILE_SHARE_READ = 0x00000001;
+    private const uint FILE_SHARE_WRITE = 0x00000002;
+    private const uint FILE_READ_ATTRIBUTES = 0x00000080;
+    private const uint OPEN_EXISTING = 3;
+    private const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+    private const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile
+    );
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle,
+        out ByHandleFileInformation information
+    );
+
+    public static string Read(string directoryPath)
+    {
+        using (SafeFileHandle handle = CreateFileW(
+            directoryPath,
+            FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            IntPtr.Zero,
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            IntPtr.Zero
+        ))
+        {
+            if (handle.IsInvalid)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            ByHandleFileInformation information;
+            if (!GetFileInformationByHandle(handle, out information))
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            }
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:X8}:{1:X8}:{2:X8}",
+                information.VolumeSerialNumber,
+                information.FileIndexHigh,
+                information.FileIndexLow
+            );
+        }
+    }
+}
+'@
+$targetPath = [Text.Encoding]::UTF8.GetString(
+  [Convert]::FromBase64String('${encodedPath}')
+)
+[Console]::Out.Write([HakkyTestDirectoryIdentity]::Read($targetPath))
+`;
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    { windowsHide: true },
+  );
+  return stdout;
+}
+
 async function isolatedRepository(t) {
   const root = await mkdtemp(path.join(tmpdir(), "hakky-release-config-"));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -260,6 +357,21 @@ public sealed class HakkyStaleParentHandle : IDisposable
         public IntPtr Information;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public System.Runtime.InteropServices.ComTypes.FILETIME CreationTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastAccessTime;
+        public System.Runtime.InteropServices.ComTypes.FILETIME LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFileW(
         string fileName,
@@ -295,7 +407,14 @@ public sealed class HakkyStaleParentHandle : IDisposable
         int fileInformationClass
     );
 
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle handle,
+        out ByHandleFileInformation information
+    );
+
     private SafeFileHandle root;
+    private SafeFileHandle retainedChild;
 
     public HakkyStaleParentHandle(string directoryPath)
     {
@@ -315,6 +434,49 @@ public sealed class HakkyStaleParentHandle : IDisposable
         {
             throw new Win32Exception(Marshal.GetLastWin32Error());
         }
+    }
+
+    private static string ReadIdentity(SafeFileHandle candidate)
+    {
+        ByHandleFileInformation information;
+        if (!GetFileInformationByHandle(candidate, out information))
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        return string.Format(
+            CultureInfo.InvariantCulture,
+            "{0:X8}:{1:X8}:{2:X8}",
+            information.VolumeSerialNumber,
+            information.FileIndexHigh,
+            information.FileIndexLow
+        );
+    }
+
+    public string CreateRetainedChild(string stagingName)
+    {
+        if (retainedChild != null)
+        {
+            throw new InvalidOperationException(
+                "stale parent child is already retained"
+            );
+        }
+        int status = OpenRelative(
+            stagingName,
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
+            FILE_CREATE,
+            out retainedChild
+        );
+        if (status != 0)
+        {
+            throw new InvalidOperationException(
+                string.Format(
+                    CultureInfo.InvariantCulture,
+                    "relative child create failed with NTSTATUS 0x{0:X8}",
+                    status
+                )
+            );
+        }
+        return ReadIdentity(retainedChild);
     }
 
     private int OpenRelative(
@@ -455,6 +617,11 @@ public sealed class HakkyStaleParentHandle : IDisposable
 
     public void Dispose()
     {
+        if (retainedChild != null)
+        {
+            retainedChild.Dispose();
+            retainedChild = null;
+        }
         if (root != null)
         {
             root.Dispose();
@@ -471,13 +638,27 @@ try {
   $holder = [HakkyStaleParentHandle]::new($directory)
   [Console]::Out.WriteLine('READY')
   [Console]::Out.Flush()
-  $encodedName = [Console]::In.ReadLine()
-  if ($encodedName -ne $null) {
+  while (($request = [Console]::In.ReadLine()) -ne $null) {
+    if ($request -eq 'RELEASE') {
+      break
+    }
+    if ($request.StartsWith('CREATE ')) {
+      $encodedName = $request.Substring('CREATE '.Length)
+      $stagingName = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($encodedName)
+      )
+      [Console]::Out.WriteLine(
+        'CREATED:' + $holder.CreateRetainedChild($stagingName)
+      )
+      [Console]::Out.Flush()
+      continue
+    }
     $stagingName = [Text.Encoding]::UTF8.GetString(
-      [Convert]::FromBase64String($encodedName)
+      [Convert]::FromBase64String($request)
     )
     [Console]::Out.WriteLine($holder.TrySwap($stagingName))
     [Console]::Out.Flush()
+    break
   }
 } catch {
   [Console]::Error.WriteLine($_.Exception.ToString())
@@ -523,6 +704,22 @@ try {
 
   let finished = false;
   return {
+    async createRetainedChild(stagingDirectory) {
+      assert.equal(finished, false);
+      child.stdin.write(
+        `CREATE ${Buffer.from(
+          path.basename(stagingDirectory),
+          "utf8",
+        ).toString("base64")}\n`,
+      );
+      const response = await iterator.next();
+      assert.equal(response.done, false);
+      assert.match(
+        response.value,
+        /^CREATED:[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{8}$/,
+      );
+      return response.value.slice("CREATED:".length);
+    },
     async trySwap(stagingDirectory) {
       assert.equal(finished, false);
       finished = true;
@@ -540,7 +737,7 @@ try {
     async release() {
       if (!finished) {
         finished = true;
-        child.stdin.end();
+        child.stdin.end("RELEASE\n");
       }
       if (child.exitCode === null) {
         await completion;
@@ -1106,6 +1303,278 @@ test("pre-parent-pin substitutions never become an unverified secret boundary", 
     await rename(movedDevnetDirectory, devnetDirectory);
   });
 });
+
+test(
+  "Windows parent helper creates and returns the retained staging identity while a stale parent handle is open",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    await mkdir(devnetDirectory, { recursive: true });
+
+    let staleParent;
+    let observedStagingDirectory;
+    let returnedRetainedIdentity;
+    t.after(async () => {
+      if (staleParent) {
+        staleParent.terminate();
+        await staleParent.release().catch(() => {});
+      }
+    });
+
+    await generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async preParentPinHook() {
+        staleParent = await createWindowsStaleParentHandle(devnetDirectory);
+      },
+      async postValidationHook(context) {
+        observedStagingDirectory = context.stagingDirectory;
+        returnedRetainedIdentity = context.retainedStagingIdentity;
+        assert.match(
+          returnedRetainedIdentity,
+          /^[0-9A-F]{8}:[0-9A-F]{8}:[0-9A-F]{8}$/,
+        );
+        assert.equal(
+          returnedRetainedIdentity,
+          await windowsDirectoryIdentity(observedStagingDirectory),
+        );
+      },
+    });
+
+    assert.match(
+      path.basename(observedStagingDirectory),
+      /^\.private-stage-[0-9a-f]{24}$/,
+    );
+    assert.ok(returnedRetainedIdentity);
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows CREATE_STAGING rejects malformed names before creating a directory",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    const privateDirectory = path.join(devnetDirectory, "private");
+    let hookCalled = false;
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async preStagingCreateHook(context) {
+          hookCalled = true;
+          assert.match(
+            context.stagingName,
+            /^\.private-stage-[0-9a-f]{24}$/,
+          );
+          return ".private-stage-malformed";
+        },
+      }),
+      /invalid private staging name/i,
+    );
+
+    assert.equal(hookCalled, true);
+    assert.deepEqual(
+      (await readdir(devnetDirectory)).filter((entry) =>
+        entry.startsWith(".private-stage-"),
+      ),
+      [],
+    );
+    assert.equal(await lstatIfExistsForTest(privateDirectory), null);
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows CREATE_STAGING rejects a candidate pre-opened through a stale parent handle",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    const privateDirectory = path.join(devnetDirectory, "private");
+    await mkdir(devnetDirectory, { recursive: true });
+    let staleParent;
+    let existingStagingDirectory;
+    let preopenedIdentity;
+    t.after(async () => {
+      if (staleParent) {
+        staleParent.terminate();
+        await staleParent.release().catch(() => {});
+      }
+    });
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async preParentPinHook() {
+          staleParent =
+            await createWindowsStaleParentHandle(devnetDirectory);
+        },
+        async preStagingCreateHook(context) {
+          existingStagingDirectory = context.stagingDirectory;
+          preopenedIdentity =
+            await staleParent.createRetainedChild(existingStagingDirectory);
+          await writeFile(
+            path.join(existingStagingDirectory, "sentinel.txt"),
+            "pre-existing candidate\n",
+            "utf8",
+          );
+        },
+      }),
+      /staging creation failed|already exists/i,
+    );
+
+    assert.equal(
+      await readFile(
+        path.join(existingStagingDirectory, "sentinel.txt"),
+        "utf8",
+      ),
+      "pre-existing candidate\n",
+    );
+    assert.equal(
+      await windowsDirectoryIdentity(existingStagingDirectory),
+      preopenedIdentity,
+    );
+    assert.equal(await lstatIfExistsForTest(privateDirectory), null);
+    await assert.rejects(
+      generateDevnetReleaseConfig({ repositoryRoot: root }),
+      /protected incomplete staging.*explicit recovery required/i,
+    );
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows CREATE_STAGING protocol faults are bounded and reap the parent helper",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    for (const action of ["terminate", "suspend"]) {
+      await t.test(action, async (t) => {
+        const root = await isolatedRepository(t);
+        const devnetDirectory = path.join(root, "artifacts", "devnet");
+        const privateDirectory = path.join(devnetDirectory, "private");
+
+        await assert.rejects(
+          generateDevnetReleaseConfig({
+            repositoryRoot: root,
+            async preStagingCreateHook() {
+              await controlWindowsDirectoryPinHelpers(action);
+            },
+          }),
+          /directory pin|pin helper|timed out|EPIPE/i,
+        );
+
+        assert.equal(await lstatIfExistsForTest(privateDirectory), null);
+        assert.deepEqual(
+          (await readdir(devnetDirectory)).filter((entry) =>
+            entry.startsWith(".private-stage-"),
+          ),
+          [],
+        );
+        await assertNoWindowsDirectoryPinHelper();
+      });
+    }
+  },
+);
+
+test(
+  "Windows retained staging ACL is verified before key generation",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    let hookCalled = false;
+
+    await generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      async beforeKeyGenerationHook(context) {
+        hookCalled = true;
+        assert.deepEqual(await readdir(context.stagingDirectory), []);
+        assert.equal(
+          await windowsDirectoryIdentity(context.stagingDirectory),
+          context.retainedStagingIdentity,
+        );
+        await assertExactPrivateDirectorySecurity(
+          context.stagingDirectory,
+        );
+      },
+    });
+
+    assert.equal(hookCalled, true);
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows staging ACL failure closes before key generation and cleans the empty stage",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    let keyGenerationReached = false;
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async postValidationHook({ stagingDirectory }) {
+          await execFileAsync("icacls.exe", [
+            stagingDirectory,
+            "/grant",
+            "*S-1-1-0:(OI)(CI)F",
+          ]);
+        },
+        async beforeKeyGenerationHook() {
+          keyGenerationReached = true;
+        },
+      }),
+      /ACL.*validation failed/i,
+    );
+
+    assert.equal(keyGenerationReached, false);
+    assert.deepEqual(
+      (await readdir(devnetDirectory)).filter((entry) =>
+        entry.startsWith(".private-stage-"),
+      ),
+      [],
+    );
+    assert.equal(
+      await lstatIfExistsForTest(path.join(devnetDirectory, "private")),
+      null,
+    );
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "pre-generation retains an existing Windows staging identity without mutation",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    const stagingDirectory = path.join(
+      devnetDirectory,
+      ".private-stage-0123456789abcdef01234567",
+    );
+    const sentinelPath = path.join(stagingDirectory, "sentinel.txt");
+    await mkdir(stagingDirectory, { recursive: true });
+    await writeFile(sentinelPath, "retained before generation\n", "utf8");
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({ repositoryRoot: root }),
+      /protected incomplete staging.*explicit recovery required/i,
+    );
+
+    assert.equal(
+      await readFile(sentinelPath, "utf8"),
+      "retained before generation\n",
+    );
+    assert.equal(
+      await lstatIfExistsForTest(path.join(devnetDirectory, "private")),
+      null,
+    );
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
 
 test(
   "Windows publishes the retained staging identity when substitution is attempted immediately before publication",
