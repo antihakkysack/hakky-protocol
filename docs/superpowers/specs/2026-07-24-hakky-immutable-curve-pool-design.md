@@ -1,8 +1,8 @@
 # HAKKY Immutable Curve-to-Pool Design
 
 Date: 2026-07-24
-Status: architecture approved by the user; controlling written specification
-pending user review
+Status: architecture and Task 2 amendment approved by the user; amended
+controlling written specification pending user review
 
 ## 1. Decision and precedence
 
@@ -153,6 +153,39 @@ The economic core has no dependency on:
 The website, SDK, CLI, indexer, and quote service are replaceable clients. Raw
 program state and deterministic math are authoritative.
 
+### 3.4 Dependency and public-type boundary
+
+The deployable program and its native processor tests use one coherent public
+Solana type family:
+
+```text
+solana-program         2.3.0
+mpl-token-metadata     5.1.1
+spl-token-interface    1.0.0
+solana-program-test    2.3.13   native-test only
+solana-sdk             2.3.1    native-test only
+spl-token              8.0.0    native-test only
+```
+
+`mpl-token-metadata` 5.1.1 requires `solana-program <3.0`; the previously
+pinned 3.x/4.x mixture produced nominally different `Pubkey`, `AccountInfo`,
+and processor types and is forbidden. The exact pins above must pass a clean
+locked compile before implementation is accepted.
+
+A separate current-runtime SBF harness may pin `solana-program-test` 4.1.2 and
+its matching 4.x SDK packages only if it:
+
+- has no Rust dependency on the HAKKY program crate or the Metaplex 2.x client;
+- loads the exact compiled `.so` through the SBF file boundary;
+- exchanges only canonical bytes, public addresses, transactions, and account
+  observations with the release package; and
+- never converts, transmutes, or wraps one Solana-version public type as
+  another.
+
+The current-runtime harness is runtime-compatibility evidence. It does not
+change the program ABI or permit mixed public types inside the deployable
+crate.
+
 ## 4. Program and account model
 
 ### 4.1 Deployment accounts
@@ -169,6 +202,15 @@ The program must reject initialization unless its own Program account is
 executable under the pinned loader, its ProgramData address matches the
 Program account, and the raw ProgramData authority option is `None`.
 
+The Program account data is exactly 36 bytes and must decode wholly as
+loader-v3 `Program { programdata_address }`. ProgramData is at least 45 bytes:
+`[0,45)` is loader metadata and `[45..]` is executable payload, not trailing
+serialized state. On-chain initialization validates owner, variants, linked
+address, executable flag, and `upgrade_authority_address = None`. Off-chain
+candidate proof additionally requires total ProgramData length `45 + B`, where
+`B` is the approved `.so` length, and byte-for-byte equality of `[45..]` with
+that `.so`; any spare capacity is rejected.
+
 ### 4.2 Fixed PDAs
 
 The release uses a 32-byte `instance_nonce`. Public source contains only:
@@ -182,8 +224,15 @@ until it appears in the initialization instruction, and is never a signer,
 authority, password, or source of economic discretion. The program verifies
 the domain-separated commitment before deriving any PDA.
 
-All HAKKY PDA seeds include the ASCII version suffix `v1` and the revealed
-nonce:
+All HAKKY PDA seeds are exactly three byte slices, in this order:
+
+1. the raw ASCII role bytes shown below;
+2. raw ASCII bytes `v1`;
+3. the raw 32-byte revealed nonce.
+
+Derivation uses canonical `find_program_address` under the compiled HAKKY
+program ID. The stored bump is the canonical bump returned by that function;
+alternate valid bumps are rejected.
 
 | Role | Exact seed components | Owner after initialization |
 | --- | --- | --- |
@@ -204,22 +253,88 @@ pre-initialization address-griefing window; safe adoption rules and hostile
 prefund tests remain mandatory because transaction submission reveals the
 nonce.
 
+The public hermetic fixture is fixed to:
+
+```text
+program ID  = FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF
+initializer = Dav6Vxmr7BEgvQW4osrzWutwgPEqQ4Ji3zWxKp6nX9AD
+nonce       = 32 bytes of 0x07
+commitment  = 83b540fece88b24496a7f4a876ad146a3cd64cdb74566da2aafbdd4bd6ebf0f4
+```
+
+Its canonical PDA results are:
+
+| Role | Address | Bump |
+| --- | --- | ---: |
+| HAKKY mint | `CmoL1cvAKrxod4AtmY8MXxPKQHTdddu7G8zvFpco7RLN` | `253` |
+| Market state | `95HfDKSWGCp1LyZCez8fPMYMR62U2bGes3v5x5bdW689` | `254` |
+| Vault authority | `7H19wE3whSwccLQKxseXCs3fsQqT7PB8q5D5j14Tv292` | `254` |
+| HAKKY vault | `6eEPFYBQnbpeDc1azQpgFJH5csE1rCmABsjavNqn66Fd` | `255` |
+| WSOL vault | `9Yv8ie1Ho9XTKM5uJPxD5zAZEnyxFoxdjcHjgzcAa4xK` | `254` |
+| Metadata sink | `GokrtAeJbGdH39zPc6cDQAGSj9Cj4nmimsZ4iWEez1Ye` | `253` |
+
 ### 4.3 Market state
 
-`MarketStateV1` is a fixed 384-byte, zero-copy-safe layout with:
+`MarketStateV1` is the following canonical 384-byte wire layout:
 
-- eight-byte magic/version domain;
-- layout version `1`;
-- phase: `curve` or `pool`;
-- every PDA bump;
-- revealed instance nonce and compiled instance commitment;
-- finalized initialization slot;
-- curve base units sold;
-- accounted HAKKY reserve;
-- accounted WSOL reserve;
-- initialization signer public key for evidence only;
-- exact HAKKY mint, HAKKY vault, WSOL vault, and vault-authority public keys;
-- reserved bytes that must remain zero.
+| Half-open bytes | Encoding and field |
+| --- | --- |
+| `[0,8)` | exact ASCII magic `HAKKYV1\0` |
+| `[8,9)` | layout version `1` |
+| `[9,10)` | phase: curve `0`, pool `1`; every other byte rejected |
+| `[10,16)` | bumps in order: mint, market, vault authority, HAKKY vault, WSOL vault, metadata sink |
+| `[16,48)` | raw instance nonce |
+| `[48,80)` | instance commitment |
+| `[80,88)` | initialization execution `Clock.slot`, `u64` little-endian |
+| `[88,96)` | curve HAKKY base units sold, `u64` little-endian |
+| `[96,104)` | accounted HAKKY reserve, `u64` little-endian |
+| `[104,112)` | accounted WSOL reserve, `u64` little-endian |
+| `[112,144)` | initializer public key bytes |
+| `[144,176)` | HAKKY mint public key bytes |
+| `[176,208)` | HAKKY vault public key bytes |
+| `[208,240)` | WSOL vault public key bytes |
+| `[240,272)` | vault-authority public key bytes |
+| `[272,384)` | exactly 112 zero reserved bytes |
+
+The codec is manual. `repr(C)`, transmute, struct casting, implicit padding,
+bytemuck decoding, and host-endian serialization are forbidden. The stored
+slot is the execution slot; finality is established only by the later proof
+artifact.
+
+State validation is phase-specific:
+
+```text
+curve:
+  sold <= S
+  accounted_hakky = TOTAL - sold
+  accounted_wsol  = C(sold)
+
+pool:
+  sold = S
+  0 < accounted_hakky <= TOTAL
+  accounted_wsol > 0
+  accounted_hakky * accounted_wsol >= L * Q
+```
+
+Both products use checked `u128`. Curve equations are never applied to
+post-transition pool reserves.
+
+Using the public fixture above, initialization slot `0`, the exact stored
+fixture identities, and zero reserved bytes, canonical state SHA-256 values
+are:
+
+```text
+curve initial: phase=0, sold=0, base=10000000000000, quote=0
+24e52bacf7131f9dcf39058e9eb83faa2b1f911de7a422414b2f3b3945e66c4d
+
+curve midpoint: phase=0, sold=4000000000000, base=6000000000000,
+quote=4800000000
+76af8a6a86b36c153f1943663016f669cdfa362f10712f35aa14244fb3b6800c
+
+pool initial: phase=1, sold=8000000000000, base=2000000000000,
+quote=24000000000
+e99448defa16c7048f668a3e3cb9ef4cbd66efe4e0cf71b9f444b4a81147af63
+```
 
 It contains no administrator, fee recipient, mutable configuration, close
 authority, pause flag, emergency role, migration role, oracle, allowlist,
@@ -286,8 +401,8 @@ For a buy, `base_amount` is exact HAKKY output and `quote_limit` is maximum
 WSOL input. For a sell, `base_amount` is exact HAKKY input and `quote_limit` is
 minimum WSOL output.
 
-Unknown tags, trailing bytes, short data, zero amounts, expired deadlines, and
-noncanonical account sets are rejected.
+Unknown tags, trailing bytes, short data, zero `base_amount`, zero
+`quote_limit`, expired deadlines, and noncanonical account sets are rejected.
 
 A deadline is valid exactly when:
 
@@ -296,6 +411,23 @@ Clock.slot <= deadline_slot
 ```
 
 A transaction with `Clock.slot > deadline_slot` is rejected.
+`deadline_slot = u64::MAX` is valid at the program layer; first-party clients
+must not generate it and must present a finite explicit expiry.
+
+Canonical instruction vectors are:
+
+```text
+initialize, nonce = 0x07 repeated 32 times:
+000707070707070707070707070707070707070707070707070707070707070707
+
+buy, base=0x0102030405060708, limit=0x1112131415161718,
+deadline=0x2122232425262728:
+01080706050403020118171615141312112827262524232221
+
+sell, base=0x3132333435363738, limit=0x4142434445464748,
+deadline=0x5152535455565758:
+02383736353433323148474645444342415857565554535251
+```
 
 ### 5.1 Initialization account contract
 
@@ -349,6 +481,83 @@ The program does not depend on the Associated Token Account program. A client
 may create or close standard user accounts in the same outer transaction, but
 those instructions are outside the HAKKY program and must be decoded by the
 transaction preview.
+
+### 5.3 Stable HAKKY errors and precedence
+
+Every HAKKY-originated rejection uses the following frozen
+`ProgramError::Custom(u32)` registry. Errors returned by an invoked external
+program propagate unchanged and are never relabeled as HAKKY errors.
+
+| Hex | Variant |
+| ---: | --- |
+| `0x484b0001` | `WrongProgramId` |
+| `0x484b0002` | `InvalidInstructionTag` |
+| `0x484b0003` | `InvalidInstructionLength` |
+| `0x484b0004` | `ZeroAmount` |
+| `0x484b0005` | `InvalidInstanceNonce` |
+| `0x484b0006` | `InvalidAccountCount` |
+| `0x484b0007` | `InvalidAccountPrivileges` |
+| `0x484b0008` | `AccountAlias` |
+| `0x484b0009` | `InvalidFixedProgram` |
+| `0x484b000a` | `InvalidPda` |
+| `0x484b000b` | `InvalidAccountOwner` |
+| `0x484b000c` | `InvalidAccountData` |
+| `0x484b000d` | `InvalidTokenAccount` |
+| `0x484b000e` | `InvalidMarketState` |
+| `0x484b000f` | `InvalidPhase` |
+| `0x484b0010` | `InvalidInitializer` |
+| `0x484b0011` | `ProgramNotImmutable` |
+| `0x484b0012` | `AlreadyInitialized` |
+| `0x484b0013` | `InvalidPrefund` |
+| `0x484b0014` | `CurveDomain` |
+| `0x484b0015` | `InsufficientCurveLiquidity` |
+| `0x484b0016` | `ArithmeticOverflow` |
+| `0x484b0017` | `ZeroQuote` |
+| `0x484b0018` | `SlippageExceeded` |
+| `0x484b0019` | `DeadlineExpired` |
+| `0x484b001a` | `ReserveInvariant` |
+| `0x484b001b` | `ActualBelowAccounted` |
+| `0x484b001c` | `VaultDeltaMismatch` |
+| `0x484b001d` | `PostconditionFailed` |
+| `0x484b001e` | `InvalidMetadata` |
+| `0x484b001f` | `InvalidLoaderState` |
+
+Validation precedence is:
+
+```text
+compiled program ID and instruction shape
+-> account count, privileges, aliases, and fixed program identities
+-> state bytes, commitment, PDAs, owners, and stored identities
+-> phase and token-account semantics
+-> deadline
+-> arithmetic and slippage
+-> pre-CPI actual/accounted reserves
+-> exact CPIs
+-> post-CPI deltas and invariants
+```
+
+Within instruction shape, empty data returns `InvalidInstructionLength`; a
+present first byte outside `0..2` returns `InvalidInstructionTag` regardless of
+remaining length; a known tag with the wrong total length returns
+`InvalidInstructionLength`; only then are integer fields decoded and zero
+base/limit values rejected as `ZeroAmount`.
+
+Tests asserting one error isolate that condition so an earlier invalidity
+cannot mask it.
+
+### 5.4 Replay semantics
+
+The 25-byte swap ABI intentionally contains no order nonce or expected-state
+field. Solana prevents the same signed transaction from landing twice, but the
+same HAKKY instruction bytes in a newly signed transaction are a new
+trader-authorized order and may execute if current state, balances, slippage,
+and deadline still permit it.
+
+HAKKY clients never automatically retry an unknown outcome. They reconcile the
+original signature and finalized state, then require a fresh quote, preview,
+confirmation, and signature for any new transaction. Replay tests prove
+deduplication or safe invariant-preserving second execution; they do not
+expect a nonexistent HAKKY replay error.
 
 ## 6. Atomic initialization
 
@@ -586,12 +795,20 @@ For both directions the program proves:
 ```text
 B_after > 0
 R_after > 0
+B_after <= TOTAL
 B_after * R_after >= B * R
+B_after * R_after >= L * Q
 ```
 
 The program processes the exact user input transfer, exact vault-authorized
 output transfer, state update, and postcondition reads atomically. A failed CPI
 or postcondition rolls back the complete swap.
+
+The complete accepted pool domain is `0 < B <= TOTAL` and `0 < R <= u64::MAX`.
+With that bound, every formula and the largest intermediate multiplication fit
+inside `u128`; nevertheless every add, subtract, multiply, ceiling adjustment,
+division, and `u64` conversion is checked. In particular, both `4*S` and
+`3*sold` in the curve denominator use `checked_mul`.
 
 ### 9.3 Meaning of permanent liquidity
 
@@ -604,6 +821,53 @@ Legitimate swaps change reserve balances, so public material must not promise
 that exactly two million HAKKY remains in the vault forever. The constant-product
 math prevents a valid swap from emptying either accounted reserve.
 
+### 9.4 Frozen arithmetic boundaries
+
+Required cross-language vectors include:
+
+```text
+C(0)                 = 0
+C(1,333)             = 0
+C(1,334)             = 1
+C(2,000,000,000,000) = 1,846,153,846
+C(4,000,000,000,000) = 4,800,000,000
+C(6,000,000,000,000) = 10,285,714,285
+C(S-1)               = 23,999,999,999
+C(S)                 = 24,000,000,000
+```
+
+At the initial pool:
+
+```text
+buy base_out=1:
+  effective_quote=1
+  gross_quote=2
+  B_after=1,999,999,999,999
+  R_after=24,000,000,002
+  k_after=48,000,000,003,975,999,999,998
+
+sell gross_base=85:
+  effective_base=84
+  quote_out=1
+  B_after=2,000,000,000,085
+  R_after=23,999,999,999
+  k_after=48,000,000,000,039,999,999,915
+```
+
+Pool-fee boundaries are:
+
+```text
+gross:       1   399  400  401  799  800
+fee:         1     1    1    2    2    2
+effective:   0   398  399  399  797  798
+```
+
+For an initial-pool exact-out buy, `base_out=1,999,999,997,391` has
+`gross_quote=18,443,963,468,419,611,698` and fits `u64`;
+`base_out=1,999,999,997,392` computes
+`18,451,035,540,310,899,950` and must return `ArithmeticOverflow` rather than
+truncate.
+
 ## 10. Donations, surplus, and conservation
 
 Unsolicited HAKKY, WSOL, or lamport transfers do not change pricing.
@@ -614,6 +878,11 @@ The program stores accounted reserves and requires:
 actual HAKKY vault amount >= accounted HAKKY reserve
 actual WSOL vault amount  >= accounted WSOL reserve
 ```
+
+“Actual WSOL vault amount” means the classic SPL token-account `amount` field,
+not the token account's raw lamports. Direct lamport transfers do not update
+that amount; external `SyncNative` can create token surplus, but neither action
+changes accounted reserves or pricing.
 
 The difference is sealed surplus:
 
@@ -633,6 +902,12 @@ program snapshots both vault amounts and requires the actual input-vault delta
 to equal the instruction's exact gross input and the actual output-vault delta
 to equal the instruction's exact output. Pre-existing sealed surplus cannot
 satisfy either equality. No other instruction can sign as the vault authority.
+
+Settlement validates and quotes completely before the first CPI, snapshots
+both token-account amounts, executes exact input then exact output, writes the
+new state, reloads both token accounts, and checks deltas plus
+`actual >= accounted`. Any borrow, CPI, reload, delta, or invariant failure
+rolls the entire instruction back.
 
 ## 11. Creator-funded one-SOL cap
 
@@ -735,10 +1010,58 @@ The release package pins:
 - exact build commands and environment;
 - exact executable length and SHA-256.
 
+Exactly one tracked public release leaf exists:
+
+```text
+config/hakky-release-v1.json
+```
+
+It contains the lane-independent schema version plus network, program ID,
+initializer, instance commitment, fixed program/mint identities, and metadata
+URI, but never the nonce preimage or a secret key. Deterministic generation
+produces checked-in Rust and JavaScript views. The program, CLI, site, proof
+builders, and release tooling consume those generated views and accept no
+environment, command-line, network, or runtime identity override. Any change
+to the leaf invalidates every candidate build, reproduction, inspection, cost,
+simulation, proof, and approval receipt.
+
+The nonce preimage exists only in the ignored restricted private ceremony
+directory until initialization reveals it. Candidate identity generation and
+the reviewed tracked public leaf precede every candidate build; build tools
+never generate or rewrite identity.
+
+Testing uses three non-interchangeable lanes:
+
+1. **Native.** Pure codecs, PDAs, state, math, account parsing, and processor
+   tests may enable a nondefault `test-release-config` feature.
+   `#[cfg(all(feature = "test-release-config", target_os = "solana"))]`
+   produces a compile error, so fixture identities cannot enter SBF. Native
+   receipts are not deployable evidence.
+2. **Test SBF.** A temporary ignored clean source copy receives an ordinary
+   ephemeral public release leaf, builds without the test feature, and writes
+   only below `artifacts/test-sbf/`. Its public nonce and receipt are
+   permanently labeled `test-sbf` and qualify only for deterministic
+   CI/ProgramTest lifecycle coverage.
+3. **Candidate SBF.** The tracked public leaf builds the sole deployable
+   candidate without test features. Before the nonce's first external
+   transmission, candidate lifecycle execution is restricted and offline.
+   Both native-version and separately packaged current-runtime ProgramTest
+   load the exact `.so`; the current-runtime package shares no Rust public
+   types with the program.
+
+Receipts cannot cross lanes. A repository gate rejects every native/test-SBF
+program ID, initializer, commitment, PDA, configuration hash, binary hash, and
+artifact path from candidate build records, proofs, site data, metadata, cost
+ledgers, deployment manifests, audits, and operator handoff.
+
 Two builds from separate clean directories must be byte-identical. A third
 independent reproduction must match before mainnet approval. Build logs,
 stdout/stderr hashes, tool versions, UTC times, and artifact hashes are
-machine-recorded.
+machine-recorded. Each local build also binds the canonical tracked
+`config/local-build-operator-v1.json` hash plus organization/operator IDs.
+These identify the local controller for exclusion; they do not claim the two
+directories are independently operated. The third-party reproduction's signed
+organization and operator must differ from every local build record.
 
 The deployment manifest uses exact binary `max_len`. After deployment and
 before finalization, raw on-chain ProgramData bytes must equal the approved
@@ -873,6 +1196,110 @@ Artifacts are machine-generated, append-only, and reject runtime fact
 overrides. Public record replacement is atomic and may never silently downgrade
 a failed verified binding to a weaker claim.
 
+`ok`, `verified`, `ready`, named checks, audit-complete status, and
+independence status are evaluator outputs only. Raw evaluator input rejects
+decisive booleans for derivable facts. Evaluators consume bounded raw bytes,
+RPC observations, tool outputs, and immutable report hashes, then recompute
+hashes, PDAs, authorities, math, chronology, and bindings. One evaluator never
+accepts another evaluator's `ok: true` as evidence. Locally authored JSON
+cannot make an independent audit or reproduction complete.
+
+Independent evidence uses one authenticated `v1` contract. The tracked
+`config/independent-evidence-authorities-v1.json` registry begins with an empty
+authority list. Before external review, a separately approved commit binds
+each authority ID and organization to exactly one allowed role
+(`security-audit`, `economic-review`, or `independent-reproduction`), one HTTPS
+source origin, one lowercase 32-byte raw Ed25519 public key, and one engagement
+document SHA-256. The entry also freezes the exact engagement HTTPS URL and an
+HTTPS evidence-path prefix under the same origin plus the separately approved
+whole-second UTC engagement-approval time. Both scope and signed envelope bind
+the raw registry SHA-256, so a registry change invalidates all earlier
+independent evidence and requires the final rebuild/review cycle.
+
+The only algorithm is Ed25519; raw public keys use fixed SPKI DER prefix
+`302a300506032b6570032100`, and detached signatures are exactly 64 bytes
+encoded as 128 lowercase hex characters plus LF. The signed message is ASCII
+`HAKKY-INDEPENDENT-EVIDENCE-V1\0` followed directly by canonical one-line
+UTF-8 JSON plus LF. Its exact closed key order is:
+
+```text
+schemaVersion,evidenceClass,authorityId,authorityRegistrySha256,reviewerOrganization,
+reviewerIndividual,candidateSha256,sourceCommit,releaseConfigSha256,
+scopeSha256,reportBodySha256,engagementSha256,verdict,issuedAtUtc,
+conflictDisclosure
+```
+
+Retrieval accepts explicit envelope, signature, report-body, and engagement
+HTTPS URLs only from the registered origin. Userinfo, query, fragment,
+non-default port, redirects, non-200 responses, credentials, dot segments,
+percent-encoded path bytes, and origin/path-prefix substitution are rejected.
+Envelope/report/engagement bytes are capped at 8 MiB, the source archive at
+64 MiB, the build record at 2 MiB, and the executable at 120,000 bytes. The
+engagement URL must match exactly. Envelope and
+report-body content type is exactly `application/json`; the signature is
+`text/plain`; an engagement is either exactly `application/json` or exactly
+`application/pdf`.
+`issuedAtUtc` is canonical whole-second UTC (`YYYY-MM-DDTHH:mm:ssZ`), not in
+the future, and not before the candidate build or engagement approval.
+Evaluators verify raw bytes, signature, role, identity, engagement, scope,
+candidate/source/config/body hashes, chronology, and distinct-authority
+requirements; `verdict:"pass"` is necessary but never sufficient.
+
+The signed `scopeSha256` is recomputed from canonical one-line JSON plus LF
+whose exact key order is
+`schemaVersion,evidenceClass,authorityRegistrySha256,candidateSha256,`
+`sourceCommit,sourceArchiveSha256,cargoLockSha256,releaseConfigSha256,`
+`designSpecSha256,curveVectorSha256,buildRecordSha256,executableSha256,`
+`executableLength`. The scope generator derives every field from the raw
+registry, candidate, canonical uncompressed `git archive --format=tar HEAD`,
+Cargo.lock, release config, design spec, vector JSON, and build record. The
+evaluator revalidates those same raw bytes. Role bodies are closed:
+
+- security:
+  schema `hakky-security-audit-body-v1` and keys
+  `schemaVersion,evidenceClass,scopeSha256,methodology,reviewedComponents,findings`;
+- economics:
+  schema `hakky-economic-review-body-v1` and keys
+  `schemaVersion,evidenceClass,scopeSha256,methodology,curveFormula,`
+  `poolBuyFormula,poolSellFormula,feeNumerator,feeDenominator,vectorSha256,`
+  `checkedCaseCount,findings`;
+- reproduction:
+  schema `hakky-independent-reproduction-body-v1` and keys
+  `schemaVersion,evidenceClass,scopeSha256,builderOrganization,builderOperator,`
+  `sourceArchiveSha256,cargoLockSha256,releaseConfigSha256,containerDigest,`
+  `commandSha256,buildRecordSha256,executableSha256,executableLength,`
+  `stdoutSha256,stderrSha256`.
+
+A finding's exact keys are
+`id,severity,status,title,affectedComponent,evidence,rationale,resolutionCommit`.
+Critical/high findings must be resolved against scoped source; an accepted
+lower finding requires rationale. Economics must bind the exact formulas, fee,
+detached vector digest, and at least 10,000 generated cases. Reproduction must
+include fetched raw source-archive, build-record, and `.so` bytes; the evaluator
+byte-compares the archive with the scoped local archive, validates the record,
+and compares the executable bytes to the candidate while enforcing an operator
+and organization distinct from every local build record.
+
+The retrieval receipt's exact key order is
+`schemaVersion,authorityId,evidenceClass,retrievedAtUtc,sourceOrigin,`
+`engagementUrl,envelopeUrl,signatureUrl,reportBodyUrl,sourceArchiveUrl,`
+`buildRecordUrl,artifactUrl,httpStatus,contentType,engagementSha256,`
+`envelopeSha256,signatureSha256,reportBodySha256,sourceArchiveSha256,`
+`buildRecordSha256,artifactSha256`. Source-archive/build-record/artifact fields
+are null for reviews and required for reproduction. The evaluator always
+recomputes them from sibling raw files.
+The authority, signed-envelope, scope, and retrieval schema versions are
+`hakky-independent-authorities-v1`, `hakky-independent-report-v1`,
+`hakky-independent-scope-v1`, and `hakky-independent-retrieval-v1`.
+Git commits are exactly 40 lowercase hex characters; every SHA-256 is exactly
+64 lowercase hex characters; lengths/counts are canonical unsigned decimal
+strings.
+
+No JSON artifact claims to hash its own complete byte stream. An exact artifact
+hash is either a detached `.sha256` sidecar over the exact UTF-8,
+LF-terminated file or an explicitly named canonical subobject hash that
+excludes the hash field. `curve-pool-v1.json` uses a detached sidecar.
+
 ## 14. Security, math, and audit gates
 
 Implementation is test-driven. Required evidence includes:
@@ -882,9 +1309,10 @@ Implementation is test-driven. Required evidence includes:
 - independent BigInt differential model for every curve and pool quote;
 - exhaustive boundary tests at `0`, `1`, maximum-minus-one, maximum, and
   overflow-adjacent values;
-- property tests for curve monotonicity, telescoping, exact endpoints, reserve
-  conservation, one-way transition, pool reserve floors, and nondecreasing
-  product;
+- property tests for curve monotonicity, raw cumulative-function telescoping,
+  exact endpoints, reserve conservation, one-way transition, pool reserve
+  floors, and nondecreasing product; generated triples satisfy `a < b < c`,
+  and quote functions are never unwrapped for zero-quote intervals;
 - adversarial account tests for every reorder, omission, extra account, unsafe
   alias, owner/mint/program substitution, signer promotion, writable
   promotion, delegate, frozen state, and partial initialization;
@@ -895,8 +1323,9 @@ Implementation is test-driven. Required evidence includes:
 - failed-CPI and failed-postcondition rollback tests;
 - deterministic instruction-surface inspection proving no hidden dispatcher,
   fallback, admin, close, arbitrary transfer, or arbitrary CPI;
-- SBF ProgramTest lifecycle using the exact built binary from uninitialized
-  PDAs through curve completion and pool swaps;
+- deterministic test-SBF and actual candidate-SBF ProgramTest lifecycles using
+  exact built binaries from uninitialized PDAs through curve completion and
+  pool swaps;
 - fuzzing of instruction bytes, accounts, state bytes, and full arithmetic
   domains;
 - two reproducible builds and a separately reproduced binary;
@@ -922,9 +1351,10 @@ the exact release process:
 
 1. generate fresh devnet payer and program-ID signers plus a fresh instance
    nonce without printing secrets;
-2. compile the devnet program ID and nonce commitment;
+2. commit the one public devnet release leaf containing the program ID,
+   initializer, and nonce commitment but not the nonce;
 3. obtain only free devnet SOL;
-4. build the exact candidate twice;
+4. build the exact candidate twice from that reviewed leaf;
 5. deploy with exact `max_len`;
 6. read back exact bytes;
 7. permanently remove upgrade authority;
@@ -938,8 +1368,7 @@ the exact release process:
 13. prove the atomic one-way transition;
 14. execute pool buys and sells and prove nondecreasing product;
 15. run wrong-nonce, dust, metadata-prefund, donation, alias, slippage, expiry,
-   replay, and failure-recovery
-   cases;
+   safe second-invocation/replay, and failure-recovery cases;
 16. generate public devnet proof and cost receipts containing no unrevealed
    secret;
 17. rerun the full repository, browser, and artifact gates.
@@ -1051,37 +1480,55 @@ approval.
 
 The only acceptable sequence is:
 
-1. finish implementation, security review, economic review, devnet rehearsal,
-   browser QA, proof schemas, and operator handoff;
-2. generate the private program-ID signer and instance nonce, then compile the
+1. finish implementation, devnet rehearsal, browser QA, proof schemas,
+   operator handoff, and the separately approved independent-authority
+   registry;
+2. freeze the verified image CID and exact served metadata bytes;
+3. generate the private program-ID signer and instance nonce, then compile the
    program ID and domain-separated nonce commitment;
-3. freeze the clean reviewed source commit, toolchain, initializer, metadata
+4. freeze the clean reviewed source commit, toolchain, initializer, metadata
    URI/image CID, instance commitment, and disclosed creator-controlled
    address set; derive every PDA privately;
-4. build twice plus independent reproduction;
-5. prove binary length at or below 120,000 bytes;
-6. generate a complete bounded cost and failure/recovery manifest at current
+5. build twice and prove binary length at or below 120,000 bytes;
+6. generate authenticated scopes and complete the third independent
+   reproduction, independent Solana security review, and independent
+   economic/math review against those exact source/config/spec/vector/binary
+   hashes;
+7. resolve every required finding; any source, lock, registry, config, spec,
+   vector, metadata, or binary change restarts steps 4-6 until final builds,
+   reproduction, and both reviews bind the same bytes;
+8. generate a complete bounded cost and failure/recovery manifest at current
    finalized rent and fee values;
-7. prove every reachable canonical-funder prefix stays within one SOL;
-8. privately preflight all unrevealed PDA prefund states;
-9. generate, decode, simulate, and separately approve the exact deployment
-   transaction set and maximum debit;
-10. deploy once with no automatic retry;
-11. reconcile exact ProgramData bytes at finalized commitment;
-12. generate, decode, simulate, and separately approve the exact permanent
+9. prove every reachable canonical-funder prefix stays within one SOL;
+10. privately preflight all unrevealed PDA prefund states;
+11. generate, decode, locally simulate, and separately approve the exact
+   deployment transaction set and maximum debit;
+12. deploy once with no automatic retry;
+13. reconcile exact ProgramData bytes at finalized commitment;
+14. generate, decode, simulate, and separately approve the exact permanent
     finalization transaction and maximum debit;
-13. finalize once and prove null authority at finalized commitment;
-14. generate, decode, simulate, and separately approve the exact initialization
-    transaction and maximum debit;
-15. initialize once and reconcile finalized supply, authorities, metadata,
+15. finalize once and prove null authority at finalized commitment;
+16. generate, decode, execute against the exact candidate SBF locally and
+    offline, and separately approve the exact initialization transaction and
+    maximum debit;
+17. initialize once and reconcile finalized supply, authorities, metadata,
     state, vaults, creator balances, cost, and complete history;
-16. publish only the curve-live claims supported by canonical proofs;
-17. at eventual terminal transition, generate and publish the pool proof from
+18. publish only the curve-live claims supported by canonical proofs;
+19. at eventual terminal transition, generate and publish the pool proof from
     finalized state without an operator transaction.
 
 No mint initialization may be signed before finalized immutable-program proof,
 metadata readback, exact initialization bytes, full simulation, and cost ledger
 all pass.
+
+The candidate nonce remains private until the first separately approved
+initialization submission. Before that submission, transaction construction,
+decoding, and candidate-SBF execution are local and offline; no public RPC
+simulation, remote log, proof, CLI argument, browser surface, or shared
+unsigned transaction may contain the nonce. At first external transmission the
+nonce is considered permanently disclosed whether the transaction succeeds,
+fails, expires, or has an unknown outcome. Proof publication waits for
+finalized reconciliation.
 
 The current goal stops before step 9 unless the user separately authorizes a
 specific mainnet transaction set. Mainnet launch is not part of design approval.
@@ -1101,6 +1548,11 @@ when:
 - a nonce other than the committed preimage is accepted, any HAKKY PDA omits
   that nonce, or the nonce is exposed before the approved initialization
   submission;
+- a native/test-SBF identity, configuration hash, path, or binary hash enters
+  a candidate, proof, site, metadata, cost, deployment, audit, or handoff
+  artifact;
+- the deployable/native-test crate graph mixes incompatible Solana public
+  `Pubkey`, `AccountInfo`, processor, instruction, or error types;
 - the program exposes any public tag beyond `0`, `1`, and `2`;
 - a PDA, program, mint, account order, owner, signer, writable flag, or CPI
   target differs from the reviewed manifest;
@@ -1111,6 +1563,8 @@ when:
 - the phase can revert from pool to curve;
 - an accounted reserve can exceed its actual vault or reach zero through a
   valid pool swap;
+- pool state has `sold != S`, `accounted HAKKY > TOTAL`, or checked
+  `accounted HAKKY * accounted WSOL < L * Q`;
 - donations affect pricing or become recoverable;
 - arithmetic can overflow, divide by zero, produce an unbounded result, or
   violate nondecreasing product;
@@ -1161,8 +1615,14 @@ when:
   <https://solana.com/docs/core/accounts>
 - Solana PDA-signed CPI:
   <https://solana.com/docs/core/cpi/cpi-with-pda>
+- Solana on-chain compilation target (`target_os = "solana"`):
+  <https://docs.rs/solana-program/latest/solana_program/#on-chain-vs-off-chain-compilation-targets>
+- Solana ProgramTest exact-SBF selection:
+  <https://docs.rs/solana-program-test/4.1.2/src/solana_program_test/lib.rs.html>
 - Classic SPL Token program and token basics:
   <https://solana.com/docs/tokens/basics>
+- Metaplex Token Metadata 5.1.1 dependency contract:
+  <https://docs.rs/crate/mpl-token-metadata/5.1.1>
 - Token CPI:
   <https://solana.com/docs/tokens/advanced/cpi>
 - Verified-build meaning and limitations:

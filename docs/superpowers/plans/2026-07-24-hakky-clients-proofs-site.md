@@ -24,13 +24,21 @@ HTML/CSS/JavaScript.
 
 - Normative design:
   `docs/superpowers/specs/2026-07-24-hakky-immutable-curve-pool-design.md`.
-- Rust vectors from
-  `programs/hakky-market/test-vectors/curve-pool-v1.json` are inputs, not
-  JavaScript implementation code.
+- The spec-owned
+  `programs/hakky-market/test-vectors/curve-pool-v1.json` plus detached
+  `.sha256` are inputs, not Rust or JavaScript implementation code.
+- `config/hakky-release-v1.json` is the sole tracked identity source;
+  JavaScript consumes its deterministic generated view and accepts no identity
+  override.
 - JavaScript quantities use `BigInt` internally and canonical unsigned decimal
   strings in JSON.
 - Instruction tags/lengths are exactly `0/33`, `1/25`, and `2/25`.
-- State length is exactly 384 bytes.
+- State uses the exact 384-byte design Section 4.3 offset table, phase bytes
+  `0|1`, little-endian integers, and zero `[272,384)` reserved bytes.
+- Pool decode/proof requires `sold=S`, `0<base<=TOTAL`, `quote>0`, and checked
+  BigInt `base*quote>=L*Q`.
+- Stable client errors map the exact `0x484b0001..0x484b001f` HAKKY registry
+  without relabeling downstream program errors.
 - Swap account count is exactly ten; no omission, append, reorder, alias, or
   privilege promotion is accepted.
 - The CLI has no secret-key, signing, sending, retry, or wallet-connection
@@ -44,6 +52,8 @@ HTML/CSS/JavaScript.
   config, or external venue remains in an active module, test, schema, script,
   site surface, or operator document after replacement.
 - Historical design/spec records under `docs/superpowers/` remain untouched.
+- Native/test-SBF identities, config hashes, paths, and binary hashes are
+  forbidden from candidate proofs, public records, site data, and handoff.
 - No upload, deployment, push, PR, merge, wallet action, transaction, spend,
   publication, or social mutation is authorized by this plan.
 
@@ -53,19 +63,19 @@ HTML/CSS/JavaScript.
 
 **Files:**
 - Create: `src/hakky-market-constants.mjs`
-- Create: `src/hakky-market-pdas.mjs`
 - Create: `src/hakky-market-codec.mjs`
 - Create: `src/hakky-market-math.mjs`
 - Create: `test/hakky-market-constants.test.mjs`
 - Create: `test/hakky-market-pdas.test.mjs`
 - Create: `test/hakky-market-codec.test.mjs`
 - Create: `test/hakky-market-math.test.mjs`
+- Create: `test-support/hakky-market-pda-fixtures.mjs`
 
 **Interfaces:**
-- Consumes: approved spec and Rust vector JSON.
+- Consumes: approved spec, generated release view, and spec-owned vector
+  JSON/detached digest.
 - Produces:
-  `instanceCommitment`,
-  `deriveHakkyMarketPdas`,
+  `instanceCommitmentForHakkyRelease`,
   exact instruction encoders/decoder, and five quote functions.
 
 - [ ] **Step 1: Write failing tests**
@@ -106,7 +116,12 @@ test("pool exact-out quote preserves product", () => {
 
 Add exact failure tests for zero/negative/non-BigInt inputs, overflow above
 `u64`, every instruction length/tag, noncanonical nonce bytes, and all six PDA
-seed lists.
+seed lists. Assert the approved
+`FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF` program/nonce PDA vector and require
+all six addresses pairwise distinct. Generic
+`deriveFixtureHakkyMarketPdas({programId,instanceNonce})` exists only in
+`test-support/hakky-market-pda-fixtures.mjs`; no production import may reach
+it.
 
 - [ ] **Step 2: Run RED**
 
@@ -135,13 +150,22 @@ export function curveReserve(sold) {
 ```
 
 The pool and curve functions mirror the spec independently and return deeply
-frozen named records. The codec uses `DataView` little-endian reads/writes and
-rejects any trailing byte.
+frozen named records. Pool state/quotes enforce
+`0<base<=TOTAL`, `quote>0`, and `base*quote>=L*Q`. The codec uses `DataView`
+little-endian reads/writes, exact hex instruction vectors, the frozen stable
+error registry, and rejects any trailing byte.
 
-- [ ] **Step 4: Differentially check every Rust vector**
+Production `instanceCommitmentForHakkyRelease(nonce)` binds the generated
+release program ID internally and accepts no program-ID override. The fixture
+PDA helper is test-only and a graph test proves it is absent from production,
+CLI, and browser imports.
 
-Load `curve-pool-v1.json`, recompute every result, and assert its stored
-SHA-256 before using the vectors.
+- [ ] **Step 4: Differentially check every spec-owned vector**
+
+Hash the exact LF-terminated `curve-pool-v1.json`, compare the detached
+`curve-pool-v1.json.sha256`, then independently recompute every result. The
+JSON contains no self-hash and production math imports neither the reference
+generator nor Rust output.
 
 - [ ] **Step 5: Run GREEN**
 
@@ -149,12 +173,12 @@ SHA-256 before using the vectors.
 rtk node --test test/hakky-market-constants.test.mjs test/hakky-market-pdas.test.mjs test/hakky-market-codec.test.mjs test/hakky-market-math.test.mjs
 ```
 
-Expected: all focused tests and every Rust vector pass.
+Expected: all focused tests and every spec-owned vector pass.
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add src/hakky-market-constants.mjs src/hakky-market-pdas.mjs src/hakky-market-codec.mjs src/hakky-market-math.mjs test/hakky-market-constants.test.mjs test/hakky-market-pdas.test.mjs test/hakky-market-codec.test.mjs test/hakky-market-math.test.mjs
+rtk git add src/hakky-market-constants.mjs src/hakky-market-codec.mjs src/hakky-market-math.mjs test-support/hakky-market-pda-fixtures.mjs test/hakky-market-constants.test.mjs test/hakky-market-pdas.test.mjs test/hakky-market-codec.test.mjs test/hakky-market-math.test.mjs
 rtk git commit -m "client: mirror immutable market math"
 ```
 
@@ -177,6 +201,7 @@ rtk git commit -m "client: mirror immutable market math"
 - Consumes: Task 1 constants/PDAs and existing generic RPC/wire functions.
 - Produces:
   `decodeMarketStateV1`,
+  `deriveHakkyMarketPdasFromState`,
   `fetchFinalizedHakkyMarket`,
   generic base58/hash/finalized transaction/ALT resolution.
 
@@ -190,8 +215,9 @@ test.
 
 Test exact 384-byte decoding, magic, layout, phase, nonce commitment, bumps,
 PDAs, stored identities, zero reserved bytes, curve reserve equations, pool
-positive reserves, raw base64 hashes, finalized context slots, UTC block time,
-public HTTPS RPC host, and bounded deadline behavior.
+`sold=S`, `0<base<=TOTAL`, `quote>0`, checked `base*quote>=L*Q`, raw base64
+hashes, finalized context slots, UTC block time, public HTTPS RPC host, and
+bounded deadline behavior.
 
 - [ ] **Step 3: Run RED**
 
@@ -206,20 +232,33 @@ Expected: FAIL because the three new modules do not exist.
 ```javascript
 export function decodeMarketStateV1({
   accountBytes,
-  programId,
-  instanceNonce,
 }) {
   if (!(accountBytes instanceof Uint8Array) || accountBytes.length !== 384) {
     throw new TypeError("MarketStateV1 must be exactly 384 bytes");
   }
   const decoded = decodeFixedOffsets(accountBytes);
-  assertMarketStateV1({ decoded, programId, instanceNonce });
+  assertMarketStateV1({
+    decoded,
+    programId: HAKKY_RELEASE_V1.programId,
+    instanceNonce: decoded.instanceNonce,
+  });
   return deepFreeze(decoded);
 }
 ```
 
-Use explicit offsets matching the reviewed Rust layout. Never deserialize a
-number to JavaScript `Number` when its range can exceed `2^53-1`.
+Use named constants for every exact Section 4.3 half-open range, assert
+`HAKKYV1\0`, phase `0|1`, bump order, and `[272,384)` zero bytes. Independently
+rederive all PDAs and canonical bumps. `HAKKY_RELEASE_V1` is imported from the
+generated release view; no public production decoder accepts a program,
+identity, bump, or nonce override. Any generic alternate-identity codec helper
+lives only in `test-support/` and cannot enter the browser/CLI graph. Never
+deserialize a number to JavaScript `Number` when its range can exceed
+`2^53-1`.
+
+The state module keeps raw nonce-based PDA derivation private. Its exported
+`deriveHakkyMarketPdasFromState(state)` accepts only an object branded by this
+decoder, reads the stored nonce internally, and binds
+`HAKKY_RELEASE_V1.programId`; a structurally similar object is rejected.
 
 - [ ] **Step 5: Implement finalized raw RPC reads**
 
@@ -230,21 +269,22 @@ Retain `MAINNET_BETA_GENESIS_HASH`, `parsePublicRpcUrl`,
 `commitment:"finalized"`. No authenticated query string or credential is
 allowed.
 
-- [ ] **Step 6: Run GREEN and remove the old generic wrapper**
+- [ ] **Step 6: Run GREEN, remove the old wrapper, and rerun**
 
 ```powershell
 rtk node --test test/solana-wire.test.mjs test/hakky-market-state.test.mjs test/hakky-market-rpc.test.mjs
 rtk rg -n "solana-transaction" src scripts test
+rtk git rm src/solana-transaction.mjs test/solana-transaction.test.mjs
+rtk node --test test/solana-wire.test.mjs test/hakky-market-state.test.mjs test/hakky-market-rpc.test.mjs
 ```
 
-Expected: focused tests pass and no active import remains before deleting the
-old file/test.
+Expected: focused tests pass both before and after deletion, and no active
+import remains before deleting the old file/test.
 
 - [ ] **Step 7: Commit**
 
 ```powershell
 rtk git add src/hakky-market-state.mjs src/hakky-market-rpc.mjs src/solana-wire.mjs src/solana-rpc.mjs test/hakky-market-state.test.mjs test/hakky-market-rpc.test.mjs test/solana-wire.test.mjs
-rtk git rm src/solana-transaction.mjs test/solana-transaction.test.mjs
 rtk git commit -m "client: decode immutable market state"
 ```
 
@@ -274,7 +314,9 @@ writable bits, tag/data bytes, latest blockhash/fee payer preservation, phase,
 direction, amount, quote limit, fee disclosure, and deadline. Mutate every
 account position, append an account, alias two positions, escalate every
 readonly/nonsigner meta, change the HAKKY program, and add a second HAKKY
-instruction; each mutation must fail before wallet presentation.
+instruction; each mutation must fail before wallet presentation. The raw codec
+can decode `deadline_slot=u64::MAX` as the on-chain ABI permits, but first-party
+builders reject it and require a finite deadline explicitly shown in preview.
 
 - [ ] **Step 2: Run RED**
 
@@ -288,19 +330,19 @@ Expected: FAIL with missing-module errors.
 
 ```javascript
 export function buildBuyExactHakkyInstruction({
-  programId,
   trader,
-  market,
-  mint,
-  baseVault,
-  quoteVault,
-  vaultAuthority,
+  marketState,
   traderBaseAccount,
   traderQuoteAccount,
   baseAmount,
   maxQuoteIn,
   deadlineSlot,
 }) {
+  const programId = HAKKY_RELEASE_V1.programId;
+  const decodedState = assertDecodedHakkyMarketStateV1(marketState);
+  const {
+    market, mint, baseVault, quoteVault, vaultAuthority,
+  } = deriveHakkyMarketPdasFromState(decodedState);
   return new TransactionInstruction({
     programId,
     keys: exactSwapKeys({
@@ -317,6 +359,14 @@ export function buildBuyExactHakkyInstruction({
   });
 }
 ```
+
+The builder accepts no program, instance nonce, market, mint, vault, authority,
+bump, Token program, or WSOL override. It accepts only a state object already
+returned and module-privately branded by the closed production decoder (a
+structurally similar caller object is rejected), validates its nonce commitment,
+derives all fixed accounts internally from the generated release view, and
+rejects a noncanonical/failing derivation. Preview and proof code independently
+rederive the same addresses rather than trusting builder output.
 
 WSOL wrapping/account creation may be added as outer transaction instructions,
 but they are decoded separately and can never change the ten-account HAKKY
@@ -414,7 +464,7 @@ Expected: tests pass; help lists only `quote`, `buy`, `sell`, and `decode`.
 - [ ] **Step 5: Commit**
 
 ```powershell
-rtk git add package.json package-lock.json scripts/hakky-client.mjs test/hakky-client.test.mjs
+rtk git add package.json scripts/hakky-client.mjs test/hakky-client.test.mjs
 rtk git commit -m "client: add unsigned public market CLI"
 ```
 
@@ -510,6 +560,18 @@ rtk git commit -m "proof: define immutable lifecycle schemas"
 - Create: `src/immutable-program-proof.mjs`
 - Create: `src/hakky-market-proof.mjs`
 - Create: `src/hakky-pool-proof.mjs`
+- Create: `src/independent-evidence.mjs`
+- Create: `src/independent-scope.mjs`
+- Create: `config/independent-evidence-authorities-v1.json`
+- Create: `schemas/evidence/independent-evidence-authorities-v1.schema.json`
+- Create: `schemas/evidence/independent-report-v1.schema.json`
+- Create: `schemas/evidence/independent-retrieval-v1.schema.json`
+- Create: `schemas/evidence/independent-scope-v1.schema.json`
+- Create: `schemas/evidence/security-audit-body-v1.schema.json`
+- Create: `schemas/evidence/economic-review-body-v1.schema.json`
+- Create: `schemas/evidence/independent-reproduction-body-v1.schema.json`
+- Create: `scripts/fetch-independent-evidence.mjs`
+- Create: `scripts/build-independent-scope.mjs`
 - Create: `scripts/verify-immutable-program.mjs`
 - Create: `scripts/verify-hakky-market.mjs`
 - Create: `scripts/verify-hakky-pool.mjs`
@@ -519,6 +581,9 @@ rtk git commit -m "proof: define immutable lifecycle schemas"
 - Create: `test/verify-immutable-program.test.mjs`
 - Create: `test/verify-hakky-market.test.mjs`
 - Create: `test/verify-hakky-pool.test.mjs`
+- Create: `test/independent-evidence.test.mjs`
+- Create: `test/fetch-independent-evidence.test.mjs`
+- Create: `test/independent-scope.test.mjs`
 - Modify: `src/proof-output.mjs`
 - Modify: `package.json`
 
@@ -530,25 +595,197 @@ rtk git commit -m "proof: define immutable lifecycle schemas"
 
 Program mutations cover byte hash/length, build records, source commit,
 Program/ProgramData owner/address/authority, tag/CPI surface, binary ceiling,
-and cost cap. Market mutations cover initialization bytes/CPI decode,
+cost cap, release-config hash/lane, and every registered test identity/hash.
+Market mutations cover initialization bytes/CPI decode,
 nonce/commitment/PDAs, mint supply/authorities, vaults, metadata,
 state/reserves, disclosed creator balances, and cost continuity. Pool mutations
 cover terminal history, one-way phase, exact seed reserves, sealed surplus,
-fee constants, product, and every forbidden LP/recipient/authority field.
+fee constants, `sold=S`, checked global `base*quote>=L*Q`, and every forbidden
+LP/recipient/authority field.
+
+Independent-evidence mutations cover the empty initial authority registry,
+unapproved authority or role, algorithm/key/signature length and encoding,
+field order, missing final LF, domain change, candidate/source/config/scope/
+body hash drift, engagement hash drift, verdict, reviewer identity, timestamp,
+origin/path/query/userinfo/redirect/status/content-type/body-size drift, raw
+file substitution, and unknown fields. Tests generate an ephemeral Ed25519 key
+only in test code and prove one exact valid envelope before mutating every
+binding.
+
+Scope tests independently mutate registry, canonical Git archive, Cargo.lock,
+release leaf, design spec, vector bytes/sidecar, build record, candidate bytes,
+clean-tree status, source commit, and caller attempts to inject a hash.
+Retrieval tests cover review/reproduction URL arity, exact raw-file output,
+archive/record/binary byte substitution, no-clobber behavior, and receipt
+recomputation.
 
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk node --test test/immutable-program-proof.test.mjs test/hakky-market-proof.test.mjs test/hakky-pool-proof.test.mjs
+rtk node --test test/immutable-program-proof.test.mjs test/hakky-market-proof.test.mjs test/hakky-pool-proof.test.mjs test/independent-scope.test.mjs test/independent-evidence.test.mjs test/fetch-independent-evidence.test.mjs test/verify-immutable-program.test.mjs test/verify-hakky-market.test.mjs test/verify-hakky-pool.test.mjs
 ```
 
-Expected: FAIL because evaluators do not exist.
+Expected: FAIL because evaluators, authenticated independent-evidence
+verification, and wrappers do not exist.
 
 - [ ] **Step 3: Implement pure evaluators before RPC wrappers**
 
 Each evaluator returns a deeply frozen record containing named checks and
 `ok:true` only when every required check is exactly true. It rejects operator
-fact overrides and unknown input fields.
+fact overrides and unknown input fields. Raw input schemas reject decisive
+`ok`, `verified`, `ready`, `checks`, audit-complete, and independence fields.
+The program evaluator reads actual candidate bytes, raw tool outputs, tag
+probe behavior, callsite evidence, release leaf, build receipts, and raw
+Program/ProgramData bytes; it derives rather than accepts tag/CPI arrays.
+Existing artifacts are fully revalidated rather than trusted by their prior
+`ok:true`. Independent audit/reproduction status remains `unverified` unless
+the raw report conforms to a closed schema, names the approved independent
+reviewer organization and individual, states scope and conflict disclosure,
+and carries a detached signature by the reviewer key over the candidate hash,
+source commit, release-config hash, report hash, scope, and verdict. The
+reviewer key/identity binding and trusted retrieval URL are frozen in a
+separately approved engagement record; a retrieval receipt hashes the fetched
+bytes. The evaluator verifies the signature, binding, schema, scope, hashes,
+and retrieval evidence and cannot accept caller-supplied independence or
+completion booleans. Independent reproduction uses the same authenticated
+evidence contract and must originate from a separately identified builder.
+
+The contract is exact:
+
+- `config/independent-evidence-authorities-v1.json` starts as canonical
+  `{"schemaVersion":"hakky-independent-authorities-v1","authorities":[]}\n`.
+  Before external work, a separately approved commit may add an authority with
+  exact `authorityId`, organization, allowed role
+  (`security-audit|economic-review|independent-reproduction`), HTTPS
+  `sourceOrigin`, exact `engagementUrl`, `evidencePathPrefix`, lowercase
+  64-hex raw Ed25519 public key, and lowercase 64-hex engagement-document
+  SHA-256, plus separately approved whole-second UTC
+  `engagementApprovedAtUtc`. Changing this registry changes its raw SHA-256,
+  which is bound into both scope and signed envelope, invalidates all prior
+  independent evidence, and requires the final rebuild/review cycle.
+- The only signature algorithm is Ed25519. Convert the 32-byte raw public key
+  to SPKI using fixed DER prefix `302a300506032b6570032100`. A detached
+  signature file is exactly 128 lowercase hex characters plus LF (64 bytes).
+- The signed envelope is canonical one-line UTF-8 JSON plus LF with the exact
+  schema key order:
+  `schemaVersion,evidenceClass,authorityId,authorityRegistrySha256,reviewerOrganization,`
+  `reviewerIndividual,candidateSha256,sourceCommit,releaseConfigSha256,`
+  `scopeSha256,reportBodySha256,engagementSha256,verdict,issuedAtUtc,`
+  `conflictDisclosure`. Unknown keys are rejected. The Ed25519 message is the
+  ASCII domain `HAKKY-INDEPENDENT-EVIDENCE-V1\0` followed directly by those
+  exact envelope bytes.
+- Retrieval accepts three explicit HTTPS URLs (envelope, signature, report
+  body) whose origin exactly equals the approved `sourceOrigin`. Userinfo,
+  query, fragment, non-default port, redirect, non-200 response, credentialed
+  request, dot segment, percent-encoded path byte, and any origin/path-prefix
+  substitution are rejected. Envelope/report/engagement bytes are capped at
+  8 MiB, source archive at 64 MiB, build record at 2 MiB, and executable at
+  120,000 bytes. The engagement URL must match exactly. Envelope and report
+  body are exactly `application/json`, signature
+  text is `text/plain`, and the engagement is either exactly
+  `application/json` or exactly `application/pdf`.
+  `issuedAtUtc` is whole-second canonical UTC, not future, and not before the
+  candidate build or engagement approval. Engagement bytes must match the
+  authority's approved hash. The ignored retrieval receipt records raw
+  response hashes/status/times, but the evaluator recomputes all decisive
+  facts from the fetched bytes and authority registry.
+- `verdict:"pass"` is necessary but never sufficient. Security and economic
+  roles require distinct approved authorities. Independent reproduction
+  requires a third authority distinct from both reviewers and two local build
+  operators.
+
+The decisive scope, bodies, and receipt are also exact:
+
+- `hakky-independent-scope-v1` is canonical one-line JSON plus LF with key order
+  `schemaVersion,evidenceClass,authorityRegistrySha256,candidateSha256,`
+  `sourceCommit,sourceArchiveSha256,cargoLockSha256,releaseConfigSha256,`
+  `designSpecSha256,curveVectorSha256,buildRecordSha256,executableSha256,`
+  `executableLength`. `scopeSha256` is SHA-256 of those exact bytes.
+  `buildIndependentScopeV1` consumes the raw authority registry, candidate,
+  canonical uncompressed `git archive --format=tar HEAD`, Cargo.lock, release
+  config, design spec, detached-digest vector JSON, and local build-record
+  bytes; it derives every field and rejects a dirty tree or cross-file
+  mismatch. `evaluateIndependentEvidenceV1` receives and revalidates the same
+  raw inputs. No caller supplies a scope hash field.
+- `hakky-security-audit-body-v1` has exact keys
+  `schemaVersion,evidenceClass,scopeSha256,methodology,reviewedComponents,`
+  `findings`. `hakky-economic-review-body-v1` has exact keys
+  `schemaVersion,evidenceClass,scopeSha256,methodology,curveFormula,`
+  `poolBuyFormula,poolSellFormula,feeNumerator,feeDenominator,vectorSha256,`
+  `checkedCaseCount,findings`. A finding has exact keys
+  `id,severity,status,title,affectedComponent,evidence,rationale,`
+  `resolutionCommit`, with severity
+  `critical|high|medium|low|informational` and status
+  `open|resolved|accepted-risk`. The evaluator derives counts; every
+  critical/high finding must be resolved against the scoped source, and each
+  accepted lower-severity finding requires a nonempty rationale.
+- The economic evaluator requires the exact Section 7/9 formula strings, fee
+  `997500/1000000`, the detached curve-vector digest, and at least 10,000
+  checked generated cases, then independently recomputes the checked vectors.
+- `hakky-independent-reproduction-body-v1` has exact keys
+  `schemaVersion,evidenceClass,scopeSha256,builderOrganization,`
+  `builderOperator,sourceArchiveSha256,cargoLockSha256,releaseConfigSha256,`
+  `containerDigest,commandSha256,buildRecordSha256,executableSha256,`
+  `executableLength,stdoutSha256,stderrSha256`. Reproduction retrieval must
+  also fetch the raw canonical source archive, closed build record, and raw
+  `.so`. The evaluator byte-compares the archive with the scoped local archive,
+  validates the record, compares actual executable bytes with the candidate,
+  and rejects a builder organization/operator used by either local build
+  record.
+- `hakky-independent-retrieval-v1` is canonical one-line JSON plus LF with exact key
+  order `schemaVersion,authorityId,evidenceClass,retrievedAtUtc,sourceOrigin,`
+  `engagementUrl,envelopeUrl,signatureUrl,reportBodyUrl,sourceArchiveUrl,`
+  `buildRecordUrl,artifactUrl,httpStatus,contentType,engagementSha256,`
+  `envelopeSha256,signatureSha256,reportBodySha256,sourceArchiveSha256,`
+  `buildRecordSha256,artifactSha256`. Source-archive/build-record/artifact
+  fields are `null` for reviews and mandatory for reproduction.
+  Status/content-type subobjects have the same fixed resource order. The
+  receipt is evidence of retrieval only; every hash, signature, scope, body
+  rule, archive, build record, and byte equality is recomputed.
+
+`fetchIndependentEvidenceV1({ authorityId, evidenceClass, scopePath,
+envelopeUrl, signatureUrl, reportBodyUrl, sourceArchiveUrl, buildRecordUrl,
+artifactUrl, outputRoot, fetchImpl, now })` is the only retrieval function.
+Engagement URL comes from the approved registry, not the caller. It writes raw
+files plus the receipt without clobbering under
+`artifacts/independent-evidence/<evidenceClass>/<authorityId>/`.
+`sourceArchiveUrl`, `buildRecordUrl`, and `artifactUrl` must be absent for
+reviews and present for reproduction. `evaluateIndependentEvidenceV1`
+consumes the raw registry, scope and every scope-source byte stream, envelope,
+signature, report body, engagement, receipt, optional independent source
+archive/build record/artifact, actual candidate bytes, and both local build
+records; it accepts no decisive boolean.
+
+`scripts/build-independent-scope.mjs` is the only scope generator. It reads the
+fixed tracked paths, derives the clean HEAD and canonical uncompressed Git
+archive, accepts only candidate/build-record paths, and writes without
+clobbering under
+`artifacts/independent-evidence/scopes/<evidenceClass>/scope.json` plus
+`source.tar`.
+
+The remaining exact schema versions are
+`hakky-independent-authorities-v1` and `hakky-independent-report-v1`. Git
+commits are exactly 40 lowercase hex; SHA-256 values are exactly 64 lowercase
+hex; lengths/counts are canonical unsigned decimal strings.
+
+Add the exact no-credential CLI:
+
+```json
+{
+  "scripts": {
+    "evidence:scope": "node scripts/build-independent-scope.mjs",
+    "evidence:fetch-independent": "node scripts/fetch-independent-evidence.mjs"
+  }
+}
+```
+
+It requires `--authority`, `--class`, `--scope`, `--envelope-url`,
+`--signature-url`, `--report-body-url`, and `--output-root`; reproduction also
+requires `--source-archive-url`, `--build-record-url`, and `--artifact-url`.
+Unknown flags, redirects, credentials, and an existing output directory fail
+closed. The scope CLI requires `--class`, `--candidate`, `--build-record`, and
+`--output-root`; all hash-source paths other than those two artifact paths are
+fixed internally.
 
 - [ ] **Step 4: Add canonical no-clobber CLI wrappers**
 
@@ -568,7 +805,7 @@ canonical proof path.
 - [ ] **Step 5: Run GREEN**
 
 ```powershell
-rtk node --test test/immutable-program-proof.test.mjs test/hakky-market-proof.test.mjs test/hakky-pool-proof.test.mjs test/verify-immutable-program.test.mjs test/verify-hakky-market.test.mjs test/verify-hakky-pool.test.mjs test/proof-output.test.mjs
+rtk node --test test/immutable-program-proof.test.mjs test/hakky-market-proof.test.mjs test/hakky-pool-proof.test.mjs test/independent-scope.test.mjs test/independent-evidence.test.mjs test/fetch-independent-evidence.test.mjs test/verify-immutable-program.test.mjs test/verify-hakky-market.test.mjs test/verify-hakky-pool.test.mjs test/proof-output.test.mjs
 ```
 
 Expected: evaluators and wrappers pass; no failed fixture publishes.
@@ -576,7 +813,7 @@ Expected: evaluators and wrappers pass; no failed fixture publishes.
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add package.json package-lock.json src/immutable-program-proof.mjs src/hakky-market-proof.mjs src/hakky-pool-proof.mjs src/proof-output.mjs scripts/verify-immutable-program.mjs scripts/verify-hakky-market.mjs scripts/verify-hakky-pool.mjs test
+rtk git add package.json config/independent-evidence-authorities-v1.json schemas/evidence src/independent-scope.mjs src/independent-evidence.mjs src/immutable-program-proof.mjs src/hakky-market-proof.mjs src/hakky-pool-proof.mjs src/proof-output.mjs scripts/build-independent-scope.mjs scripts/fetch-independent-evidence.mjs scripts/verify-immutable-program.mjs scripts/verify-hakky-market.mjs scripts/verify-hakky-pool.mjs test
 rtk git commit -m "proof: verify immutable program and market"
 ```
 
@@ -598,8 +835,45 @@ rtk git commit -m "proof: verify immutable program and market"
 - Replace: `test/build-unavailable-record.test.mjs`
 - Replace: `test/launch-policy.test.mjs`
 - Replace: `test/launch-view.test.mjs`
+- Create: `scripts/check-task7-deletion-manifest.mjs`
 - Modify: `package.json`
-- Delete: active LaunchLab/Raydium modules, scripts, schemas, fixtures, tests.
+- Delete exactly:
+  `schemas/proof/mainnet-mint-v2.schema.json`,
+  `schemas/proof/mainnet-launchlab-v2.schema.json`,
+  `schemas/proof/mainnet-graduation-v1.schema.json`,
+  `schemas/web/launch-v2.schema.json`,
+  `scripts/verify-graduation.mjs`,
+  `scripts/verify-launchlab.mjs`,
+  `scripts/verify-launchlab-preview.mjs`,
+  `scripts/verify-raydium-origin.mjs`,
+  `src/graduation-proof.mjs`,
+  `src/launchlab-preview.mjs`,
+  `src/launchlab-proof.mjs`,
+  `src/launchlab-rpc.mjs`,
+  `src/mint-proof.mjs`,
+  `src/raydium-launchlab.mjs`,
+  `src/raydium-origin.mjs`,
+  `src/session-receipt.mjs`,
+  `src/stage-observation.mjs`,
+  `test-support/launch-fixtures.mjs`,
+  `test-support/launchlab-preview-fixtures.mjs`,
+  `test-support/launchlab-proof-fixtures.mjs`,
+  `test-support/mint-v2-provenance-fixtures.mjs`,
+  `test-support/fixtures/launchlab/platform-config-instructions.json`,
+  `test-support/fixtures/launchlab/migrate-to-cpswap-transaction.json`,
+  `test-support/fixtures/launchlab/migrate-to-amm-transaction.json`,
+  `test-support/fixtures/launchlab/initialize-v2-transaction.json`,
+  `test-support/fixtures/launchlab/graduation-accounts.json`,
+  `test-support/fixtures/launchlab/curve-accounts.json`,
+  `test/graduation-proof.test.mjs`,
+  `test/launchlab-preview.test.mjs`,
+  `test/launchlab-proof.test.mjs`,
+  `test/launchlab-rpc.test.mjs`,
+  `test/mint-proof.test.mjs`,
+  `test/raydium-launchlab.test.mjs`,
+  `test/raydium-origin.test.mjs`,
+  `test/session-receipt.test.mjs`,
+  `test/stage-observation.test.mjs`.
 
 **Interfaces:**
 - Consumes: Tasks 5-6.
@@ -644,16 +918,19 @@ commands:
 }
 ```
 
-- [ ] **Step 4: Remove obsolete active files**
+- [ ] **Step 4: Remove only the frozen obsolete-file manifest**
 
-Delete the LaunchLab/Raydium/graduation modules, scripts, schemas, fixtures, and
-tests enumerated in the suite review. Keep only historical
+Delete exactly the paths/pattern-constrained tracked leaves in this task's
+Files list. `check-task7-deletion-manifest.mjs` compares the base-to-worktree
+name-status set with the frozen replacement/create/delete manifest and fails
+on one extra or missing path. Keep all historical
 `docs/superpowers/specs/2026-07-23-*` records.
 
 - [ ] **Step 5: Run GREEN and stale-surface scan**
 
 ```powershell
 rtk node --test test/canonical-proof.test.mjs test/build-curve-live-record.test.mjs test/build-pool-live-record.test.mjs test/build-unavailable-record.test.mjs test/launch-policy.test.mjs test/launch-view.test.mjs
+rtk node scripts/check-task7-deletion-manifest.mjs
 rtk rg -n -i "LaunchLab|Raydium|graduated|Burn & Earn|PlatformConfig" src scripts schemas web test test-support README.md docs/LAUNCH.md docs/TOKEN.md proof/README.md
 ```
 
@@ -663,7 +940,9 @@ historical `docs/superpowers/` were intentionally excluded.
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add -A
+rtk node scripts/check-task7-deletion-manifest.mjs
+rtk git add package.json src/canonical-proof.mjs scripts/build-curve-live-record.mjs scripts/build-pool-live-record.mjs scripts/build-unavailable-record.mjs scripts/check-task7-deletion-manifest.mjs web/lib/launch-policy.js web/lib/launch-view.js web/data/launch.json test/canonical-proof.test.mjs test/build-curve-live-record.test.mjs test/build-pool-live-record.test.mjs test/build-unavailable-record.test.mjs test/launch-policy.test.mjs test/launch-view.test.mjs
+rtk git add -u schemas/proof schemas/web scripts src test test-support
 rtk git commit -m "proof: replace LaunchLab lifecycle"
 ```
 
@@ -673,6 +952,7 @@ rtk git commit -m "proof: replace LaunchLab lifecycle"
 
 **Files:**
 - Create: `web/lib/trading-controller.js`
+- Create: `web/lib/hakky-market.generated.js`
 - Create: `web/market-entry.mjs`
 - Create: `scripts/render-web-market-client.mjs`
 - Create: `test/trading-controller.test.mjs`
@@ -684,6 +964,7 @@ rtk git commit -m "proof: replace LaunchLab lifecycle"
 - Modify: `test/site.test.mjs`
 - Modify: `test/site-layout.test.mjs`
 - Modify: `package.json`
+- Modify: `package-lock.json`
 
 **Interfaces:**
 - Consumes: Tasks 1-4 and v3 launch view.
@@ -844,7 +1125,10 @@ rtk git commit -m "metadata: pin immutable market JSON"
 Require fixed 10M supply, 8M curve, 2M/24 SOL initial pool, zero creator
 allocation, 0% curve fee, exact 0.25% pool-retained rate plus rounding,
 no LP/admin/withdrawal right, direct website/CLI access, no aggregator promise,
-and explicit risk/no-audit-until-complete language. Reject active LaunchLab,
+and explicit risk/no-audit-until-complete language. Disclose that an initial
+curve buy needs at least 1,334 HAKKY base units to move one lamport, an initial
+pool sell needs 85 base units to return one lamport, and fee rounding makes
+one-unit pool inputs ineffective. Reject active LaunchLab,
 Raydium, graduation, migration, platform-admin, LP burn/lock, price, return, or
 safety promises.
 
@@ -896,7 +1180,8 @@ rtk git diff --check
 rtk git status --short
 ```
 
-Expected: independent math/codecs match Rust vectors; the CLI is unsigned and
-secret-free; proof schemas/artifacts are closed; lifecycle is v3 only; active
-LaunchLab/Raydium material is absent; website transactions are decoded before
-wallet presentation; prelaunch exposes no live destination.
+Expected: independent math/codecs match spec-owned detached-digest vectors;
+the CLI is unsigned and secret-free; proof schemas/artifacts are closed;
+lifecycle is v3 only; active LaunchLab/Raydium material is absent; website
+transactions are decoded before wallet presentation; prelaunch exposes no live
+destination.

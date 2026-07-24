@@ -26,6 +26,13 @@ Chrome control, GitHub Actions and Pages.
   `docs/superpowers/specs/2026-07-24-hakky-immutable-curve-pool-design.md`.
 - The build consumes a clean reviewed commit, exact `Cargo.lock`, exact
   release configuration, and the pinned container digest above.
+- `config/hakky-release-v1.json` is the sole tracked candidate identity leaf;
+  identity is committed before candidate build and build tools never rewrite
+  it.
+- Native, test-SBF, and candidate-SBF lanes have distinct commands, receipts,
+  paths, and evidence classes; no receipt satisfies another lane.
+- Candidate/public evaluators reject every registered native/test-SBF
+  identity, config hash, path, and binary hash.
 - Two controller-operated clean builds must be byte-identical; a third
   independently operated build remains an external mainnet gate.
 - Program binary length must be at most 120,000 bytes.
@@ -43,7 +50,13 @@ Chrome control, GitHub Actions and Pages.
   bytes through two public gateways.
 - Metadata JSON remains at the exact HTTPS URI and is not uploaded to Pinata
   under the current image-only approval.
+- The image CID is two-gateway verified and exact metadata bytes are committed
+  before any candidate build approval; a CID or metadata-byte change
+  invalidates every earlier build, reproduction, cost, and audit receipt.
 - Browser QA is local until a separate publication approval.
+- Before first approved initialization submission, the candidate nonce appears
+  only in restricted offline candidate-SBF execution; no public RPC simulation
+  or shared unsigned transaction may reveal it.
 - Independent security/economic reviews are not simulated by agents and remain
   hard mainnet gates.
 - No push, PR, merge, website deployment, wallet signature, mainnet
@@ -56,8 +69,10 @@ Chrome control, GitHub Actions and Pages.
 
 **Files:**
 - Create: `Containerfile.sbf`
+- Create: `config/local-build-operator-v1.json`
 - Create: `src/release-manifest.mjs`
 - Create: `schemas/release/build-record-v1.schema.json`
+- Create: `schemas/release/local-build-operator-v1.schema.json`
 - Create: `scripts/verify-sbf-reproduction.mjs`
 - Create: `test/release-manifest.test.mjs`
 - Create: `test/verify-sbf-reproduction.test.mjs`
@@ -99,8 +114,10 @@ test("requires independent clean directories and byte-identical output", () => {
 ```
 
 Add mutations for dirty source, tag-only image, wrong digest, tool/version
-drift, source/lock/config hash drift, reused directory, missing stdout/stderr
-hash, missing UTC time, wrong executable name, and unknown field.
+drift, source/lock/config hash drift, non-candidate lane, any test identity or
+test artifact path/hash, reused directory, missing stdout/stderr hash, missing
+UTC time, wrong executable name, asserted rather than derived surface facts,
+local-operator identity/hash drift, and unknown field.
 
 - [ ] **Step 2: Run RED**
 
@@ -122,9 +139,13 @@ ignored directory, mounts no wallet or user home, builds
 `hakky_market.so`, and records:
 
 ```text
+lane = candidate-sbf
 source commit/tree hash
+local builder organization/operator and config hash
 Cargo.lock hash
-release_config.rs hash
+config/hakky-release-v1.json hash
+generated Rust/JavaScript release-view hashes
+registered test-identity exclusion result
 container repository/tag/digest
 rustc/cargo/solana/cargo-build-sbf versions
 command and environment allowlist
@@ -132,6 +153,18 @@ UTC start/end
 stdout/stderr SHA-256
 executable length/SHA-256
 ```
+
+`config/local-build-operator-v1.json` is canonical one-line JSON plus LF:
+
+```json
+{"schemaVersion":"hakky-local-build-operator-v1","organizationId":"hakky-local","operatorId":"local-controller"}
+```
+
+Both controller-operated local builds bind these exact values and raw config
+hash. This is an exclusion identity, not a claim that the two directories are
+independent operators. The authenticated third-party reproduction must use a
+different organization and operator. Changing this file invalidates every
+local build and reproduction receipt.
 
 - [ ] **Step 4: Implement closed record and reproduction evaluation**
 
@@ -142,29 +175,39 @@ hashes.
 ```json
 {
   "scripts": {
-    "program:reproduce": "node scripts/verify-sbf-reproduction.mjs"
+    "program:reproduce-candidate": "node scripts/verify-sbf-reproduction.mjs --lane candidate-sbf"
   }
 }
 ```
 
-- [ ] **Step 5: Run GREEN and two clean builds**
+- [ ] **Step 5: Run GREEN before committing the build wrapper**
 
 ```powershell
 rtk node --test test/release-manifest.test.mjs test/verify-sbf-reproduction.test.mjs
-rtk npm run program:build -- --output artifacts/build/local-a
-rtk npm run program:build -- --output artifacts/build/local-b
-rtk npm run program:reproduce -- --left artifacts/build/local-a --right artifacts/build/local-b
 ```
 
-Expected: tests pass; both executable byte streams and SHA-256 values match;
-each length is at most 120,000; the reproduction receipt reports `ok:true`.
+Expected: manifest and reproduction mutation tests pass.
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add Containerfile.sbf src/release-manifest.mjs schemas/release/build-record-v1.schema.json scripts/build-hakky-sbf.mjs scripts/verify-sbf-reproduction.mjs test/release-manifest.test.mjs test/verify-sbf-reproduction.test.mjs package.json package-lock.json .gitignore
+rtk git add Containerfile.sbf config/local-build-operator-v1.json src/release-manifest.mjs schemas/release/build-record-v1.schema.json schemas/release/local-build-operator-v1.schema.json scripts/build-hakky-sbf.mjs scripts/verify-sbf-reproduction.mjs test/release-manifest.test.mjs test/verify-sbf-reproduction.test.mjs package.json .gitignore
 rtk git commit -m "release: prove reproducible SBF build"
 ```
+
+- [ ] **Step 7: From the clean commit, produce two clean builds**
+
+```powershell
+rtk git status --porcelain
+rtk npm run program:build-candidate -- --output artifacts/build/candidate/local-a
+rtk npm run program:build-candidate -- --output artifacts/build/candidate/local-b
+rtk npm run program:reproduce-candidate -- --left artifacts/build/candidate/local-a --right artifacts/build/candidate/local-b
+rtk git status --porcelain
+```
+
+Expected: both status reads are empty; both executable byte streams and
+SHA-256 values match; each length is at most 120,000; and the ignored
+reproduction receipt reports `ok:true`.
 
 ---
 
@@ -258,7 +301,7 @@ ledger; it has no transaction-building/signing/sending surface.
 
 ```powershell
 rtk node --test test/cost-ledger.test.mjs test/build-cost-ledger.test.mjs
-rtk npm run cost:verify -- --build-record artifacts/build/local-a/build-record.json --network devnet
+rtk npm run cost:verify -- --build-record artifacts/build/candidate/local-a/build-record.json --network devnet
 ```
 
 Expected: tests pass; the devnet diagnostic reports exact values and either
@@ -267,7 +310,7 @@ Expected: tests pass; the devnet diagnostic reports exact values and either
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add src/cost-ledger.mjs schemas/release/cost-ledger-v1.schema.json scripts/build-cost-ledger.mjs test/cost-ledger.test.mjs test/build-cost-ledger.test.mjs package.json package-lock.json
+rtk git add src/cost-ledger.mjs schemas/release/cost-ledger-v1.schema.json scripts/build-cost-ledger.mjs test/cost-ledger.test.mjs test/build-cost-ledger.test.mjs package.json
 rtk git commit -m "release: enforce one-SOL cost prefixes"
 ```
 
@@ -276,17 +319,20 @@ rtk git commit -m "release: enforce one-SOL cost prefixes"
 ### Task 3: Add exact-built SBF lifecycle and CI gates
 
 **Files:**
-- Create: `programs/hakky-market/tests/exact_sbf_lifecycle.rs`
+- Create: `programs/hakky-market-sbf-tests/tests/release_runtime.rs`
 - Create: `scripts/fetch-pinned-metaplex-program.mjs`
 - Create: `scripts/run-exact-sbf-lifecycle.mjs`
 - Create: `test/fetch-pinned-metaplex-program.test.mjs`
+- Create: `test/exact-sbf-lanes.test.mjs`
 - Modify: `.github/workflows/quality.yml`
 - Modify: `.github/workflows/pages.yml`
 - Modify: `package.json`
 
 **Interfaces:**
 - Consumes: completed program/client/proof work and reproducible build.
-- Produces exact `.so` ProgramTest lifecycle plus deterministic CI commands.
+- Produces deterministic test-SBF CI lifecycle, nonce-free exact candidate-SBF
+  runtime checks, restricted offline candidate lifecycle receipt, and
+  deterministic CI commands.
 
 - [ ] **Step 1: Write failing pinned-binary collector tests**
 
@@ -300,54 +346,78 @@ secret/authenticated URL.
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk node --test test/fetch-pinned-metaplex-program.test.mjs
+rtk node --test test/fetch-pinned-metaplex-program.test.mjs test/exact-sbf-lanes.test.mjs
 ```
 
-Expected: FAIL because the collector does not exist.
+Expected: FAIL because the collector and exact-lane runner do not exist.
 
 - [ ] **Step 3: Add exact SBF ProgramTest lifecycle**
 
-Load `target/deploy/hakky_market.so` with `add_program(..., None)`, not a native
-processor closure. Load the pinned Metaplex executable. Exercise hostile
-prefunds of the exact metadata PDA, finalized-self initialization, curve
+For CI, load the deterministic `test-sbf` `.so` with `prefer_bpf(true)` and no
+native HAKKY processor closure. Load the pinned Metaplex executable and
+exercise hostile metadata prefunds, raw loader accounts, initialization, curve
 boundaries, terminal transition, pool trades, donations, rollback, aliases,
-expiry, slippage, and concurrency. The test consumes the same Rust vectors as
-host tests.
+expiry, slippage, safe second invocation, and concurrency.
+
+Separately load the exact candidate `.so` in the isolated ProgramTest 4.1.2
+package. CI executes nonce-free decoder/account/loader and surface behavior.
+Full candidate initialization/lifecycle is local and offline, reads the nonce
+only from the restricted ceremony directory, never prints it, and emits only a
+sanitized receipt. A test-SBF receipt cannot satisfy candidate proof.
 
 - [ ] **Step 4: Extend CI**
 
-CI runs Node checks on Node 22, host Rust format/clippy/tests on Rust 1.95.0,
-then the digest-pinned SBF build, exact-binary lifecycle, surface/size check,
-and two-build reproduction. No secret, RPC credential, wallet, or public
-transaction is required.
+CI runs Node checks on Node 22, host Rust format/clippy/tests in the pinned
+native image, then test-SBF lifecycle, candidate build, nonce-free
+current-runtime candidate checks, raw-evidence surface/size check, bounded
+fuzzing, and two-build candidate reproduction. No secret, RPC credential,
+wallet, or public transaction is required.
 
 ```json
 {
   "scripts": {
-    "program:test-sbf": "node scripts/run-exact-sbf-lifecycle.mjs"
+    "program:test-test-sbf": "node scripts/run-exact-sbf-lifecycle.mjs --lane test-sbf",
+    "program:test-candidate-sbf": "node scripts/run-exact-sbf-lifecycle.mjs --lane candidate-sbf"
   }
 }
 ```
 
-- [ ] **Step 5: Run GREEN locally**
+- [ ] **Step 5: Run GREEN for collector and test-SBF lanes**
 
 ```powershell
 rtk node --test test/fetch-pinned-metaplex-program.test.mjs
-rtk npm run program:build
-rtk npm run program:test-sbf
-rtk npm run program:inspect
-rtk npm run program:reproduce
+rtk node --test test/exact-sbf-lanes.test.mjs
+rtk npm run program:build-test-sbf
+rtk npm run program:test-test-sbf
+rtk npm run program:fuzz
 rtk npm run check
 ```
 
-Expected: exact-built lifecycle and complete repository checks pass.
+Expected: collector, test-SBF lifecycle, fuzzing, and complete repository
+checks pass without cross-lane evidence.
 
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add programs/hakky-market/tests/exact_sbf_lifecycle.rs scripts/fetch-pinned-metaplex-program.mjs test/fetch-pinned-metaplex-program.test.mjs .github/workflows/quality.yml .github/workflows/pages.yml package.json package-lock.json
+rtk git add programs/hakky-market-sbf-tests/tests/release_runtime.rs scripts/fetch-pinned-metaplex-program.mjs scripts/run-exact-sbf-lifecycle.mjs test/fetch-pinned-metaplex-program.test.mjs test/exact-sbf-lanes.test.mjs .github/workflows/quality.yml .github/workflows/pages.yml package.json
 rtk git commit -m "ci: gate exact immutable market binary"
 ```
+
+- [ ] **Step 7: From the clean commit, run candidate-only gates**
+
+```powershell
+rtk git status --porcelain
+rtk npm run program:build-candidate -- --output artifacts/build/candidate/ci-a
+rtk npm run program:build-candidate -- --output artifacts/build/candidate/ci-b
+rtk npm run program:test-candidate-sbf -- --build artifacts/build/candidate/ci-a
+rtk npm run program:inspect-candidate -- --build artifacts/build/candidate/ci-a
+rtk npm run program:reproduce-candidate -- --left artifacts/build/candidate/ci-a --right artifacts/build/candidate/ci-b
+rtk git status --porcelain
+```
+
+Expected: both status reads are empty; nonce-free candidate checks and the
+restricted offline lifecycle (when the private nonce is available) pass; and
+all candidate evidence remains in ignored paths.
 
 ---
 
@@ -383,8 +453,8 @@ pool-live-finalized
 Test exact genesis, public RPC, no secret output, sufficient balance, exact
 binary/max_len, finalized byte readback, one-shot authority removal, nonce
 commitment, initialization, representative curve/pool trades, complete 24-SOL
-terminal route, proof generation, failure/unknown reconciliation, and zero
-automatic retry/fallback.
+terminal route, three replay meanings, proof generation, failure/unknown
+reconciliation, and zero automatic retry/fallback.
 
 - [ ] **Step 2: Run RED**
 
@@ -397,11 +467,22 @@ Expected: FAIL because the new rehearsal module does not exist.
 - [ ] **Step 3: Implement the bounded no-retry ceremony**
 
 The command reads ignored key files without printing them, validates their
-public identities against `release_config.rs`, checks free devnet balance,
+public identities against `config/hakky-release-v1.json`, verifies every
+generated release view and candidate receipt has the same config hash, checks
+free devnet balance,
 builds exact deployment/finalization/initialization envelopes, and stops before
 each mutation unless the invocation contains the reviewed devnet-only
 operation flag. A submitted signature is recorded before polling; unknown
 results are finalized-readback states, never implicit retries.
+
+Before the first initialization submission, nonce-bearing construction,
+decode, and candidate-SBF execution are local/offline only. There is no public
+RPC simulation. The first submission permanently discloses the nonce even on
+failure/expiry/unknown outcome. An identical signed transaction is handled by
+runtime deduplication; a fresh initialization replay fails
+`AlreadyInitialized`; a fresh swap invocation is a new trade and may execute
+only against current state/slippage/deadline. Unknown signatures are
+reconciled before any newly approved transaction is constructed.
 
 ```json
 {
@@ -435,7 +516,7 @@ available. If free funding is insufficient, record
 - [ ] **Step 6: Commit code, never ceremony artifacts**
 
 ```powershell
-rtk git add package.json package-lock.json scripts/rehearse-immutable-devnet.mjs test/immutable-devnet-rehearsal.test.mjs
+rtk git add package.json scripts/rehearse-immutable-devnet.mjs test/immutable-devnet-rehearsal.test.mjs
 rtk git rm scripts/rehearse-devnet.mjs test/devnet-rehearsal.test.mjs
 rtk git commit -m "devnet: rehearse immutable market lifecycle"
 ```
@@ -443,6 +524,10 @@ rtk git commit -m "devnet: rehearse immutable market lifecycle"
 ---
 
 ### Task 5: Verify the separately approved image-only Pinata upload
+
+**Execution order:** Run this task in Index Wave 6B, before Client Task 9 and
+before Release Task 1. Task numbers group concerns; they do not override the
+CID-before-metadata-before-build dependency.
 
 **Files:**
 - Create: `src/image-ipfs-proof.mjs`
@@ -452,7 +537,8 @@ rtk git commit -m "devnet: rehearse immutable market lifecycle"
 - Modify: `package.json`
 
 **Interfaces:**
-- Consumes: a browser-observed Pinata CID after the exact approved upload.
+- Consumes: ignored `artifacts/ipfs/pinata-upload-cid.txt`, containing exactly
+  the browser-observed canonical CID plus LF after the approved upload.
 - Produces an ignored closed receipt binding two gateway responses to
   SHA-256 `9e672cdc454e6249873cdf359b51a1f8f6a7f8a10f057d77f85ecce705bca8a0`.
 
@@ -472,9 +558,10 @@ Expected: FAIL because image-IPFS proof modules do not exist.
 
 - [ ] **Step 3: Implement read-only two-gateway verification**
 
-The CLI accepts one canonical CID, fetches exact bytes from two fixed public
-gateway origins with one total deadline, and writes the receipt only after
-both match the approved local file byte-for-byte.
+The CLI accepts only `--cid-file`, requires that exact one-line text contract,
+fetches exact bytes from two fixed public gateway origins with one total
+deadline, and writes the receipt only after both match the approved local file
+byte-for-byte.
 
 ```json
 {
@@ -499,7 +586,7 @@ Use Pinata's authenticated free public upload UI. Select exactly
 request. Record the returned CID, then run:
 
 ```powershell
-rtk npm run metadata:image:verify -- --cid "$env:HAKKY_IMAGE_CID"
+rtk npm run metadata:image:verify -- --cid-file artifacts/ipfs/pinata-upload-cid.txt
 ```
 
 Expected: receipt reports two exact gateway matches. If Pinata remains signed
@@ -508,7 +595,7 @@ out, this task is externally blocked; do not enter or request credentials.
 - [ ] **Step 6: Commit code, never authenticated/session evidence**
 
 ```powershell
-rtk git add src/image-ipfs-proof.mjs scripts/verify-image-ipfs.mjs schemas/release/image-ipfs-v1.schema.json test/image-ipfs-proof.test.mjs package.json package-lock.json
+rtk git add src/image-ipfs-proof.mjs scripts/verify-image-ipfs.mjs schemas/release/image-ipfs-v1.schema.json test/image-ipfs-proof.test.mjs package.json
 rtk git commit -m "metadata: verify image-only IPFS receipt"
 ```
 
@@ -578,7 +665,11 @@ rtk git commit -m "qa: certify local immutable market UI"
 - Modify: `proof/README.md`
 - Modify: `launch/README.md`
 - Create: `docs/MAINNET-NO-GO-CHECKLIST.md`
+- Create: `src/no-mainnet-readiness.mjs`
+- Create: `schemas/release/no-mainnet-readiness-v1.schema.json`
+- Create: `scripts/build-no-mainnet-readiness.mjs`
 - Create: `test/no-mainnet-readiness.test.mjs`
+- Modify: `package.json`
 
 **Interfaces:**
 - Consumes: every completed local artifact and external gate status.
@@ -611,7 +702,15 @@ mainnet initialization approval
 ```
 
 Any absent/failed/stale gate yields `readyForMainnetApproval:false`. The report
-has no signing, sending, retry, or approval field.
+has no signing, sending, retry, or approval field. Its raw input rejects
+decisive `ok`, `verified`, `ready`, audit-complete, independence, or
+finding-resolved booleans. It revalidates underlying immutable hashes and raw
+evidence; locally authored JSON cannot complete an independent audit or
+reproduction and another evaluator's `ok:true` is never sufficient evidence.
+Independent audit/reproduction evidence must use the closed authenticated
+contract from Client/Proof/Site Task 6: approved reviewer/builder identity and
+key binding, trusted retrieval receipt, detached signature over candidate,
+source/config/report hashes and scope, conflict disclosure, and raw findings.
 
 - [ ] **Step 2: Run RED**
 
@@ -626,9 +725,23 @@ Expected: FAIL because the final checklist does not exist.
 Document exact user CLI/web flow, all irreversible risks, proof paths,
 reproduction, cost semantics, devnet process, independent audit requirements,
 and the separate mainnet sequence. The current report truthfully leaves
-external incomplete gates false.
+external incomplete gates false. `src/no-mainnet-readiness.mjs` is a pure
+closed-schema evaluator. `scripts/build-no-mainnet-readiness.mjs` reads only
+raw evidence paths, revalidates them, and writes the ignored
+`artifacts/readiness/no-mainnet-v1.json`; failed evidence cannot occupy any
+canonical proof path.
 
-- [ ] **Step 4: Run the entire local suite**
+Add the exact package command:
+
+```json
+{
+  "scripts": {
+    "readiness:no-mainnet": "node scripts/build-no-mainnet-readiness.mjs --output artifacts/readiness/no-mainnet-v1.json"
+  }
+}
+```
+
+- [ ] **Step 4: Run the pre-commit local suite**
 
 ```powershell
 rtk cargo fmt --all --check
@@ -638,26 +751,41 @@ rtk npm run schemas
 rtk npm run client:web
 rtk npm run assets
 rtk npm run check
-rtk npm run program:build
-rtk npm run program:test-sbf
-rtk npm run program:inspect
-rtk npm run program:reproduce
-rtk npm run cost:verify
+rtk npm run program:test-native
+rtk npm run program:build-test-sbf
+rtk npm run program:test-test-sbf
+rtk npm run program:fuzz
 rtk node --test test/no-mainnet-readiness.test.mjs
 rtk git diff --check
-rtk git status --short --branch
 ```
 
-Expected: every locally executable gate passes; the readiness report lists
-external incomplete gates explicitly and remains
-`readyForMainnetApproval:false` until they are genuinely complete.
+Expected: every non-candidate local gate passes.
 
 - [ ] **Step 5: Commit**
 
 ```powershell
-rtk git add README.md SECURITY.md CONTRIBUTING.md docs/LAUNCH.md docs/TOKEN.md docs/MAINNET-NO-GO-CHECKLIST.md proof/README.md launch/README.md test/no-mainnet-readiness.test.mjs
+rtk git add README.md SECURITY.md CONTRIBUTING.md docs/LAUNCH.md docs/TOKEN.md docs/MAINNET-NO-GO-CHECKLIST.md proof/README.md launch/README.md src/no-mainnet-readiness.mjs schemas/release/no-mainnet-readiness-v1.schema.json scripts/build-no-mainnet-readiness.mjs test/no-mainnet-readiness.test.mjs package.json
 rtk git commit -m "release: add immutable launch no-go audit"
 ```
+
+- [ ] **Step 6: From the clean final commit, run candidate and report gates**
+
+```powershell
+rtk git status --porcelain
+rtk npm run program:build-candidate -- --output artifacts/build/candidate/final-a
+rtk npm run program:build-candidate -- --output artifacts/build/candidate/final-b
+rtk npm run program:test-candidate-sbf -- --build artifacts/build/candidate/final-a
+rtk npm run program:inspect-candidate -- --build artifacts/build/candidate/final-a
+rtk npm run program:reproduce-candidate -- --left artifacts/build/candidate/final-a --right artifacts/build/candidate/final-b
+rtk npm run cost:verify -- --build-record artifacts/build/candidate/final-a/build-record.json --network devnet
+rtk npm run readiness:no-mainnet -- --build artifacts/build/candidate/final-a --evidence-root artifacts/independent-evidence
+rtk git status --porcelain
+```
+
+Expected: both status reads are empty and every locally executable candidate
+gate passes. The ignored readiness report explicitly lists incomplete external
+gates and remains `readyForMainnetApproval:false` until genuine authenticated
+evidence completes them.
 
 ## Release Plan Completion Gate
 
