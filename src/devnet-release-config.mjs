@@ -57,6 +57,7 @@ public sealed class HakkyDirectoryPin : IDisposable
     private const uint DACL_SECURITY_INFORMATION = 0x00000004;
     private const uint SDDL_REVISION_1 = 1;
     private const int FILE_RENAME_INFORMATION_CLASS = 10;
+    private const int FILE_DISPOSITION_INFORMATION_CLASS = 13;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct ByHandleFileInformation
@@ -555,7 +556,7 @@ public sealed class HakkyDirectoryPin : IDisposable
         }
     }
 
-    public void Verify()
+    private void VerifyIdentity()
     {
         if (handle == null || handle.IsInvalid || handle.IsClosed)
         {
@@ -567,11 +568,16 @@ public sealed class HakkyDirectoryPin : IDisposable
                 "opened directory pin identity changed"
             );
         }
+        VerifyPathIdentity(publishedPath ?? originalPath);
+    }
+
+    public void Verify()
+    {
+        VerifyIdentity();
         if (verifyPrivateDirectorySecurity)
         {
             VerifyPrivateDirectorySecurity(handle);
         }
-        VerifyPathIdentity(publishedPath ?? originalPath);
     }
 
     public string PublishPrivate(
@@ -660,6 +666,64 @@ public sealed class HakkyDirectoryPin : IDisposable
         Verify();
         retainedRoot.Verify();
         return Identity;
+    }
+
+    public string RemoveEmpty(HakkyDirectoryPin retainedRoot)
+    {
+        if (
+            !renameSource ||
+            renameRoot ||
+            retainedRoot == null ||
+            !retainedRoot.renameRoot ||
+            publishedPath != null
+        )
+        {
+            throw new InvalidOperationException(
+                "directory pin is not configured for empty staging removal"
+            );
+        }
+
+        VerifyIdentity();
+        retainedRoot.Verify();
+        string removedIdentity = Identity;
+        IntPtr buffer = Marshal.AllocHGlobal(sizeof(byte));
+        try
+        {
+            Marshal.WriteByte(buffer, 0, 1);
+            IoStatusBlock ioStatusBlock;
+            int status = NtSetInformationFile(
+                handle,
+                out ioStatusBlock,
+                buffer,
+                sizeof(byte),
+                FILE_DISPOSITION_INFORMATION_CLASS
+            );
+            if (status != 0)
+            {
+                uint error = RtlNtStatusToDosError(status);
+                throw new Win32Exception(
+                    (int)error,
+                    string.Format(
+                        CultureInfo.InvariantCulture,
+                        "native empty staging removal failed ({0})",
+                        error
+                    )
+                );
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(buffer);
+        }
+
+        if (ReadIdentity(handle) != removedIdentity)
+        {
+            throw new InvalidOperationException(
+                "opened staging identity changed during removal"
+            );
+        }
+        retainedRoot.Verify();
+        return removedIdentity;
     }
 
     public void Dispose()
@@ -864,6 +928,37 @@ try {
           [PSCustomObject]@{
             command = 'PUBLISH_PRIVATE'
             identity = $publishedIdentity
+          }
+        ))
+      )
+      [Console]::Out.Flush()
+      continue
+    }
+    if ($commandName -eq 'REMOVE_STAGING') {
+      if ($command -ne 'REMOVE_STAGING') {
+        throw 'invalid REMOVE_STAGING command'
+      }
+      if (
+        $createRootIndex -lt 0 -or
+        $createRootIndex -ge $pins.Count -or
+        $stagingPin -eq $null
+      ) {
+        throw 'private staging identity is unavailable for removal'
+      }
+      $removedIdentity = $stagingPin.RemoveEmpty(
+        $pins[$createRootIndex]
+      )
+      $stagingPin.Dispose()
+      $pins.RemoveAt($pins.Count - 1)
+      $stagingPin = $null
+      [Console]::Out.WriteLine(
+        (ConvertTo-Json -Compress -InputObject (
+          [PSCustomObject]@{
+            command = 'REMOVE_STAGING'
+            identity = $removedIdentity
+            identities = [string[]]@(
+              $pins | ForEach-Object { $_.Identity }
+            )
           }
         ))
       )
@@ -1188,6 +1283,27 @@ async function createWindowsDirectoryIdentityPin(
             throw new Error(`${label} published identity changed`);
           }
           return publishResponse.identity;
+        },
+        async removeEmpty() {
+          if (stagingReleased) {
+            throw new Error(`${label} staging identity pin is already released`);
+          }
+          const removeResponse = await sendCommand("REMOVE_STAGING");
+          const parentIdentities = identities.slice(0, stagingIndex);
+          if (
+            removeResponse.identity !== response.identity ||
+            !sameIdentities(parentIdentities, removeResponse.identities)
+          ) {
+            await terminateHelper();
+            throw new Error(
+              `${label} identity pin returned invalid empty staging removal data`,
+            );
+          }
+          retainedPaths.pop();
+          identities.pop();
+          stagingReleased = true;
+          stagingFacade = null;
+          return removeResponse.identity;
         },
         async release() {
           if (stagingReleased) {
@@ -2252,21 +2368,38 @@ export async function generateDevnetReleaseConfig({
         `devnet release generation failed; protected incomplete staging retained at ${stagingDirectory}; explicit recovery required`,
       );
     }
-    if (stagingIdentityPin) {
+    const removeEmptyWindowsStage =
+      process.platform === "win32" &&
+      !privateHandleCreated &&
+      stagingDirectory &&
+      stagingIdentityPin &&
+      parentIdentityPin;
+    if (removeEmptyWindowsStage) {
       try {
-        await releaseStagingPin();
+        await invokeStagingHandoffHook("empty-cleanup");
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+      try {
+        await stagingIdentityPin.removeEmpty();
+        stagingPinReleased = true;
+        stagingIdentityPin = null;
+        stagingDirectory = null;
       } catch (cleanupError) {
         cleanupErrors.push(cleanupError);
       }
     }
-    for (const cleanup of [
-      () =>
-        cleanupOwnedStage(
-          stagingDirectory,
-          devnetDirectory,
-          stagingIdentityPin,
-          parentIdentityPin,
-        ),
+    if (stagingIdentityPin) {
+      try {
+        await releaseStagingPin();
+        if (process.platform === "win32") {
+          stagingIdentityPin = null;
+        }
+      } catch (cleanupError) {
+        cleanupErrors.push(cleanupError);
+      }
+    }
+    const cleanups = [
       () =>
         cleanupOwnedTemporaryFile(
           publicTemporaryPath,
@@ -2279,7 +2412,18 @@ export async function generateDevnetReleaseConfig({
           rustConfigPath,
           verifyParentPin,
         ),
-    ]) {
+    ];
+    if (process.platform !== "win32") {
+      cleanups.unshift(() =>
+        cleanupOwnedStage(
+          stagingDirectory,
+          devnetDirectory,
+          stagingIdentityPin,
+          parentIdentityPin,
+        ),
+      );
+    }
+    for (const cleanup of cleanups) {
       try {
         await cleanup();
       } catch (cleanupError) {

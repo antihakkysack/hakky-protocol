@@ -1506,6 +1506,159 @@ test(
 );
 
 test(
+  "Windows removes an empty failed stage by retained handle before release",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    const devnetDirectory = path.join(root, "artifacts", "devnet");
+    const privateDirectory = path.join(devnetDirectory, "private");
+    await mkdir(devnetDirectory, { recursive: true });
+
+    let attacker;
+    let stagingDirectory;
+    let retainedIdentity;
+    let cleanupPhase;
+    let attackResult;
+    t.after(async () => {
+      if (attacker) {
+        attacker.terminate();
+        await attacker.release().catch(() => {});
+      }
+    });
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async preParentPinHook() {
+          attacker = await createWindowsStaleParentHandle(devnetDirectory);
+        },
+        async beforeKeyGenerationHook(context) {
+          stagingDirectory = context.stagingDirectory;
+          retainedIdentity = context.retainedStagingIdentity;
+          assert.deepEqual(await readdir(stagingDirectory), []);
+          assert.equal(
+            await windowsDirectoryIdentity(stagingDirectory),
+            retainedIdentity,
+          );
+          throw new Error("injected pre-key-generation failure");
+        },
+        async postStagingPinReleaseHook(context) {
+          cleanupPhase = context.phase;
+          attackResult = await attacker.trySwap(context.stagingDirectory);
+        },
+      }),
+      /injected pre-key-generation failure/i,
+    );
+
+    assert.equal(cleanupPhase, "empty-cleanup");
+    assert.match(attackResult, /^BLOCKED:/);
+    assert.equal(await lstatIfExistsForTest(stagingDirectory), null);
+    assert.equal(
+      await lstatIfExistsForTest(`${stagingDirectory}.original-moved`),
+      null,
+    );
+    assert.equal(await lstatIfExistsForTest(privateDirectory), null);
+    assert.deepEqual(
+      (await readdir(devnetDirectory)).filter((entry) =>
+        entry.startsWith(".private-stage-"),
+      ),
+      [],
+    );
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows empty-stage native removal errors retain the exact identity and reap the helper",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    const root = await isolatedRepository(t);
+    let stagingDirectory;
+    let retainedIdentity;
+    let cleanupHooks = 0;
+
+    await assert.rejects(
+      generateDevnetReleaseConfig({
+        repositoryRoot: root,
+        async beforeKeyGenerationHook(context) {
+          stagingDirectory = context.stagingDirectory;
+          retainedIdentity = context.retainedStagingIdentity;
+          await writeFile(
+            path.join(stagingDirectory, "non-secret-sentinel.txt"),
+            "retain on native removal error\n",
+            "utf8",
+          );
+          throw new Error("injected non-empty pre-key-generation failure");
+        },
+        async postStagingPinReleaseHook(context) {
+          cleanupHooks += 1;
+          assert.equal(context.phase, "empty-cleanup");
+        },
+      }),
+      /REMOVE_STAGING failed: .*native empty staging removal failed/i,
+    );
+
+    assert.equal(cleanupHooks, 1);
+    assert.equal(
+      await windowsDirectoryIdentity(stagingDirectory),
+      retainedIdentity,
+    );
+    assert.deepEqual(await readdir(stagingDirectory), [
+      "non-secret-sentinel.txt",
+    ]);
+    assert.equal(
+      await readFile(
+        path.join(stagingDirectory, "non-secret-sentinel.txt"),
+        "utf8",
+      ),
+      "retain on native removal error\n",
+    );
+    await assertNoWindowsDirectoryPinHelper();
+  },
+);
+
+test(
+  "Windows empty-stage removal transport faults are bounded and retain the exact identity",
+  { skip: process.platform !== "win32" },
+  async (t) => {
+    for (const action of ["terminate", "suspend"]) {
+      await t.test(action, async (t) => {
+        const root = await isolatedRepository(t);
+        let stagingDirectory;
+        let retainedIdentity;
+        const cleanupPhases = [];
+
+        await assert.rejects(
+          generateDevnetReleaseConfig({
+            repositoryRoot: root,
+            async beforeKeyGenerationHook(context) {
+              stagingDirectory = context.stagingDirectory;
+              retainedIdentity = context.retainedStagingIdentity;
+              throw new Error(
+                `injected pre-key-generation ${action} failure`,
+              );
+            },
+            async postStagingPinReleaseHook(context) {
+              cleanupPhases.push(context.phase);
+              await controlWindowsDirectoryPinHelpers(action);
+            },
+          }),
+          /directory pin|pin helper|timed out|EPIPE/i,
+        );
+
+        assert.deepEqual(cleanupPhases, ["empty-cleanup"]);
+        assert.equal(
+          await windowsDirectoryIdentity(stagingDirectory),
+          retainedIdentity,
+        );
+        assert.deepEqual(await readdir(stagingDirectory), []);
+        await assertNoWindowsDirectoryPinHelper();
+      });
+    }
+  },
+);
+
+test(
   "Windows staging ACL failure closes before key generation and cleans the empty stage",
   { skip: process.platform !== "win32" },
   async (t) => {
