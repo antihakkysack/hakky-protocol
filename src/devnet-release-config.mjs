@@ -17,10 +17,20 @@ import path from "node:path";
 import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 
 export const INSTANCE_DOMAIN = "HAKKY_INSTANCE_V1";
 export const METADATA_URI = "https://hakky.xyz/metadata/hakky-v1.json";
+export const RELEASE_SCHEMA_VERSION = "hakky-release-config-v1";
+export const RELEASE_NETWORK = "devnet";
+export const FIXED_RELEASE_IDENTITIES = Object.freeze({
+  systemProgram: "11111111111111111111111111111111",
+  loaderProgram: "BPFLoaderUpgradeab1e11111111111111111111111",
+  tokenProgram: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  wsolMint: "So11111111111111111111111111111111111111112",
+  metadataProgram: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+  rentSysvar: "SysvarRent111111111111111111111111111111111",
+});
 const execFileAsync = promisify(execFile);
 const WINDOWS_PIN_TYPE = String.raw`
 using System;
@@ -1510,24 +1520,150 @@ function rustArray(bytes) {
   return `[${[...bytes].join(", ")}]`;
 }
 
-export function renderRustReleaseConfig({
-  programId,
-  initializer,
-  instanceCommitment: commitment,
-}) {
-  if (commitment.length !== 32) {
+function releaseIdentityBytes(releaseConfig) {
+  const result = {};
+  for (const field of [
+    "programId",
+    "initializer",
+    "systemProgram",
+    "loaderProgram",
+    "tokenProgram",
+    "wsolMint",
+    "metadataProgram",
+    "rentSysvar",
+  ]) {
+    result[field] = new PublicKey(releaseConfig[field]).toBytes();
+  }
+  result.instanceCommitment = Buffer.from(
+    releaseConfig.instanceCommitment,
+    "hex",
+  );
+  if (result.instanceCommitment.length !== 32) {
     throw new TypeError("instance commitment must be exactly 32 bytes");
   }
+  return result;
+}
+
+function assertReleaseConfig(releaseConfig) {
+  const expectedKeys = [
+    "schemaVersion",
+    "network",
+    "programId",
+    "initializer",
+    "instanceCommitment",
+    "systemProgram",
+    "loaderProgram",
+    "tokenProgram",
+    "wsolMint",
+    "metadataProgram",
+    "rentSysvar",
+    "metadataUri",
+  ];
+  if (
+    releaseConfig === null ||
+    typeof releaseConfig !== "object" ||
+    Array.isArray(releaseConfig) ||
+    !assertExactKeys(releaseConfig, expectedKeys)
+  ) {
+    throw new TypeError("release config has an invalid closed shape");
+  }
+  if (
+    releaseConfig.schemaVersion !== RELEASE_SCHEMA_VERSION ||
+    releaseConfig.network !== RELEASE_NETWORK ||
+    releaseConfig.metadataUri !== METADATA_URI
+  ) {
+    throw new TypeError("release config contains an invalid fixed value");
+  }
+  for (const [field, expected] of Object.entries(FIXED_RELEASE_IDENTITIES)) {
+    if (releaseConfig[field] !== expected) {
+      throw new TypeError(`release config ${field} is not fixed`);
+    }
+  }
+  if (!/^[0-9a-f]{64}$/u.test(releaseConfig.instanceCommitment)) {
+    throw new TypeError("instance commitment must be 32 lowercase hex bytes");
+  }
+  releaseIdentityBytes(releaseConfig);
+  return releaseConfig;
+}
+
+function assertExactKeys(value, expectedKeys) {
+  const actualKeys = Object.keys(value);
+  return (
+    actualKeys.length === expectedKeys.length &&
+    actualKeys.every((key, index) => key === expectedKeys[index])
+  );
+}
+
+export function renderRustReleaseConfig(releaseConfig) {
+  assertReleaseConfig(releaseConfig);
+  const bytes = releaseIdentityBytes(releaseConfig);
   return `use solana_program::pubkey::Pubkey;
 
-pub const EXPECTED_PROGRAM_ID_BYTES: [u8; 32] = ${rustArray(programId.toBytes())};
-pub const INITIALIZER_BYTES: [u8; 32] = ${rustArray(initializer.toBytes())};
-pub const INSTANCE_COMMITMENT: [u8; 32] = ${rustArray(commitment)};
-pub const METADATA_URI: &str = "${METADATA_URI}";
+pub const TOTAL_SUPPLY: u64 = 10_000_000_000_000;
+pub const CURVE_MAX: u64 = 8_000_000_000_000;
+pub const POOL_SEED: u64 = 2_000_000_000_000;
+pub const TERMINAL_QUOTE: u64 = 24_000_000_000;
+pub const POOL_FEE_DENOMINATOR: u64 = 1_000_000;
+pub const POOL_EFFECTIVE_NUMERATOR: u64 = 997_500;
+pub const TOKEN_DECIMALS: u8 = 6;
+pub const TOKEN_NAME: &str = "Hakky Protocol";
+pub const TOKEN_SYMBOL: &str = "HAKKY";
+pub const RELEASE_SCHEMA_VERSION: &str = "${releaseConfig.schemaVersion}";
+pub const RELEASE_NETWORK: &str = "${releaseConfig.network}";
+pub const METADATA_URI: &str = "${releaseConfig.metadataUri}";
 
-pub const EXPECTED_PROGRAM_ID: Pubkey =
-    Pubkey::new_from_array(EXPECTED_PROGRAM_ID_BYTES);
+#[cfg(not(feature = "test-release-config"))]
+pub const EXPECTED_PROGRAM_ID_BYTES: [u8; 32] = ${rustArray(bytes.programId)};
+#[cfg(not(feature = "test-release-config"))]
+pub const INITIALIZER_BYTES: [u8; 32] = ${rustArray(bytes.initializer)};
+#[cfg(not(feature = "test-release-config"))]
+pub const INSTANCE_COMMITMENT: [u8; 32] = ${rustArray(bytes.instanceCommitment)};
+
+#[cfg(feature = "test-release-config")]
+pub use crate::test_release_config::{
+    EXPECTED_PROGRAM_ID, EXPECTED_PROGRAM_ID_BYTES, INITIALIZER, INITIALIZER_BYTES,
+    INSTANCE_COMMITMENT,
+};
+
+#[cfg(not(feature = "test-release-config"))]
+pub const EXPECTED_PROGRAM_ID: Pubkey = Pubkey::new_from_array(EXPECTED_PROGRAM_ID_BYTES);
+#[cfg(not(feature = "test-release-config"))]
 pub const INITIALIZER: Pubkey = Pubkey::new_from_array(INITIALIZER_BYTES);
+
+pub const SYSTEM_PROGRAM_BYTES: [u8; 32] = ${rustArray(bytes.systemProgram)};
+pub const LOADER_PROGRAM_BYTES: [u8; 32] = ${rustArray(bytes.loaderProgram)};
+pub const TOKEN_PROGRAM_BYTES: [u8; 32] = ${rustArray(bytes.tokenProgram)};
+pub const WSOL_MINT_BYTES: [u8; 32] = ${rustArray(bytes.wsolMint)};
+pub const METADATA_PROGRAM_BYTES: [u8; 32] = ${rustArray(bytes.metadataProgram)};
+pub const RENT_SYSVAR_BYTES: [u8; 32] = ${rustArray(bytes.rentSysvar)};
+
+pub const SYSTEM_PROGRAM: Pubkey = Pubkey::new_from_array(SYSTEM_PROGRAM_BYTES);
+pub const LOADER_PROGRAM: Pubkey = Pubkey::new_from_array(LOADER_PROGRAM_BYTES);
+pub const TOKEN_PROGRAM: Pubkey = Pubkey::new_from_array(TOKEN_PROGRAM_BYTES);
+pub const WSOL_MINT: Pubkey = Pubkey::new_from_array(WSOL_MINT_BYTES);
+pub const METADATA_PROGRAM: Pubkey = Pubkey::new_from_array(METADATA_PROGRAM_BYTES);
+pub const RENT_SYSVAR: Pubkey = Pubkey::new_from_array(RENT_SYSVAR_BYTES);
+`;
+}
+
+export function renderJavaScriptReleaseConfig(releaseConfig) {
+  assertReleaseConfig(releaseConfig);
+  const bytes = releaseIdentityBytes(releaseConfig);
+  const byteEntries = Object.entries(bytes)
+    .map(
+      ([field, value]) =>
+        `  ${field}: Object.freeze(${JSON.stringify([...value])}),`,
+    )
+    .join("\n");
+  return `export const HAKKY_RELEASE_CONFIG_V1 = Object.freeze(${JSON.stringify(
+    releaseConfig,
+    null,
+    2,
+  )});
+
+export const HAKKY_RELEASE_IDENTITY_BYTES_V1 = Object.freeze({
+${byteEntries}
+});
 `;
 }
 
@@ -1915,16 +2051,42 @@ export function repositoryRootFromModule(moduleUrl) {
   return path.resolve(fileURLToPath(new URL("../", moduleUrl)));
 }
 
-export async function generateDevnetReleaseConfig({
-  repositoryRoot,
-  beforeKeyGenerationHook,
-  beforeSecretFirstByteHook,
-  preParentPinHook,
-  preStagingCreateHook,
-  postValidationHook,
-  postSecretFileWriteHook,
-  postStagingPinReleaseHook,
-}) {
+export async function generateDevnetReleaseConfig(options) {
+  const allowedOptions = [
+    "repositoryRoot",
+    "beforeKeyGenerationHook",
+    "beforeSecretFirstByteHook",
+    "preParentPinHook",
+    "preStagingCreateHook",
+    "postValidationHook",
+    "postSecretFileWriteHook",
+    "postStagingPinReleaseHook",
+  ];
+  if (
+    options === null ||
+    typeof options !== "object" ||
+    Array.isArray(options)
+  ) {
+    throw new TypeError("generation options must be an object");
+  }
+  const unknownOption = Object.keys(options).find(
+    (key) => !allowedOptions.includes(key),
+  );
+  if (unknownOption !== undefined) {
+    throw new TypeError(
+      `unknown option ${unknownOption}; identity overrides are forbidden`,
+    );
+  }
+  const {
+    repositoryRoot,
+    beforeKeyGenerationHook,
+    beforeSecretFirstByteHook,
+    preParentPinHook,
+    preStagingCreateHook,
+    postValidationHook,
+    postSecretFileWriteHook,
+    postStagingPinReleaseHook,
+  } = options;
   if (typeof repositoryRoot !== "string" || !path.isAbsolute(repositoryRoot)) {
     throw new TypeError("repository root must be an absolute path");
   }
@@ -2012,6 +2174,14 @@ export async function generateDevnetReleaseConfig({
   );
   const sourceDirectory = path.join(programDirectory, "src");
   await assertSafeDirectory(sourceDirectory, rootReal, "program source directory");
+  const configDirectory = path.join(root, "config");
+  await ensureSafeDirectory(configDirectory, rootReal, "release config directory");
+  const generatedSourceDirectory = path.join(root, "src");
+  await ensureSafeDirectory(
+    generatedSourceDirectory,
+    rootReal,
+    "generated source directory",
+  );
 
   const privateDirectory = path.join(devnetDirectory, "private");
   const existingPrivateEntry = await lstatIfExists(privateDirectory);
@@ -2028,10 +2198,14 @@ export async function generateDevnetReleaseConfig({
   }
 
   const publicConfigPath = path.join(
-    devnetDirectory,
-    "public-release-config.json",
+    configDirectory,
+    "hakky-release-v1.json",
   );
-  const rustConfigPath = path.join(sourceDirectory, "release_config.rs");
+  const rustConfigPath = path.join(sourceDirectory, "constants.rs");
+  const javascriptConfigPath = path.join(
+    generatedSourceDirectory,
+    "hakky-release-config.generated.mjs",
+  );
   await assertSafeOptionalFile(
     publicConfigPath,
     rootReal,
@@ -2042,8 +2216,20 @@ export async function generateDevnetReleaseConfig({
     rootReal,
     "Rust release config",
   );
+  await assertSafeOptionalFile(
+    javascriptConfigPath,
+    rootReal,
+    "JavaScript release config",
+  );
 
-  const parentPaths = [root, artifactsDirectory, devnetDirectory];
+  const parentPaths = [
+    root,
+    artifactsDirectory,
+    devnetDirectory,
+    configDirectory,
+    generatedSourceDirectory,
+    sourceDirectory,
+  ];
   const validatedParentIdentities =
     await readDirectoryIdentitySnapshot(parentPaths);
   if (preParentPinHook) {
@@ -2063,6 +2249,7 @@ export async function generateDevnetReleaseConfig({
   let privateHandleCreated = false;
   let publicTemporaryPath;
   let rustTemporaryPath;
+  let javascriptTemporaryPath;
 
   async function verifyParentPin() {
     if (!parentIdentityPin) {
@@ -2264,19 +2451,15 @@ export async function generateDevnetReleaseConfig({
     }
 
     const publicConfig = {
+      schemaVersion: RELEASE_SCHEMA_VERSION,
+      network: RELEASE_NETWORK,
       programId: program.publicKey.toBase58(),
       initializer: initializer.publicKey.toBase58(),
       instanceCommitment: commitment.toString("hex"),
-      paths: {
-        publicReleaseConfig: path
-          .relative(root, publicConfigPath)
-          .replaceAll("\\", "/"),
-        rustReleaseConfig: path
-          .relative(root, rustConfigPath)
-          .replaceAll("\\", "/"),
-      },
+      ...FIXED_RELEASE_IDENTITIES,
+      metadataUri: METADATA_URI,
     };
-    const canonicalPublicJson = `${JSON.stringify(publicConfig, null, 2)}\n`;
+    const canonicalPublicJson = `${JSON.stringify(publicConfig)}\n`;
     publicTemporaryPath = await writeOwnedTemporaryFile(
       publicConfigPath,
       canonicalPublicJson,
@@ -2284,11 +2467,12 @@ export async function generateDevnetReleaseConfig({
     );
     rustTemporaryPath = await writeOwnedTemporaryFile(
       rustConfigPath,
-      renderRustReleaseConfig({
-        programId: program.publicKey,
-        initializer: initializer.publicKey,
-        instanceCommitment: commitment,
-      }),
+      renderRustReleaseConfig(publicConfig),
+      verifyRetainedPins,
+    );
+    javascriptTemporaryPath = await writeOwnedTemporaryFile(
+      javascriptConfigPath,
+      renderJavaScriptReleaseConfig(publicConfig),
       verifyRetainedPins,
     );
 
@@ -2308,6 +2492,9 @@ export async function generateDevnetReleaseConfig({
     await verifyParentPin();
     await rename(rustTemporaryPath, rustConfigPath);
     rustTemporaryPath = null;
+    await verifyParentPin();
+    await rename(javascriptTemporaryPath, javascriptConfigPath);
+    javascriptTemporaryPath = null;
 
     const result = {
       canonicalPublicJson,
@@ -2343,6 +2530,12 @@ export async function generateDevnetReleaseConfig({
           cleanupOwnedTemporaryFile(
             rustTemporaryPath,
             rustConfigPath,
+            verifyParentPin,
+          ),
+        () =>
+          cleanupOwnedTemporaryFile(
+            javascriptTemporaryPath,
+            javascriptConfigPath,
             verifyParentPin,
           ),
       ]) {
@@ -2410,6 +2603,12 @@ export async function generateDevnetReleaseConfig({
         cleanupOwnedTemporaryFile(
           rustTemporaryPath,
           rustConfigPath,
+          verifyParentPin,
+        ),
+      () =>
+        cleanupOwnedTemporaryFile(
+          javascriptTemporaryPath,
+          javascriptConfigPath,
           verifyParentPin,
         ),
     ];

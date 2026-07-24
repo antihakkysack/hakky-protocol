@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   chmod,
   lstat,
@@ -21,11 +22,16 @@ import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import {
+  HAKKY_RELEASE_CONFIG_V1,
+  HAKKY_RELEASE_IDENTITY_BYTES_V1,
+} from "../src/hakky-release-config.generated.mjs";
 import {
   generateDevnetReleaseConfig,
   INSTANCE_DOMAIN,
   instanceCommitment,
+  renderJavaScriptReleaseConfig,
   renderRustReleaseConfig,
   restrictPrivateDirectory,
   restrictPrivateFile,
@@ -38,6 +44,186 @@ const initializer = Keypair.fromSeed(
   Uint8Array.from({ length: 32 }, (_, i) => 255 - i),
 );
 const nonce = Uint8Array.from({ length: 32 }, () => 7);
+const EXPECTED_RELEASE_CONFIG = Object.freeze({
+  schemaVersion: "hakky-release-config-v1",
+  network: "devnet",
+  programId: "Bp5ULfE8tLo7X24kHxWhUmRmWWzD9HdpNa7wxipngfxc",
+  initializer: "66T1nXejFJ4uKhFQv6y9qagfxgpBfZ4jqvWK2gAhPCo8",
+  instanceCommitment:
+    "6baeb27b178da81aa7d3898507e62cfbd95c1bedafa845f624dd802fdf20143c",
+  systemProgram: "11111111111111111111111111111111",
+  loaderProgram: "BPFLoaderUpgradeab1e11111111111111111111111",
+  tokenProgram: "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+  wsolMint: "So11111111111111111111111111111111111111112",
+  metadataProgram: "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+  rentSysvar: "SysvarRent111111111111111111111111111111111",
+  metadataUri: "https://hakky.xyz/metadata/hakky-v1.json",
+});
+const RELEASE_IDENTITY_FIELDS = Object.freeze([
+  "programId",
+  "initializer",
+  "systemProgram",
+  "loaderProgram",
+  "tokenProgram",
+  "wsolMint",
+  "metadataProgram",
+  "rentSysvar",
+]);
+
+function rustByteArray(source, name) {
+  const match = source.match(
+    new RegExp(
+      `pub const ${name}: \\[u8; 32\\] = \\[([^\\]]+)\\];`,
+      "u",
+    ),
+  );
+  assert.ok(match, `${name} must be present in the generated Rust view`);
+  return match[1]
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => Number.parseInt(value, 10));
+}
+
+function sha256Hex(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+test("tracked release leaf is the sole candidate identity input", async () => {
+  const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const leafPath = path.join(root, "config", "hakky-release-v1.json");
+  const leafBytes = await readFile(leafPath, "utf8");
+  assert.equal(leafBytes, `${JSON.stringify(EXPECTED_RELEASE_CONFIG)}\n`);
+  assert.deepEqual(JSON.parse(leafBytes), EXPECTED_RELEASE_CONFIG);
+  await assert.rejects(
+    readFile(
+      path.join(
+        root,
+        "programs",
+        "hakky-market",
+        "src",
+        "release_config.rs",
+      ),
+      "utf8",
+    ),
+    { code: "ENOENT" },
+  );
+});
+
+test("generated JavaScript and Rust match every release identity byte", async () => {
+  assert.deepEqual(HAKKY_RELEASE_CONFIG_V1, EXPECTED_RELEASE_CONFIG);
+  const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const rustSource = await readFile(
+    path.join(root, "programs", "hakky-market", "src", "constants.rs"),
+    "utf8",
+  );
+  const rustNames = {
+    programId: "EXPECTED_PROGRAM_ID_BYTES",
+    initializer: "INITIALIZER_BYTES",
+    systemProgram: "SYSTEM_PROGRAM_BYTES",
+    loaderProgram: "LOADER_PROGRAM_BYTES",
+    tokenProgram: "TOKEN_PROGRAM_BYTES",
+    wsolMint: "WSOL_MINT_BYTES",
+    metadataProgram: "METADATA_PROGRAM_BYTES",
+    rentSysvar: "RENT_SYSVAR_BYTES",
+  };
+  for (const field of RELEASE_IDENTITY_FIELDS) {
+    const expected = [...new PublicKey(EXPECTED_RELEASE_CONFIG[field]).toBytes()];
+    assert.deepEqual(HAKKY_RELEASE_IDENTITY_BYTES_V1[field], expected);
+    assert.deepEqual(rustByteArray(rustSource, rustNames[field]), expected);
+  }
+  const commitment = [...Buffer.from(EXPECTED_RELEASE_CONFIG.instanceCommitment, "hex")];
+  assert.deepEqual(
+    HAKKY_RELEASE_IDENTITY_BYTES_V1.instanceCommitment,
+    commitment,
+  );
+  assert.deepEqual(
+    rustByteArray(rustSource, "INSTANCE_COMMITMENT"),
+    commitment,
+  );
+});
+
+test("both checked-in release views are deterministic renders of the leaf", async () => {
+  const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  assert.equal(
+    await readFile(
+      path.join(root, "programs", "hakky-market", "src", "constants.rs"),
+      "utf8",
+    ),
+    renderRustReleaseConfig(EXPECTED_RELEASE_CONFIG),
+  );
+  assert.equal(
+    await readFile(
+      path.join(root, "src", "hakky-release-config.generated.mjs"),
+      "utf8",
+    ),
+    renderJavaScriptReleaseConfig(EXPECTED_RELEASE_CONFIG),
+  );
+});
+
+test("generation rejects identity overrides before key generation", async (t) => {
+  const root = await isolatedRepository(t);
+  let keyGenerationReached = false;
+  await assert.rejects(
+    generateDevnetReleaseConfig({
+      repositoryRoot: root,
+      programId: Keypair.generate().publicKey.toBase58(),
+      async beforeKeyGenerationHook() {
+        keyGenerationReached = true;
+      },
+    }),
+    /identity override|unknown option/i,
+  );
+  assert.equal(keyGenerationReached, false);
+});
+
+test("candidate views exclude the hermetic fixture identities and hashes", async () => {
+  const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const candidatePaths = [
+    path.join(root, "config", "hakky-release-v1.json"),
+    path.join(root, "src", "hakky-release-config.generated.mjs"),
+    path.join(root, "programs", "hakky-market", "src", "constants.rs"),
+  ];
+  const candidateSource = (
+    await Promise.all(candidatePaths.map((candidate) => readFile(candidate)))
+  ).map((bytes) => bytes.toString("utf8")).join("\n");
+  const fixtureIdentities = [
+    "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF",
+    "Dav6Vxmr7BEgvQW4osrzWutwgPEqQ4Ji3zWxKp6nX9AD",
+    "83b540fece88b24496a7f4a876ad146a3cd64cdb74566da2aafbdd4bd6ebf0f4",
+    "CmoL1cvAKrxod4AtmY8MXxPKQHTdddu7G8zvFpco7RLN",
+    "95HfDKSWGCp1LyZCez8fPMYMR62U2bGes3v5x5bdW689",
+    "7H19wE3whSwccLQKxseXCs3fsQqT7PB8q5D5j14Tv292",
+    "6eEPFYBQnbpeDc1azQpgFJH5csE1rCmABsjavNqn66Fd",
+    "9Yv8ie1Ho9XTKM5uJPxD5zAZEnyxFoxdjcHjgzcAa4xK",
+    "GokrtAeJbGdH39zPc6cDQAGSj9Cj4nmimsZ4iWEez1Ye",
+  ];
+  for (const identity of fixtureIdentities) {
+    assert.doesNotMatch(candidateSource, new RegExp(identity, "u"));
+    assert.doesNotMatch(
+      candidateSource,
+      new RegExp(sha256Hex(Buffer.from(identity, "utf8")), "u"),
+    );
+    if (!/^[0-9a-f]{64}$/u.test(identity)) {
+      assert.doesNotMatch(
+        candidateSource,
+        new RegExp(sha256Hex(new PublicKey(identity).toBytes()), "u"),
+      );
+    }
+  }
+});
+
+test("test release identities carry the exact SBF compile guard", async () => {
+  const root = path.resolve(fileURLToPath(new URL("../", import.meta.url)));
+  const libSource = await readFile(
+    path.join(root, "programs", "hakky-market", "src", "lib.rs"),
+    "utf8",
+  );
+  assert.match(
+    libSource,
+    /#\[cfg\(all\(feature = "test-release-config", target_os = "solana"\)\)\]\r?\ncompile_error!\("test release identities must never compile to SBF"\);/u,
+  );
+});
 
 async function currentWindowsSid() {
   const { stdout } = await execFileAsync("whoami.exe", [
@@ -189,6 +375,8 @@ async function isolatedRepository(t) {
   await mkdir(path.join(root, "programs", "hakky-market", "src"), {
     recursive: true,
   });
+  await mkdir(path.join(root, "config"));
+  await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, ".gitignore"), "artifacts/\n", "utf8");
   return root;
 }
@@ -830,9 +1018,10 @@ public static class HakkyTestProcessControl
 test("renders only public compile-time release values", () => {
   const commitment = instanceCommitment(nonce);
   const rendered = renderRustReleaseConfig({
-    programId: program.publicKey,
-    initializer: initializer.publicKey,
-    instanceCommitment: commitment,
+    ...EXPECTED_RELEASE_CONFIG,
+    programId: program.publicKey.toBase58(),
+    initializer: initializer.publicKey.toBase58(),
+    instanceCommitment: commitment.toString("hex"),
   });
 
   assert.equal(INSTANCE_DOMAIN, "HAKKY_INSTANCE_V1");
@@ -924,7 +1113,7 @@ test("rejects an existing private identity directory without mutation", async (t
     "programs",
     "hakky-market",
     "src",
-    "release_config.rs",
+    "constants.rs",
   );
   await mkdir(privateDirectory, { recursive: true });
   await writeFile(sentinelPath, "existing private set\n", "utf8");
@@ -968,7 +1157,7 @@ test("no-overwrite publication preserves a destination created after staging", a
     "programs",
     "hakky-market",
     "src",
-    "release_config.rs",
+    "constants.rs",
   );
   await writeFile(rustConfigPath, "existing public binding\n", "utf8");
 
@@ -1018,15 +1207,16 @@ test("post-validation staging replacement cannot receive secret bytes", async (t
   const root = await isolatedRepository(t);
   const devnetDirectory = path.join(root, "artifacts", "devnet");
   const publicConfigPath = path.join(
-    devnetDirectory,
-    "public-release-config.json",
+    root,
+    "config",
+    "hakky-release-v1.json",
   );
   const rustConfigPath = path.join(
     root,
     "programs",
     "hakky-market",
     "src",
-    "release_config.rs",
+    "constants.rs",
   );
   const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
   t.after(() => rm(outside, { recursive: true, force: true }));
@@ -1088,15 +1278,16 @@ test("post-validation ancestor replacement cannot redirect staging", async (t) =
   const root = await isolatedRepository(t);
   const devnetDirectory = path.join(root, "artifacts", "devnet");
   const publicConfigPath = path.join(
-    devnetDirectory,
-    "public-release-config.json",
+    root,
+    "config",
+    "hakky-release-v1.json",
   );
   const rustConfigPath = path.join(
     root,
     "programs",
     "hakky-market",
     "src",
-    "release_config.rs",
+    "constants.rs",
   );
   const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
   t.after(() => rm(outside, { recursive: true, force: true }));
@@ -1140,7 +1331,7 @@ test("post-validation ancestor replacement cannot redirect staging", async (t) =
     assert.equal((await lstat(devnetDirectory)).isSymbolicLink(), true);
     assert.equal(
       await readFile(
-        path.join(movedDevnetDirectory, "public-release-config.json"),
+        publicConfigPath,
         "utf8",
       ),
       "existing public config\n",
@@ -1176,15 +1367,16 @@ test("pre-parent-pin substitutions never become an unverified secret boundary", 
     const devnetDirectory = path.join(artifactsDirectory, "devnet");
     const movedDevnetDirectory = `${devnetDirectory}.validated`;
     const publicConfigPath = path.join(
-      devnetDirectory,
-      "public-release-config.json",
+      root,
+      "config",
+      "hakky-release-v1.json",
     );
     const rustConfigPath = path.join(
       root,
       "programs",
       "hakky-market",
       "src",
-      "release_config.rs",
+      "constants.rs",
     );
     await mkdir(devnetDirectory, { recursive: true });
     await writeFile(publicConfigPath, "existing public config\n", "utf8");
@@ -1218,7 +1410,7 @@ test("pre-parent-pin substitutions never become an unverified secret boundary", 
     assert.deepEqual(await readdir(devnetDirectory), []);
     assert.equal(
       await readFile(
-        path.join(movedDevnetDirectory, "public-release-config.json"),
+        publicConfigPath,
         "utf8",
       ),
       "existing public config\n",
@@ -1239,15 +1431,16 @@ test("pre-parent-pin substitutions never become an unverified secret boundary", 
     const devnetDirectory = path.join(artifactsDirectory, "devnet");
     const movedDevnetDirectory = `${devnetDirectory}.validated`;
     const publicConfigPath = path.join(
-      devnetDirectory,
-      "public-release-config.json",
+      root,
+      "config",
+      "hakky-release-v1.json",
     );
     const rustConfigPath = path.join(
       root,
       "programs",
       "hakky-market",
       "src",
-      "release_config.rs",
+      "constants.rs",
     );
     const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
     t.after(() => rm(outside, { recursive: true, force: true }));
@@ -1277,7 +1470,7 @@ test("pre-parent-pin substitutions never become an unverified secret boundary", 
     assert.deepEqual(await readdir(outside), ["sentinel.txt"]);
     assert.equal(
       await readFile(
-        path.join(movedDevnetDirectory, "public-release-config.json"),
+        publicConfigPath,
         "utf8",
       ),
       "existing public config\n",
@@ -1724,15 +1917,16 @@ test(
   const devnetDirectory = path.join(root, "artifacts", "devnet");
   const privateDirectory = path.join(devnetDirectory, "private");
   const publicConfigPath = path.join(
-    devnetDirectory,
-    "public-release-config.json",
+    root,
+    "config",
+    "hakky-release-v1.json",
   );
   const rustConfigPath = path.join(
     root,
     "programs",
     "hakky-market",
     "src",
-    "release_config.rs",
+    "constants.rs",
   );
   const outside = await mkdtemp(path.join(tmpdir(), "hakky-outside-"));
   t.after(() => rm(outside, { recursive: true, force: true }));
@@ -1848,15 +2042,16 @@ test(
         const root = await isolatedRepository(t);
         const devnetDirectory = path.join(root, "artifacts", "devnet");
         const publicConfigPath = path.join(
-          devnetDirectory,
-          "public-release-config.json",
+          root,
+          "config",
+          "hakky-release-v1.json",
         );
         const rustConfigPath = path.join(
           root,
           "programs",
           "hakky-market",
           "src",
-          "release_config.rs",
+          "constants.rs",
         );
         await mkdir(devnetDirectory, { recursive: true });
         await writeFile(publicConfigPath, "existing public config\n", "utf8");
@@ -1893,15 +2088,16 @@ test(
   const root = await isolatedRepository(t);
   const devnetDirectory = path.join(root, "artifacts", "devnet");
   const publicConfigPath = path.join(
-    devnetDirectory,
-    "public-release-config.json",
+    root,
+    "config",
+    "hakky-release-v1.json",
   );
   const rustConfigPath = path.join(
     root,
     "programs",
     "hakky-market",
     "src",
-    "release_config.rs",
+    "constants.rs",
   );
   await mkdir(devnetDirectory, { recursive: true });
   await writeFile(publicConfigPath, "existing public config\n", "utf8");
@@ -2078,16 +2274,24 @@ test("CLI roots from its module and writes only canonical public JSON", async (t
 
   const parsed = JSON.parse(stdout);
   assert.deepEqual(Object.keys(parsed), [
+    "schemaVersion",
+    "network",
     "programId",
     "initializer",
     "instanceCommitment",
-    "paths",
+    "systemProgram",
+    "loaderProgram",
+    "tokenProgram",
+    "wsolMint",
+    "metadataProgram",
+    "rentSysvar",
+    "metadataUri",
   ]);
   assert.equal(stdout, result.canonicalPublicJson);
   assert.equal(
     stdout,
     await readFile(
-      path.join(root, "artifacts", "devnet", "public-release-config.json"),
+      path.join(root, "config", "hakky-release-v1.json"),
       "utf8",
     ),
   );

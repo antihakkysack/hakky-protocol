@@ -11,15 +11,16 @@ name = "hakky_market"
 [features]
 default = []
 no-entrypoint = []
+test-release-config = []
 
 [dependencies]
 mpl-token-metadata = "=5.1.1"
-solana-program = "=3.0.0"
-spl-token-interface = "=3.0.0"
+solana-program = "=2.3.0"
+spl-token-interface = "=1.0.0"
 
 [dev-dependencies]
 proptest = "=1.11.0"
-solana-program-test = "=4.1.2"
-solana-sdk = "=4.0.1"
-spl-token = { version = "=9.0.0", features = ["no-entrypoint"] }
+solana-program-test = "=2.3.13"
+solana-sdk = "=2.3.1"
+spl-token = { version = "=8.0.0", features = ["no-entrypoint"] }
 tokio = { version = "=1.53.1", features = ["macros", "rt-multi-thread"] }
