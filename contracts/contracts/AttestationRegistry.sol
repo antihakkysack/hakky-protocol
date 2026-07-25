@@ -54,9 +54,11 @@ contract AttestationRegistry is AccessControl, IAttestationRegistry {
     error ScoreOutOfRange();
     error NoAttestation();
     error NotIssuingProvider();
+    error ZeroAddress();
 
     /// @param admin Address granted DEFAULT_ADMIN_ROLE (should be a multisig/governance).
     constructor(address admin) {
+        if (admin == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 

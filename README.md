@@ -8,7 +8,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-14B8A6.svg)](LICENSE)
 [![Contracts](https://img.shields.io/badge/contracts-Solidity_0.8.24-0E9B8E.svg)](contracts/)
-[![Tests](https://img.shields.io/badge/tests-17%2F17_passing-0E9B8E.svg)](contracts/test/)
+[![Tests](https://img.shields.io/badge/contracts-24_passing-0E9B8E.svg)](contracts/test/)
 [![Not a mixer](https://img.shields.io/badge/not-a_mixer-F7931A.svg)](#hakky-is-not-a-mixer)
 
 </div>
@@ -62,7 +62,7 @@ process.
 ```
 
 1. **Screen** — BTC provenance is checked; an accredited attestor publishes a signed cleanliness attestation on-chain.
-2. **Mint** — the `ReserveVault` mints cBTC 1:1, but only while `totalSupply() ≤ reserveSats()`.
+2. **Mint** — the `ReserveVault` mints cBTC 1:1 from a verified Bitcoin outpoint, but only while total liabilities stay within fresh reserves and the immutable one-BTC pilot cap.
 3. **Use & redeem** — hold or transfer cBTC anywhere; burn it to redeem native BTC 1:1.
 
 ## Architecture
@@ -77,12 +77,34 @@ Five small, auditable contracts. Each does one job; all are public.
 | [`CompliancePolicy.sol`](contracts/contracts/CompliancePolicy.sol) | `MONITOR` / `GATED` / `ALLOWLIST` transfer modes. Ships **monitor-only**. |
 | [`ReserveVault.sol`](contracts/contracts/ReserveVault.sol) | Mint/redeem gateway between native BTC and cBTC, with replay protection. |
 
-**The core invariant** — enforced at mint time — is that cBTC in circulation can
-never exceed the BTC in reserve:
+**The pilot mint checks** require cBTC supply plus pending BTC redemptions,
+including the proposed mint, to stay within fresh reported reserves and one BTC:
 
 ```solidity
-require(totalSupply() + amount <= reserveOracle.reserveSats());
+totalSupply() + pendingRedemptionSats + amount <= reserveOracle.reserveSats()
+totalSupply() + pendingRedemptionSats + amount <= 100_000_000 sats
 ```
+
+The one-BTC liability ceiling always holds. Reported reserves can fall after a
+mint, so solvency remains an observable custody obligation; the API reports
+that condition and minting also stops when the publication is over 12 hours old.
+
+## One-BTC pilot status
+
+The `codex/one-btc-pilot` work adds a deliberately bounded live-pilot path:
+
+- an immutable `100,000,000` satoshi contract ceiling;
+- Bitcoin Core verification of the exact confirmed custody outpoint;
+- reserve reporting from safe, confirmed custody UTXOs;
+- durable redemption indexing in PostgreSQL;
+- manual Bitcoin payout verification before on-chain settlement;
+- separate operational signers, authenticated write APIs, and emergency pause;
+- fail-closed live configuration for Ethereum and Bitcoin mainnet.
+
+This is **implementation readiness, not launch approval**. The repository has
+not been audited and nothing here deploys contracts, configures custody, or
+moves BTC automatically. See the [one-BTC pilot runbook](docs/LIVE_PILOT.md)
+for mandatory launch gates and the remaining human controls.
 
 ## Quickstart
 
@@ -91,7 +113,7 @@ require(totalSupply() + amount <= reserveOracle.reserveSats());
 cd contracts
 npm install
 npm run build         # compile
-npm test              # 17 passing
+npm test              # 24 passing
 
 # 2. Local deploy (spins up a demo of the full stack)
 npx hardhat node                       # in one terminal
@@ -122,6 +144,7 @@ hakky-protocol/
 ```
 
 - **Canonical spec:** [`docs/SPEC.md`](docs/SPEC.md)
+- **One-BTC pilot runbook:** [`docs/LIVE_PILOT.md`](docs/LIVE_PILOT.md)
 - **Whitepaper:** [`docs/whitepaper.md`](docs/whitepaper.md)
 - **Launch kit:** [`launch/README.md`](launch/README.md)
 

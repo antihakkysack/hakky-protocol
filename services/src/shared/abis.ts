@@ -3,6 +3,7 @@
 // from the Hardhat build. Must stay in sync with contracts/contracts/*.sol.
 
 export const reserveOracleAbi = [
+  "function hasRole(bytes32 role, address account) view returns (bool)",
   "function reserveSats() view returns (uint256)",
   "function attestationURI() view returns (string)",
   "function lastUpdated() view returns (uint64)",
@@ -12,11 +13,14 @@ export const reserveOracleAbi = [
 
 export const cleanBtcAbi = [
   "function totalSupply() view returns (uint256)",
+  "function PILOT_SUPPLY_CAP_SATS() view returns (uint256)",
+  "function MAX_RESERVE_AGE_SECONDS() view returns (uint256)",
   "function decimals() view returns (uint8)",
   "function symbol() view returns (string)",
 ];
 
 export const attestationRegistryAbi = [
+  "function hasRole(bytes32 role, address account) view returns (bool)",
   "function getAttestation(address subject) view returns (tuple(uint8 score, bool sanctioned, bool revoked, address provider, uint64 issuedAt, uint64 expiresAt, string evidenceURI))",
   "function isClean(address subject, uint8 minScore) view returns (bool)",
   "function isSanctioned(address subject) view returns (bool)",
@@ -26,12 +30,15 @@ export const attestationRegistryAbi = [
 ];
 
 export const reserveVaultAbi = [
-  "function processDeposit(address to, uint256 amountSats, bytes32 btcTxid, string evidenceURI)",
+  "function hasRole(bytes32 role, address account) view returns (bool)",
+  "function processDeposit(address to, uint256 amountSats, bytes32 btcTxid, uint32 vout, string evidenceURI)",
   "function requestRedeem(uint256 amountSats, string btcPayoutAddress) returns (uint256)",
   "function settleRedeem(uint256 id, bytes32 btcTxid)",
   "function redemptionCount() view returns (uint256)",
+  "function pendingRedemptionSats() view returns (uint256)",
   "function processedDeposits(bytes32) view returns (bool)",
+  "function getDepositId(bytes32 btcTxid, uint32 vout) pure returns (bytes32)",
   "function redemptions(uint256) view returns (address account, uint256 amountSats, string btcPayoutAddress, uint8 status, uint64 requestedAt, bytes32 btcTxid)",
-  "event Minted(address indexed to, uint256 amountSats, bytes32 indexed btcTxid, string evidenceURI)",
+  "event Minted(address indexed to, uint256 amountSats, bytes32 indexed btcTxid, uint32 vout, bytes32 indexed depositId, string evidenceURI)",
   "event RedeemRequested(uint256 indexed id, address indexed account, uint256 amountSats, string btcPayoutAddress)",
 ];

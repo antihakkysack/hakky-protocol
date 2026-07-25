@@ -4,8 +4,17 @@ import { isAddress, getAddress } from "ethers";
 import { config } from "../shared/config.js";
 import { logger } from "../shared/logger.js";
 import { initDb, audit } from "../shared/db.js";
-import { attestationRegistry, requireContract, requireSigner } from "../shared/chain.js";
-import { screenAddress } from "../shared/screening.js";
+import {
+  assertProtocolReady,
+  assertSignerRoles,
+  attestationRegistry,
+  requireContract,
+  requireSigner,
+} from "../shared/chain.js";
+import {
+  screenAddress,
+  validateManualScreening,
+} from "../shared/screening.js";
 import { requireWriteAuth } from "../shared/auth.js";
 
 const log = logger.child({ service: "attestation" });
@@ -20,10 +29,11 @@ app.get("/health", (_req, res) => res.json({ ok: true, service: "attestation" })
  * Screen an address for provenance and publish a signed cleanliness attestation
  * on-chain via `AttestationRegistry.attest`. Requires ATTESTOR_ROLE.
  *
- *   POST /screen { "address": "0x..." }
+ *   POST /screen { "address": "0x...", "score": 95,
+ *                  "sanctioned": false, "evidenceURI": "https://..." }
  *
- * Re-screening the same address overwrites its attestation (the registry is
- * additive/latest-wins), so this is safe to call repeatedly.
+ * Re-screening the same address replaces its current state; the event log
+ * retains the public history.
  */
 app.post("/screen", requireWriteAuth, async (req, res) => {
   const address = (req.body?.address ?? "").toString();
@@ -33,7 +43,10 @@ app.post("/screen", requireWriteAuth, async (req, res) => {
   const registry = requireContract(attestationRegistry, "AttestationRegistry");
   try {
     requireSigner();
-    const result = screenAddress(subject);
+    const result =
+      config.SCREENING_PROVIDER === "stub"
+        ? screenAddress(subject)
+        : validateManualScreening(req.body);
     const tx = await registry.attest(
       subject,
       result.score,
@@ -67,6 +80,12 @@ app.post("/screen", requireWriteAuth, async (req, res) => {
 
 async function main(): Promise<void> {
   await initDb();
+  if (config.OPERATING_MODE === "live") {
+    await assertProtocolReady([["AttestationRegistry", attestationRegistry]]);
+    await assertSignerRoles([
+      ["AttestationRegistry", attestationRegistry, "ATTESTOR_ROLE"],
+    ]);
+  }
   app.listen(config.ATTESTATION_PORT, () => {
     log.info(
       { port: config.ATTESTATION_PORT, provider: config.SCREENING_PROVIDER },

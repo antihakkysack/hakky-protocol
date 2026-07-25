@@ -295,7 +295,7 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
       </div>
       <div class="hero-meta reveal">
         <span><span class="dot"></span><b>Open-source</b> · MIT</span>
-        <span><b>17/17</b> contract tests passing</span>
+        <span><b>24/24</b> contract tests passing</span>
         <span><b>Not</b> a mixer</span>
       </div>
     </div>
@@ -394,11 +394,11 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
     <div class="section-head reveal">
       <span class="eyebrow">How it works</span>
       <h2 style="margin-top:14px">Three moves: screen, mint, redeem.</h2>
-      <p>Every cBTC is minted only against BTC that has passed screening, and can never exceed the Bitcoin held in reserve. The whole loop is enforced by five open-source contracts.</p>
+      <p>Every cBTC mint is admitted only against screened BTC and fresh reported reserves, within an immutable one-BTC pilot cap. Custody risk remains public and explicit.</p>
     </div>
     <div class="steps">
       <div class="step reveal"><span class="num">STEP 01 · SCREEN</span><h3>Deposit is screened</h3><p>You send BTC to protocol custody. Its provenance is checked and an accredited attestor publishes a signed cleanliness attestation on-chain via the <code>AttestationRegistry</code>.</p></div>
-      <div class="step reveal"><span class="num">STEP 02 · MINT</span><h3>cBTC is minted 1:1</h3><p>The <code>ReserveVault</code> verifies the deposit and mints cBTC — but only if supply stays within attested reserves: <code>totalSupply() ≤ reserveSats()</code>.</p></div>
+      <div class="step reveal"><span class="num">STEP 02 · MINT</span><h3>cBTC is minted 1:1</h3><p>The <code>ReserveVault</code> verifies a unique Bitcoin outpoint and mints cBTC only while total liabilities remain within fresh reserves and the one-BTC pilot cap.</p></div>
       <div class="step reveal"><span class="num">STEP 03 · USE &amp; REDEEM</span><h3>Move it, prove it, cash out</h3><p>Hold or transfer cBTC anywhere. Burn it through the vault to redeem native BTC 1:1 — the reserve shrinks to match. Always fully backed.</p></div>
     </div>
   </div>
@@ -453,7 +453,7 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
     <div class="reveal">
       <span class="eyebrow">Proof, not trust-me</span>
       <h2 style="margin-top:14px;font-size:clamp(28px,4vw,40px)">Fully backed, and honest about how.</h2>
-      <p style="margin-top:16px;color:var(--ink-soft);font-size:17px">The peg is protected by a single public invariant enforced at mint time: cBTC in circulation can never exceed the BTC held in reserve. You don't have to trust a dashboard — you can read it from the chain.</p>
+      <p style="margin-top:16px;color:var(--ink-soft);font-size:17px">At mint time, cBTC supply plus pending redemptions must fit within fresh reported reserves and the one-BTC cap. If custody reserves later fall, the public on-chain comparison exposes that insolvency rather than hiding it.</p>
       <p style="margin-top:16px;color:var(--ink-soft);font-size:17px">We're equally clear about what v1 <em>isn't</em>: like every 1:1 BTC-backed token today, reserves sit with qualified custody and a multisig publishes the attestation. That's not trustless — and we say so. The roadmap moves toward decentralized custody and zk proof-of-reserves.</p>
       <div style="margin-top:24px;display:flex;gap:12px;flex-wrap:wrap">
         <a class="btn btn-primary" href="https://github.com/antihakkysack/hakky-protocol/blob/main/docs/whitepaper.md" target="_blank" rel="noopener">How the peg is secured</a>
@@ -477,7 +477,7 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
 <section class="section" id="live">
   <div class="wrap">
     <div class="section-head reveal">
-      <span class="eyebrow">Live on Sepolia</span>
+      <span class="eyebrow">Legacy Sepolia demo</span>
       <h2 style="margin-top:14px">See it working — right now.</h2>
       <p>These read straight from the deployed contracts through the public API at <span class="mono">api.hakky.xyz</span>. Testnet data, live on-chain.</p>
     </div>
@@ -535,7 +535,7 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
     <div class="faq">
       <details class="reveal"><summary>Is this a mixer? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>No — it's the opposite. A mixer breaks the link between sender and receiver to <em>obscure</em> where funds came from. Hakky keeps provenance fully transparent and on-chain, and helps honest holders <em>prove</em> their coins are clean. Nothing is hidden, mixed, or anonymized.</p></details>
       <details class="reveal"><summary>Is it a surveillance tool, then? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>No. Attestations are user-consented, portable proofs you opt into to unlock clean liquidity — not blanket monitoring. The registry only records the attestations that attestors publish; it doesn't track your activity, and cBTC ships in monitor-only mode where transfers aren't gated at all.</p></details>
-      <details class="reveal"><summary>What actually backs cBTC? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Native Bitcoin, 1:1. Each cBTC (8 decimals, so 1 base unit = 1 satoshi) is minted only against BTC in reserve, and a smart-contract invariant makes it impossible for supply to exceed the attested reserves. Burn cBTC to redeem BTC at any time.</p></details>
+      <details class="reveal"><summary>What actually backs cBTC? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Native Bitcoin, 1:1. In the pilot, every mint must keep cBTC supply plus pending Bitcoin redemptions within fresh attested reserves and 100,000,000 satoshis. Redemption still depends on the disclosed custody and operator controls.</p></details>
       <details class="reveal"><summary>Is v1 trustless? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>No, and we won't pretend otherwise. v1 uses qualified-custody reserves and a multisig-published proof-of-reserves, exactly like every 1:1 BTC-backed token in production today. The roadmap moves custody and attestation toward MPC/threshold signing and zk proof-of-reserves.</p></details>
       <details class="reveal"><summary>Is $HAKKY a token I can buy? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Not now. $HAKKY is a roadmap governance token. There is no sale, presale, or airdrop today, and this page is not an offer of any security or a solicitation to buy anything. Ignore anyone claiming otherwise.</p></details>
       <details class="reveal"><summary>Can I read the code? <svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></summary><p>Yes. The entire protocol — contracts, tests, deploy scripts, and the whitepaper — is MIT-licensed and public on <a href="https://github.com/antihakkysack/hakky-protocol" target="_blank" rel="noopener" style="color:var(--teal-deep);text-decoration:underline">GitHub</a>. Audit, don't assume.</p></details>
@@ -623,7 +623,7 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
       ratio.style.color=(d.solvent?'var(--teal-deep)':'var(--danger)');
     }
     var tag=document.getElementById('rTag');
-    if(tag){tag.textContent='Live · Sepolia';tag.style.color='var(--teal-deep)';
+    if(tag){tag.textContent='Legacy demo · Sepolia';tag.style.color='var(--teal-deep)';
       tag.style.background='color-mix(in srgb,var(--teal) 14%,transparent)';}
     if(d.lastUpdated){set('rBlock','updated '+new Date(d.lastUpdated*1000).toISOString().slice(0,10));}
   }).catch(function(){/* keep illustrative values */});
@@ -631,7 +631,7 @@ footer{border-top:1px solid var(--line);padding:44px 0 56px;color:var(--ink-mute
 </script>
 
 <script>
-// Interactive: attestation lookup + live protocol activity feed (Sepolia, read-only API).
+// Interactive: attestation lookup + legacy Sepolia demo activity (read-only API).
 (function(){
   var API='https://api.hakky.xyz';
 

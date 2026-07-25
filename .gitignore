@@ -5,6 +5,7 @@ node_modules/
 # Hardhat / Solidity build output
 contracts/artifacts/
 contracts/cache/
+contracts/deployments/localhost.json
 contracts/coverage/
 contracts/coverage.json
 contracts/typechain-types/

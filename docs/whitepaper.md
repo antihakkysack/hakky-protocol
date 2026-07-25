@@ -18,7 +18,7 @@ Tagline: **Keep crypto clean.**
 
 Bitcoin is fungible in theory and increasingly non-fungible in practice. Every coin carries an immutable, publicly auditable history, and a growing compliance industry uses that history to decide which coins are acceptable and which are not. Coins that trace back to sanctioned entities, known exploits, or scam-tagged addresses are routinely frozen at exchange and OTC-desk deposit, while "clean" or "virgin" BTC trades at a premium. Yet the screening that produces these verdicts is opaque, performed off-chain, and non-portable: every venue re-screens from scratch, users learn their coins are tainted only when a withdrawal is blocked, and a clean bill of health cannot travel with the asset.
 
-**Hakky Protocol** is a transaction-cleanliness layer for Bitcoin that turns cleanliness into a portable, composable, on-chain asset and attestation. It issues **cBTC ("Clean BTC")** — an ERC-20 token backed **1:1 by BTC held in verifiable reserve**, where the backing BTC has additionally **passed provenance screening**. The protocol combines a proof-of-reserves oracle, a mint-and-redeem vault, and a transparent registry of signed cleanliness attestations published by accredited screening firms. The solvency invariant `totalSupply() <= reserveSats` is enforceable at every mint and verifiable by anyone at any block.
+**Hakky Protocol** is a transaction-cleanliness layer for Bitcoin that turns cleanliness into a portable, composable, on-chain asset and attestation. It issues **cBTC ("Clean BTC")** — an ERC-20 token backed **1:1 by BTC held in verifiable reserve**, where the backing BTC has additionally **passed provenance screening**. The protocol combines a proof-of-reserves oracle, a mint-and-redeem vault, and a transparent registry of signed cleanliness attestations published by accredited screening firms. In the one-BTC pilot, each mint must keep supply plus pending redemption liabilities within fresh reported reserves and 100,000,000 satoshis.
 
 Hakky screens *for* cleanliness; it never obscures, mixes, or anonymizes funds. It is the **opposite of a mixer**. This paper describes the problem, the architecture, the token mechanics, the attestation and reserve models, the protocol's compliance and privacy posture, and an honest account of its trust assumptions and decentralization roadmap.
 
@@ -56,7 +56,7 @@ The stakes are concrete (frozen funds, blocked settlement), operational (duplica
 
 Hakky wraps screened BTC into **cBTC**, a token whose two guarantees are inseparable:
 
-1. **Backed** — each cBTC is redeemable 1:1 for BTC held in verifiable reserve, with supply that can never exceed proven reserves.
+1. **Backed** — each mint is admitted only against fresh reported BTC reserves; later reserve changes remain visible and are an explicit custody risk.
 2. **Clean** — the BTC entering reserve has passed provenance screening, and cleanliness attestations for on-chain addresses are published to a transparent registry that anyone can read.
 
 The name comes from community shorthand for tainted coins — a *"hakky sack"* (hacked / dirty coin passed hand to hand). Hakky Protocol is the **anti-hakky** layer: instead of quietly passing risk along, it lets honest users carry a portable, on-chain proof-of-clean.
@@ -87,7 +87,7 @@ Hakky is a set of smart contracts plus an off-chain screening and custody pipeli
 
 | Module | Contract | Responsibility |
 |---|---|---|
-| Clean BTC token | `CleanBTC` (cBTC) | ERC-20; supply can never exceed proven reserves; transfers can be compliance-gated |
+| Clean BTC token | `CleanBTC` (cBTC) | ERC-20; each mint is bounded by fresh reported reserves and the one-BTC cap; transfers can be compliance-gated |
 | Reserve oracle | `ReserveOracle` | Publishes attested BTC reserve balance (proof-of-reserves) as `reserveSats` |
 | Mint / redeem vault | `ReserveVault` | Mints cBTC against verified BTC deposits; processes 1:1 redemptions |
 | Attestation registry | `AttestationRegistry` | Accredited attestors publish signed cleanliness attestations per address |
@@ -125,7 +125,7 @@ sequenceDiagram
 
 ### 4.3 Redeem flow
 
-Redemption is the mirror image. The holder burns cBTC; the vault instructs custody to release an equal amount of BTC to the holder's payout address. Burning lowers `totalSupply()`, so the solvency invariant is preserved by construction.
+Redemption is the mirror image. The holder burns cBTC and creates an equal pending liability; custody releases BTC to the holder's payout address, and verified settlement clears that liability. This prevents an in-flight redemption from freeing mint capacity before its Bitcoin payout is final.
 
 ```mermaid
 sequenceDiagram
@@ -157,7 +157,8 @@ Two independent off-chain pipelines feed the contracts. **Custodian attestations
 | Decimals | **8** (matches BTC natively) |
 | Peg | 1 cBTC = 1 BTC, redeemable 1:1 |
 | Supply authority | `ReserveVault` only (`MINTER_ROLE`) |
-| Solvency invariant | `totalSupply() <= ReserveOracle.reserveSats()`, enforced at mint |
+| Pilot liability invariant | `totalSupply() + pendingRedemptionSats <= min(reserveSats, 100,000,000)`, enforced at mint |
+| Reserve freshness | Minting stops after 12 hours without a reserve publication |
 | Mint fee (v1) | 0 bps |
 | Redemption fee (v1) | 0 bps |
 
@@ -165,15 +166,20 @@ Two independent off-chain pipelines feed the contracts. **Custodian attestations
 
 The peg is maintained by full backing and free redemption, not by an algorithm or a market maker. Because 1 cBTC is always redeemable for 1 BTC from reserve, arbitrage keeps the secondary-market price near parity: if cBTC trades below 1 BTC, redemption is profitable; if above, minting is. The peg is only as strong as the reserve and the redemption right behind it — which is why proof-of-reserves (Section 7) and the honest trust model (Section 9) matter as much as the token contract.
 
-### 5.2 The solvency invariant
+### 5.2 The mint solvency check
 
-Every mint checks that new supply will not exceed proven reserves. Expressed in the token's units (satoshis, given 8 decimals):
+Every mint checks that new supply plus outstanding Bitcoin payout liabilities
+will not exceed fresh proven reserves or the immutable pilot cap. Expressed in
+the token's units (satoshis, given 8 decimals):
 
 ```
-require(totalSupply() + amount <= ReserveOracle.reserveSats());
+newLiabilities = totalSupply() + pendingRedemptionSats + amount
+require(newLiabilities <= ReserveOracle.reserveSats())
+require(newLiabilities <= 100_000_000)
+require(block.timestamp - ReserveOracle.lastUpdated() <= 12 hours)
 ```
 
-This makes over-issuance a contract-level impossibility rather than a policy promise. Anyone can independently verify solvency at any block by comparing `cBTC.totalSupply()` against `ReserveOracle.reserveSats()`.
+This makes issuance beyond reported reserves or the pilot ceiling a contract-level impossibility rather than a policy promise. Anyone can independently verify the reported solvency position at any block by comparing cBTC supply plus the vault's pending redemptions against `ReserveOracle.reserveSats()`.
 
 ### 5.3 The compliance hook
 
@@ -204,7 +210,7 @@ Each attestation for an address records:
 
 ### 6.3 Expiry, revocation, and transparency
 
-Attestations are **time-bounded**: provenance risk is not static, so an attestation carries a default 90-day TTL and is treated as stale once `expiresAt` passes. Attestors can also **revoke** an attestation before expiry if new information emerges. The registry is **additive and transparent** — nothing is ever hidden or silently overwritten; superseding statements are appended, and anyone can read the full history. The `evidenceURI` makes each verdict auditable rather than a black box, which is the direct remedy to the opacity described in Section 2.3.
+Attestations are **time-bounded**: provenance risk is not static, so an attestation carries a default 90-day TTL and is treated as stale once `expiresAt` passes. Attestors can also **revoke** an attestation before expiry if new information emerges. The registry stores the latest statement per address and emits every issuance and revocation as a public event, so historical changes remain reconstructable from chain logs. The `evidenceURI` makes each verdict auditable rather than a black box, which is the direct remedy to the opacity described in Section 2.3.
 
 Because the registry only ever *adds* verifiable information and never removes or obscures it, participating is a disclosure, not a concealment — reinforcing that Hakky is the antithesis of a mixer.
 
@@ -218,13 +224,16 @@ Backing is only credible if it is provable. `ReserveOracle` is the contract that
 - It stores a **`merkleRoot` / `attestationURI`** pointing to the published reserve report and signed custody attestations.
 - It is updated by `RESERVE_UPDATER_ROLE`, a **multisig fed by custodian attestations**.
 
-The load-bearing property is public verifiability of the solvency invariant:
+The load-bearing property is public verifiability of the pilot liability condition:
 
 ```
-cBTC.totalSupply() <= ReserveOracle.reserveSats()
+cBTC.totalSupply() + ReserveVault.pendingRedemptionSats()
+    <= ReserveOracle.reserveSats()
+cBTC.totalSupply() + ReserveVault.pendingRedemptionSats()
+    <= 100,000,000 sats
 ```
 
-Anyone — a user, an integrating venue, an auditor, a watchdog — can check this at any block without permission. Proof-of-reserves in v1 is an **attested** proof (it depends on honest custodian and multisig reporting), which the paper states plainly rather than overclaiming. The roadmap hardens it toward **threshold-signature** and **zero-knowledge proof-of-reserves**, reducing the trust placed in the reporting parties over time.
+Anyone — a user, an integrating venue, an auditor, a watchdog — can check this at any block without permission. A new mint cannot violate the condition, but reserves can subsequently fall; the condition can then report insolvency rather than preventing custody loss. Proof-of-reserves in v1 is an **attested** proof (it depends on honest custodian and multisig reporting), which the paper states plainly rather than overclaiming. The roadmap hardens it toward **threshold-signature** and **zero-knowledge proof-of-reserves**, reducing the trust placed in the reporting parties over time.
 
 ---
 
@@ -262,7 +271,7 @@ In v1, BTC custody is **federated / qualified-custodian**, exactly like every 1:
 2. the **reserve multisig** to report `reserveSats` honestly, and
 3. the **accredited attestors** to screen competently and in good faith.
 
-These are real trust assumptions. We state them plainly. The solvency invariant, transparent attestation registry, and public reserve reporting are designed to make dishonesty *detectable*, but v1 does not make it *impossible*.
+These are real trust assumptions. We state them plainly. The mint solvency check, transparent attestation registry, and public reserve reporting are designed to make dishonesty *detectable*, but v1 does not make it *impossible*.
 
 ### 9.2 Where it goes
 

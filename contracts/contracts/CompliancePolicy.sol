@@ -37,10 +37,13 @@ contract CompliancePolicy is AccessControl, ICompliancePolicy {
 
     event ModeUpdated(Mode mode);
     event MinScoreUpdated(uint8 minScore);
-    event RegistryUpdated(address registry);
+    event RegistryUpdated(address indexed registry);
     event AllowlistUpdated(address indexed account, bool allowed);
 
+    error ZeroAddress();
+
     constructor(address admin, IAttestationRegistry registry_) {
+        if (admin == address(0) || address(registry_) == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(POLICY_ADMIN_ROLE, admin);
         registry = registry_;
@@ -81,8 +84,11 @@ contract CompliancePolicy is AccessControl, ICompliancePolicy {
             return fromOk && toOk;
         }
 
-        // Mode.GATED: allowlisted OR attested-clean, and never sanctioned.
-        if (address(registry) == address(0)) return true;
+        // Mode.GATED: allowlisted OR attested-clean, but never sanctioned.
+        // A missing registry cannot establish either cleanliness or sanctions
+        // status, so gating must fail closed.
+        if (address(registry) == address(0)) return false;
+        if (registry.isSanctioned(from) || registry.isSanctioned(to)) return false;
         if (!fromOk) fromOk = registry.isClean(from, minScore);
         if (!toOk) toOk = registry.isClean(to, minScore);
         return fromOk && toOk;
