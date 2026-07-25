@@ -5,6 +5,12 @@ export const PILOT_MAX_SATS = 100_000_000n;
 export const CONTRACT_MAX_RESERVE_AGE_SECONDS = 43_200;
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = `0x${"0".repeat(40)}`;
+const SATOSHI_PATTERN = /^\d+$/;
+
+/** True for a plain decimal satoshi string greater than zero. */
+function isPositiveSatoshiString(value: string): boolean {
+  return SATOSHI_PATTERN.test(value.trim()) && BigInt(value.trim()) > 0n;
+}
 
 const schema = z
   .object({
@@ -45,6 +51,11 @@ const schema = z
   BITCOIN_RPC_WALLET: z.string().default(""),
   BITCOIN_CUSTODY_ADDRESS: z.string().default(""),
   BITCOIN_MIN_CONFIRMATIONS: z.coerce.number().int().min(1).max(144).default(6),
+  // Operator-funded satoshis held in custody above user liabilities, to pay
+  // redemption miner fees. Payouts must pay the recipient exactly, so without
+  // this headroom the first payout drops reserves below liabilities for good.
+  // Kept as a decimal string and parsed as a bigint; sats never touch a float.
+  BITCOIN_FEE_BUFFER_SATS: z.string().default("0"),
 
   // reserve-oracle keeper: demo mode may publish a configured stub balance.
   RESERVE_ORACLE_CRON: z.string().default("*/5 * * * *"), // every 5 minutes
@@ -123,6 +134,13 @@ const schema = z
     }[value.SERVICE_ROLE];
 
     const liveRequirements: Array<[boolean, keyof typeof value, string]> = [
+      [
+        isPositiveSatoshiString(value.BITCOIN_FEE_BUFFER_SATS),
+        "BITCOIN_FEE_BUFFER_SATS",
+        "live mode requires a positive operator-funded fee buffer (in satoshis), " +
+          "because redemption payouts pay the recipient exactly and the miner fee " +
+          "is therefore taken from custody",
+      ],
       [value.CHAIN_ID === 1, "CHAIN_ID", "live mode requires Ethereum mainnet CHAIN_ID=1"],
       [
         value.DEPOSIT_VERIFICATION_MODE === "bitcoin-core",

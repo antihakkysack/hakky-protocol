@@ -55,6 +55,41 @@ Do not place real BTC into custody until all of these are complete:
    Solidity dependencies currently audit clean; the development toolchain does
    not.
 
+## Fee buffer
+
+A payout must pay the recipient *exactly* the requested satoshis, so the Bitcoin miner
+fee is funded from custody rather than deducted from the user. Custody therefore falls by
+`amount + fee` on every redemption while `pendingRedemptionSats` falls by `amount` alone.
+
+Custody must hold an operator-funded buffer above user liabilities to absorb those fees.
+Without it, reserves drop below liabilities by the fee on the first redemption and stay
+there — which permanently blocks minting, because `processDeposit` requires
+`newLiabilities <= reserves` and a new deposit raises both sides equally. It would also
+trip this runbook's first stop condition during entirely normal operation, and a
+full-supply redemption would be unpayable outright, since an output equal to the whole
+custody balance implies a zero fee and will not relay.
+
+Set `BITCOIN_FEE_BUFFER_SATS` to the buffer you intend to maintain. A live process
+refuses to start unless it is greater than zero. Fund custody with the pilot BTC **plus**
+that buffer, and treat the buffer as operator capital, not user backing.
+
+The buffer does not raise the liability ceiling: the one-BTC cap binds on
+`totalSupply + pendingRedemptionSats`, never on the custody balance. The published
+reserve figure remains the truthful confirmed custody balance, so the protocol reports
+as over-collateralised rather than over-reported.
+
+The reserve keeper escalates as the buffer drains, before backing is ever at risk:
+
+| State | Meaning | Action |
+| --- | --- | --- |
+| `healthy` | Headroom covers the full configured buffer. | None. |
+| `depleted` | Fees have eaten into the buffer. Still fully backed. | Top up custody. |
+| `exhausted` | No headroom left. Still fully backed, but the next payout fee is unfunded. | Top up before settling anything further. |
+| `insolvent` | Custody is below liabilities. | Stop condition — pause immediately. |
+
+Top up custody with the operator's own BTC. A top-up is not a deposit and must never be
+submitted to `/deposit`.
+
 ## Custody boundary
 
 Use a dedicated Bitcoin Core wallet and one configured custody address. The
@@ -98,6 +133,7 @@ REDEMPTION_MODE=manual-verified
 EVM_EVENT_CONFIRMATIONS=12
 BITCOIN_PAYOUT_MIN_CONFIRMATIONS=6
 RESERVE_MAX_STALENESS_SECONDS=43200
+BITCOIN_FEE_BUFFER_SATS=<positive-operator-funded-fee-buffer>
 WRITE_API_KEY=<at-least-32-random-characters>
 ```
 
@@ -136,7 +172,9 @@ any service. Do not reuse the committed legacy Sepolia addresses.
 2. Confirm `/health` succeeds and `/proof-of-reserves` shows zero supply,
    zero pending redemptions, a fresh reserve report, and the one-BTC cap.
 3. Exercise emergency pause and unpause with no funds present.
-4. Fund custody with no more than one BTC and wait for six confirmations.
+4. Fund custody with no more than one BTC of pilot backing, plus the configured
+   `BITCOIN_FEE_BUFFER_SATS` of operator capital for payout fees, and wait for six
+   confirmations.
 5. Confirm the reserve update on-chain and independently reconcile its UTXOs.
 6. Screen one recipient with retained evidence.
 7. Submit only the verified custody outpoint to `/deposit`.

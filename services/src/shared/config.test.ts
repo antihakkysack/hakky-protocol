@@ -28,6 +28,7 @@ const validLiveEnvironment: NodeJS.ProcessEnv = {
   REDEMPTION_MODE: "manual-verified",
   REDEMPTION_START_BLOCK: "12345678",
   EVM_EVENT_CONFIRMATIONS: "12",
+  BITCOIN_FEE_BUFFER_SATS: "200000",
   WRITE_API_KEY: "x".repeat(32),
 };
 
@@ -42,6 +43,30 @@ test("live configuration accepts only the fail-closed mainnet profile", () => {
   assert.equal(config.CHAIN_ID, 1);
   assert.equal(config.BITCOIN_NETWORK, "main");
   assert.equal(config.BITCOIN_MIN_CONFIRMATIONS, 6);
+});
+
+test("live configuration requires a funded fee buffer", () => {
+  // Payouts pay the recipient exactly, so miner fees come out of custody while
+  // liabilities fall by the payout amount alone. Without operator-funded headroom
+  // the first redemption puts reserves permanently below liabilities.
+  for (const missing of ["0", ""]) {
+    assert.throws(
+      () => parseConfig({ ...validLiveEnvironment, BITCOIN_FEE_BUFFER_SATS: missing }),
+      /fee buffer/,
+      `expected a zero/absent buffer (${JSON.stringify(missing)}) to be rejected in live mode`,
+    );
+  }
+
+  assert.throws(
+    () => parseConfig({ ...validLiveEnvironment, BITCOIN_FEE_BUFFER_SATS: "-1" }),
+    /fee buffer/,
+  );
+  assert.throws(
+    () => parseConfig({ ...validLiveEnvironment, BITCOIN_FEE_BUFFER_SATS: "not-a-number" }),
+    /fee buffer/,
+  );
+
+  assert.equal(parseConfig(validLiveEnvironment).BITCOIN_FEE_BUFFER_SATS, "200000");
 });
 
 test("live write services require distinct role-specific signers", () => {

@@ -16,6 +16,7 @@ import {
   assertBitcoinCustodyReady,
   requireBitcoinCore,
 } from "../shared/custody.js";
+import { evaluateReserveBuffer, describeReserveBuffer } from "../shared/reserve-buffer.js";
 
 const log = logger.child({ service: "reserve-oracle" });
 
@@ -52,16 +53,43 @@ async function tick(): Promise<void> {
   ]);
   const liabilities = supply + pendingRedemptions;
 
-  if (target < liabilities) {
-    log.error(
-      {
-        target: target.toString(),
-        supply: supply.toString(),
-        pendingRedemptions: pendingRedemptions.toString(),
-        liabilities: liabilities.toString(),
-      },
-      "confirmed BTC reserves are below total liabilities; publishing insolvency state",
-    );
+  const buffer = evaluateReserveBuffer({
+    custodySats: target,
+    liabilitiesSats: liabilities,
+    bufferSats: BigInt(config.BITCOIN_FEE_BUFFER_SATS),
+  });
+  const bufferContext = {
+    ...describeReserveBuffer(buffer),
+    target: target.toString(),
+    supply: supply.toString(),
+    pendingRedemptions: pendingRedemptions.toString(),
+    liabilities: liabilities.toString(),
+  };
+
+  // Fees are funded from operator headroom, so the buffer drains before backing
+  // does. Escalate on the way down rather than only once solvency is already gone.
+  switch (buffer.state) {
+    case "insolvent":
+      log.error(
+        bufferContext,
+        "confirmed BTC reserves are below total liabilities; publishing insolvency state",
+      );
+      break;
+    case "exhausted":
+      log.error(
+        bufferContext,
+        "fee buffer is exhausted; the next redemption payout cannot fund its miner fee without breaking backing — top up custody",
+      );
+      break;
+    case "depleted":
+      log.warn(
+        bufferContext,
+        "fee buffer is below its configured target; top up custody before the next redemption payout",
+      );
+      break;
+    case "healthy":
+      log.debug(bufferContext, "custody covers liabilities and the full fee buffer");
+      break;
   }
   const ageSeconds = BigInt(Math.floor(Date.now() / 1000)) - lastUpdated;
   if (
@@ -86,7 +114,10 @@ async function tick(): Promise<void> {
     supplySats: supply.toString(),
     pendingRedemptionSats: pendingRedemptions.toString(),
     totalLiabilitiesSats: liabilities.toString(),
-    solvent: target >= liabilities,
+    solvent: buffer.solvent,
+    feeBufferSats: buffer.bufferSats.toString(),
+    feeBufferHeadroomSats: buffer.headroomSats.toString(),
+    feeBufferState: buffer.state,
     verificationMode: config.DEPOSIT_VERIFICATION_MODE,
     uri: config.RESERVE_REPORT_URI,
     txHash: receipt?.hash,

@@ -11,7 +11,7 @@
     "start:attestation": "tsx src/attestation/worker.ts",
     "start:reserve-oracle": "tsx src/reserve-oracle/cron.ts",
     "start:orchestrator": "tsx src/orchestrator/worker.ts",
-    "test": "tsx --test src/shared/bitcoin.test.ts src/shared/config.test.ts src/shared/logger.test.ts src/shared/screening.test.ts src/orchestrator/redemption-indexer.test.ts",
+    "test": "tsx --test src/shared/bitcoin.test.ts src/shared/config.test.ts src/shared/logger.test.ts src/shared/reserve-buffer.test.ts src/shared/screening.test.ts src/orchestrator/redemption-indexer.test.ts",
     "test:db": "tsx --test src/shared/db.integration.test.ts",
     "typecheck": "tsc --noEmit"
   },

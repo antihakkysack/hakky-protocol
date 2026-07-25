@@ -13,7 +13,7 @@ Status key: **FIXED** — resolved on this branch. **OPEN** — not addressed.
 
 ---
 
-## F-01 · DECISION · Redemption fees drive the protocol permanently insolvent
+## F-01 · FIXED (option A chosen) · Redemption fees drive the protocol permanently insolvent
 
 `services/src/shared/bitcoin.ts:275-297`, `contracts/contracts/ReserveVault.sol:173-181`,
 `services/src/reserve-oracle/cron.ts:53-65`
@@ -61,9 +61,31 @@ Consequences, all confirmed against the code:
 | **B. Net-of-fee payouts** | User receives `amountSats - fee`; `verifyPayout` checks that instead. | Cheapest to build, but breaks "redeem 1:1 for BTC anytime" as stated on hakky.xyz and in the whitepaper. A marketing and possibly legal change, not just a code one. |
 | **C. Solvency tolerance** | Allow liabilities to exceed reserves by a bounded cumulative fee allowance. | Weakens the core invariant the protocol exists to guarantee. Not recommended. |
 
-Recommendation is **A**. It is the standard custodian approach and the only option that
-leaves the protocol's central claim true. Note it needs contract changes, so it should
-land before any deployment intended to be final.
+**Resolved: option A.** Implemented without any contract change, which the original
+analysis expected to be necessary.
+
+Publishing the truthful confirmed custody balance already satisfies
+`reserves >= liabilities` once custody carries a buffer above user deposits, because the
+surplus is `buffer - cumulative fees`. The pilot ceiling is unaffected: it binds on
+`totalSupply + pendingRedemptionSats`, never on the custody balance, so a buffer cannot
+breach the one-BTC cap. The protocol reports as over-collateralised rather than
+over-reported.
+
+What landed:
+
+- `BITCOIN_FEE_BUFFER_SATS` config, **required to be greater than zero in live mode**, so
+  a live process cannot start without a funded buffer (`shared/config.ts`).
+- `shared/reserve-buffer.ts`, which grades custody headroom `healthy` → `depleted` →
+  `exhausted` → `insolvent`. Because fees drain operator headroom before they touch user
+  backing, the keeper now escalates on the way down instead of only once solvency is
+  already gone (`reserve-oracle/cron.ts`).
+- Buffer state, headroom, and target recorded on every `reserves-updated` audit row.
+- Runbook section covering buffer sizing, the top-up procedure, the state table, and the
+  rule that a top-up is operator capital and must never be submitted to `/deposit`.
+
+Residual operational risk: the buffer is finite and depletes with every payout. The
+`depleted` and `exhausted` alerts are the control, so they need to reach a human —
+see F-11, where alerting has no delivery path.
 
 ---
 
@@ -295,15 +317,16 @@ Recorded so external auditors do not re-derive them:
 
 ## Suggested order of work
 
-1. **F-01** — decide the fee model. It changes contracts, so it must land before any
-   deployment intended to be final, and it blocks meaningful rehearsal.
-2. **F-04, F-05, F-07** — settlement binding, chainstate verification, and fail-open
+1. **F-04, F-05, F-07** — settlement binding, chainstate verification, and fail-open
    config. All are "mint or settle against something that is not real".
-3. **F-06** — split the environment files so the API container holds no signer.
-4. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
-5. **F-02, F-03** — already fixed; carry the regression tests forward.
-6. **F-08, F-10, F-11** — disclose or fix before external review, so auditor time goes to
-   the hard parts.
+2. **F-06** — split the environment files so the API container holds no signer.
+3. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
+4. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
+   an alert, so an alert nobody receives is not a control.
+5. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
+   hard parts.
+6. **F-01, F-02, F-03** — fixed; carry the regression tests forward.
 
-Then rehearse on signet or regtest (launch blocker 5). Running the rehearsal before F-01
-is fixed would mostly demonstrate F-01.
+Then rehearse on signet or regtest (launch blocker 5). The rehearsal should now include a
+full-supply redemption and a buffer drawdown to `exhausted`, since those were the states
+F-01 made unreachable.
