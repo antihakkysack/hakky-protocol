@@ -11,6 +11,7 @@ import {
   upsertRedemptionJob,
   getRedemptionJob,
   listActionableRedemptionJobs,
+  listIndexedRedemptionIds,
   markRedemptionPayoutVerified,
   markRedemptionSettled,
   markRedemptionCancelled,
@@ -35,12 +36,16 @@ import {
 } from "../shared/custody.js";
 import {
   initialRedemptionCursor,
+  missingRedemptionIds,
   nextRedemptionScanRange,
+  redemptionCursorKey,
   safeEventHead,
 } from "./redemption-indexer.js";
 
 const log = logger.child({ service: "orchestrator" });
-const REDEMPTION_CURSOR = "orchestrator:redeem-requested";
+// Namespaced by chain and vault so a redeploy cannot inherit the previous
+// deployment's block height (or collide with its rows) across a surviving database.
+const REDEMPTION_CURSOR = redemptionCursorKey(config.CHAIN_ID, config.ADDR_RESERVE_VAULT);
 
 const app = express();
 app.use(express.json());
@@ -363,6 +368,32 @@ function watchRedemptions(): void {
           { fromBlock: range.fromBlock, toBlock: range.toBlock, events: events.length },
           "redemption log range indexed",
         );
+      }
+
+      // Reconcile against the authoritative on-chain count once the index has caught
+      // up. queryFilter returns [] rather than an error when an RPC backend lags the
+      // head, so the cursor can advance past a real event; ids are sequential, which
+      // makes any such gap directly visible. Without this a holder's burned cBTC can
+      // go permanently unindexed with nothing surfacing it.
+      const caughtUp = nextRedemptionScanRange(
+        (await getWorkerCursor(REDEMPTION_CURSOR)) ?? cursor,
+        safeHead,
+        config.EVM_LOG_BATCH_SIZE,
+      ) === null;
+
+      if (caughtUp) {
+        const onChainCount = (await vault.redemptionCount()) as bigint;
+        const missing = missingRedemptionIds(await listIndexedRedemptionIds(), onChainCount);
+        if (missing.length > 0) {
+          log.error(
+            {
+              missing: missing.map((id) => id.toString()),
+              onChainCount: onChainCount.toString(),
+              cursor: await getWorkerCursor(REDEMPTION_CURSOR),
+            },
+            "indexed redemptions do not match the on-chain count; redemptions were skipped and their cBTC is burned but unaccounted for",
+          );
+        }
       }
 
       if (config.REDEMPTION_MODE === "demo-auto") {

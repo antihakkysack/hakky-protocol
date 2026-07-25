@@ -178,6 +178,18 @@ export async function listActionableRedemptionJobs(limit = 100): Promise<Redempt
   return rows;
 }
 
+/**
+ * Every redemption id currently indexed, for reconciliation against the on-chain
+ * `redemptionCount()`. Ids are sequential, so a gap means the indexer skipped an
+ * event and a holder's burned cBTC is unaccounted for.
+ */
+export async function listIndexedRedemptionIds(): Promise<bigint[]> {
+  const { rows } = await pool.query<{ id: string }>(
+    `SELECT id FROM redemption_jobs ORDER BY id::numeric ASC`,
+  );
+  return rows.map((row) => BigInt(row.id));
+}
+
 export async function markRedemptionPayoutVerified(id: string, btcTxid: string): Promise<void> {
   await pool.query(
     `UPDATE redemption_jobs

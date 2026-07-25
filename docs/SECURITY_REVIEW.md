@@ -274,7 +274,7 @@ decision rather than an accident.
 
 ---
 
-## F-09 · OPEN · Indexer can silently skip a redemption
+## F-09 · FIXED · Indexer can silently skip a redemption
 
 `services/src/orchestrator/worker.ts:305-354`
 
@@ -284,15 +284,28 @@ coverage check and no reorg rollback. A load-balanced RPC backend lagging the he
 burned, `pendingRedemptionSats` stays elevated against the scarce 1-BTC cap, the redemption
 never appears in `/redemptions/pending`, and no operator is alerted.
 
-A cheap invariant is already available and unused: ids are strictly sequential and
-`redemptionCount()` is in the ABI, so any gap between the highest indexed id and
-`redemptionCount()` is directly detectable.
+Fixed by using the invariant that was already available: ids are strictly sequential and
+`redemptionCount()` is in the ABI, so `missingRedemptionIds` reconciles the indexed set
+against the authoritative on-chain count once the cursor has caught up, and logs every
+missing id at error level.
 
-Related, `MEDIUM-HIGH`: the cursor key `orchestrator:redeem-requested` and
-`redemption_jobs.id` are not namespaced by chain or vault address. Since launch blockers 1
-and 8 make a vault redeploy near-certain while blocker 6 requires the database to survive,
-a redeploy makes new-vault id `1` collide with the old vault's row; `upsertRedemptionJob`
-throws, the cursor never advances, and the indexer is permanently dead.
+This converts a **silent, permanent** loss into a loud operational signal. It does not
+re-index automatically, which is deliberate: an automatic rewind against a persistently
+misbehaving RPC endpoint would spin indefinitely, and the correct response to a detected
+gap is operator investigation of *why* the endpoint under-returned.
+
+The cursor key is now namespaced by chain id and vault address, closing the redeploy wedge
+where a surviving database carried the old deployment's block height into a new vault whose
+ids restart at 1.
+
+**Operational note:** changing the key means an existing deployment's persisted cursor will
+not be found, and indexing restarts from `REDEMPTION_START_BLOCK`. That is correct and safe
+for the pilot, which has no live deployment, but any future key change needs the same
+consideration.
+
+Not addressed: `redemption_jobs.id` itself is still keyed on the raw on-chain id without a
+vault discriminator. The namespaced cursor prevents the wedge in practice, but a redeploy
+against a surviving database should still start from a clean table.
 
 ---
 
@@ -363,14 +376,15 @@ Recorded so external auditors do not re-derive them:
 
 ## Suggested order of work
 
-1. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
-2. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
-   an alert, so an alert nobody receives is not a control.
-3. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
+1. **F-11** — give the alerts a delivery path. Several fixes above (F-01's buffer states,
+   F-09's gap detection, the runbook's stop conditions) are now *detections* that log and
+   do nothing else. An alert nobody receives is not a control, which makes this the
+   weakest link in the chain rather than a nice-to-have.
+2. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
    hard parts.
-4. **Split `VERIFIER` from `SETTLER`** — the residual half of F-06. Live mode still forces
+3. **Split `VERIFIER` from `SETTLER`** — the residual half of F-06. Live mode still forces
    both roles onto one orchestrator key.
-5. **F-01 – F-07** — fixed; carry the regression tests forward.
+4. **F-01 – F-07, F-09** — fixed; carry the regression tests forward.
 
 Then rehearse on signet or regtest (launch blocker 5). The rehearsal should now include a
 full-supply redemption and a buffer drawdown to `exhausted`, since those were the states
