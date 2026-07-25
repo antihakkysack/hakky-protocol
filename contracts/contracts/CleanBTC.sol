@@ -87,21 +87,29 @@ contract CleanBTC is ERC20, ERC20Permit, AccessControl {
     }
 
     /// @notice Return `amount` cBTC to `to` for a redemption that is being cancelled.
-    /// @dev Cancellation is liability-neutral: the vault lowers `pendingRedemptionSats`
-    ///      by the same amount in the same call, and the backing BTC never left custody
-    ///      (an uncompleted payout is why the redemption is being cancelled). The reserve
-    ///      freshness gate on `mint` exists to stop *new* issuance against an unverified
-    ///      reserve; applying it here would strand already-burned cBTC exactly when the
-    ///      runbook's stop conditions fire — a stale, failed, or revoked reserve updater
-    ///      is the case where cancellation is most needed. Backing and the pilot ceiling
-    ///      are still enforced against the last attested figure.
+    /// @dev Deliberately gated on neither reserve freshness nor reserve sufficiency,
+    ///      because cancellation is liability-neutral: the vault lowers
+    ///      `pendingRedemptionSats` by the same amount that supply rises, in the same
+    ///      call, so `totalSupply + pendingRedemptionSats` is unchanged. Both gates on
+    ///      `mint` exist to stop *new* issuance against an unverified or insufficient
+    ///      reserve, and neither describes this operation.
+    ///
+    ///      Applying them here would strand already-burned cBTC in exactly the states
+    ///      where a redemption most needs returning: a stale, failed, or revoked reserve
+    ///      updater, or a published reserve that has legitimately fallen below supply
+    ///      (a completed payout removes the payout amount *and* the miner fee from
+    ///      custody, while pending liabilities fall by the payout amount alone). Refusing
+    ///      to restore in those states does not improve solvency by one satoshi — the
+    ///      liability already exists — it only destroys the user's claim on it.
+    ///
+    ///      The pilot ceiling is retained as defence in depth. It cannot bind a genuine
+    ///      cancellation, since `totalSupply + amount <= totalSupply +
+    ///      pendingRedemptionSats <= PILOT_SUPPLY_CAP_SATS` already holds.
     function restore(address to, uint256 amount) external onlyRole(BURNER_ROLE) {
         uint256 newSupply = totalSupply() + amount;
         if (newSupply > PILOT_SUPPLY_CAP_SATS) {
             revert ExceedsPilotSupplyCap(newSupply, PILOT_SUPPLY_CAP_SATS);
         }
-        uint256 reserves = reserveOracle.reserveSats();
-        if (newSupply > reserves) revert ExceedsReserves(newSupply, reserves);
         _mint(to, amount);
     }
 

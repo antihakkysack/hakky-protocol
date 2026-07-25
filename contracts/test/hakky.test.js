@@ -388,7 +388,24 @@ describe("ReserveVault", () => {
     expect(await vault.pendingRedemptionSats()).to.equal(0n);
   });
 
-  it("restricts restore to BURNER_ROLE and keeps it inside reserves and the pilot cap", async () => {
+  it("cancels a pending redemption after custody reserves have fallen", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+
+    // A completed payout removes the payout amount *and* the miner fee from custody,
+    // so the published reserve figure legitimately falls below outstanding supply.
+    // Cancelling an unrelated redemption is liability-neutral -- pending falls by the
+    // same amount supply rises -- so it must not be blocked by the shortfall.
+    await oracle.connect(admin).updateReserves(QUARTER_BTC, "ipfs://r2");
+
+    await expect(vault.connect(admin).cancelRedeem(1n)).to.emit(vault, "RedeemCancelled");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
+  it("restricts restore to BURNER_ROLE and keeps it inside the pilot cap", async () => {
     const { vault, cbtc, oracle, admin, alice, mallory } = await deployFixture();
     await oracle.updateReserves(ONE_BTC, "ipfs://r");
     await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
@@ -397,15 +414,8 @@ describe("ReserveVault", () => {
     // Only the vault (BURNER_ROLE) may restore burned supply.
     await expect(cbtc.connect(mallory).restore(mallory.address, HALF_BTC)).to.be.reverted;
 
-    // Supply is now 0.5 cBTC with 0.5 pending. If custody has since shrunk, restoring
-    // past the last attested reserves is refused even for the role holder.
+    // The immutable one-BTC ceiling still binds.
     await cbtc.connect(admin).grantRole(await cbtc.BURNER_ROLE(), admin.address);
-    await oracle.connect(admin).updateReserves(QUARTER_BTC, "ipfs://r2");
-    await expect(cbtc.connect(admin).restore(alice.address, HALF_BTC))
-      .to.be.revertedWithCustomError(cbtc, "ExceedsReserves");
-
-    // ...and with reserves no longer binding, the immutable one-BTC ceiling still is.
-    await oracle.connect(admin).updateReserves(10n * ONE_BTC, "ipfs://r3");
     await expect(cbtc.connect(admin).restore(alice.address, ONE_BTC))
       .to.be.revertedWithCustomError(cbtc, "ExceedsPilotSupplyCap");
   });
