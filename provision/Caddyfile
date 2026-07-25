@@ -10,8 +10,8 @@ api.hakky.xyz {
 		reverse_proxy attestation:8081
 	}
 
-	@deposit path /deposit /deposit/*
-	handle @deposit {
+	@orchestrator path /deposit /deposit/* /redemptions /redemptions/*
+	handle @orchestrator {
 		reverse_proxy orchestrator:8082
 	}
 

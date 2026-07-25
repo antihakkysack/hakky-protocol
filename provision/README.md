@@ -1,7 +1,11 @@
 # Provisioning — deploy Hakky services to a server
 
-One command turns a fresh **Ubuntu 24.04** box (e.g. Hetzner CPX22) into a running
-Hakky node: Docker + the API + Caddy (auto-HTTPS).
+One command turns a fresh **Ubuntu 24.04** box (e.g. Hetzner CPX22) into a
+**demo/testnet** Hakky node: Docker + the API + Caddy (auto-HTTPS).
+
+> This convenience installer is not a live-pilot deployment process. It writes
+> Sepolia demo defaults and must not be used to custody real BTC. Production
+> preparation is documented in [`../docs/LIVE_PILOT.md`](../docs/LIVE_PILOT.md).
 
 ## Deploy
 
@@ -43,12 +47,15 @@ until then; `/health` works immediately.
 
 ## Write endpoints (need a signer)
 
-The worker services write on-chain, so set `SIGNER_PRIVATE_KEY` in `services/.env`
-to a key holding the operational roles (attestor / reserve-updater / verifier).
-On testnet that's the deployer key. Fronted by Caddy:
+In demo mode, the worker services can share `SIGNER_PRIVATE_KEY`. Live mode
+rejects that fallback and requires one dedicated key per operational service.
+On testnet the shared key may be the deployer key. Fronted by Caddy:
 
 - `POST /screen`  `{ "address": "0x…" }` → screens + publishes a cleanliness attestation
-- `POST /deposit` `{ "to": "0x…", "amountSats": "100000000" }` → mints cBTC 1:1
+- `POST /deposit` `{ "to": "0x…", "amountSats": "100000000" }` → demo-only mint path
+
+All write endpoints refuse requests unless `WRITE_API_KEY` is configured and
+sent as a bearer token.
 
 ## What's running
 
@@ -56,6 +63,7 @@ On testnet that's the deployer key. Fronted by Caddy:
 Caddy (:80/:443, auto-HTTPS)
   ├─ /screen*  ─▶ attestation  (:8081)  screen → AttestationRegistry.attest
   ├─ /deposit* ─▶ orchestrator (:8082)  deposit → ReserveVault.processDeposit (mint)
+  ├─ /redemptions* ─▶ orchestrator (:8082) verified redemption operations
   └─ (default) ─▶ api          (:8080)  read-only: /health /proof-of-reserves /attestation/:addr
 reserve-oracle (cron) ─▶ ReserveOracle.updateReserves     postgres (internal, audit log)
                                                     all services ─▶ Sepolia RPC

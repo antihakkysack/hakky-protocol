@@ -11,6 +11,12 @@ export interface ScreeningResult {
   evidenceURI: string;
 }
 
+export interface ManualScreeningInput {
+  score?: unknown;
+  sanctioned?: unknown;
+  evidenceURI?: unknown;
+}
+
 /** Demo sanctions list, sourced from SANCTIONED_ADDRESSES (comma-separated). */
 const sanctionedSet = new Set(
   config.SANCTIONED_ADDRESSES.split(",")
@@ -37,4 +43,32 @@ export function screenAddress(address: string): ScreeningResult {
   const tail = parseInt(subject.toLowerCase().slice(-6), 16);
   const score = 72 + (tail % 28);
   return { score, sanctioned: false, evidenceURI };
+}
+
+/**
+ * Validate an operator-reviewed screening result. This does not pretend to be
+ * an analytics provider: the authenticated attestor must supply the verdict
+ * and a durable evidence reference from the external review.
+ */
+export function validateManualScreening(
+  input: ManualScreeningInput,
+): ScreeningResult {
+  const score = Number(input.score);
+  if (!Number.isInteger(score) || score < 0 || score > 100) {
+    throw new Error("score must be an integer from 0 to 100");
+  }
+  if (typeof input.sanctioned !== "boolean") {
+    throw new Error("sanctioned must be a boolean");
+  }
+  if (input.sanctioned && score !== 0) {
+    throw new Error("a sanctioned result must use score 0");
+  }
+  const evidenceURI = String(input.evidenceURI ?? "");
+  try {
+    const uri = new URL(evidenceURI);
+    if (uri.protocol !== "https:" && uri.protocol !== "ipfs:") throw new Error();
+  } catch {
+    throw new Error("evidenceURI must use https:// or ipfs://");
+  }
+  return { score, sanctioned: input.sanctioned, evidenceURI };
 }

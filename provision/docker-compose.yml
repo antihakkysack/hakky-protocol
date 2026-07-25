@@ -26,13 +26,14 @@ services:
     env_file: ../services/.env
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+      SERVICE_ROLE: api
     ports:
       - "8080:8080" # direct access for verification; Caddy fronts it on 443
     depends_on:
       postgres:
         condition: service_healthy
 
-  # Reserve-oracle keeper: publishes the (stubbed) custody balance to ReserveOracle.
+  # Reserve-oracle keeper: demo stub or confirmed Bitcoin Core custody UTXOs.
   reserve-oracle:
     build: ../services
     restart: unless-stopped
@@ -40,6 +41,7 @@ services:
     env_file: ../services/.env
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+      SERVICE_ROLE: reserve-oracle
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,12 +54,13 @@ services:
     env_file: ../services/.env
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+      SERVICE_ROLE: attestation
     # No host port — Caddy reaches it as attestation:8081 on the compose network.
     depends_on:
       postgres:
         condition: service_healthy
 
-  # Orchestrator: deposit->mint (HTTP at /deposit) + redeem-settle event watcher.
+  # Orchestrator: verified deposit->mint + durable redemption index/settlement verification.
   orchestrator:
     build: ../services
     restart: unless-stopped
@@ -65,6 +68,7 @@ services:
     env_file: ../services/.env
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
+      SERVICE_ROLE: orchestrator
     # No host port — Caddy reaches it as orchestrator:8082 on the compose network.
     depends_on:
       postgres:

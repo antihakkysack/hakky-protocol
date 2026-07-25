@@ -3,7 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 
 /**
- * Express middleware guarding the on-chain write endpoints (`/screen`, `/deposit`).
+ * Express middleware guarding write and operator endpoints.
  * Requires `Authorization: Bearer <WRITE_API_KEY>`. Fail-closed: if no key is
  * configured, all writes are refused (503) rather than left open. Uses a
  * constant-time compare to avoid leaking the key via timing.
