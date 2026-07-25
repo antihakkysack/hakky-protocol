@@ -86,6 +86,25 @@ contract CleanBTC is ERC20, ERC20Permit, AccessControl {
         _burn(from, amount);
     }
 
+    /// @notice Return `amount` cBTC to `to` for a redemption that is being cancelled.
+    /// @dev Cancellation is liability-neutral: the vault lowers `pendingRedemptionSats`
+    ///      by the same amount in the same call, and the backing BTC never left custody
+    ///      (an uncompleted payout is why the redemption is being cancelled). The reserve
+    ///      freshness gate on `mint` exists to stop *new* issuance against an unverified
+    ///      reserve; applying it here would strand already-burned cBTC exactly when the
+    ///      runbook's stop conditions fire — a stale, failed, or revoked reserve updater
+    ///      is the case where cancellation is most needed. Backing and the pilot ceiling
+    ///      are still enforced against the last attested figure.
+    function restore(address to, uint256 amount) external onlyRole(BURNER_ROLE) {
+        uint256 newSupply = totalSupply() + amount;
+        if (newSupply > PILOT_SUPPLY_CAP_SATS) {
+            revert ExceedsPilotSupplyCap(newSupply, PILOT_SUPPLY_CAP_SATS);
+        }
+        uint256 reserves = reserveOracle.reserveSats();
+        if (newSupply > reserves) revert ExceedsReserves(newSupply, reserves);
+        _mint(to, amount);
+    }
+
     /// @notice Update the proof-of-reserves oracle.
     function setReserveOracle(IReserveOracle oracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(oracle) == address(0)) revert ZeroAddress();

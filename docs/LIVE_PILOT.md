@@ -17,6 +17,13 @@ The pilot contracts enforce:
 - a pause on new deposits and redemption requests;
 - settlement and cancellation remain available while paused.
 
+Cancellation returns burned cBTC through `CleanBTC.restore`, which deliberately does
+not require a fresh reserve publication. New issuance still does. A stale, failed, or
+revoked reserve updater is precisely the situation in which a redemption must be
+returned, so recovery must not depend on the component that failed. Cancellation stays
+liability-neutral — pending liabilities fall by the same amount that supply rises — and
+is still refused if it would exceed the last attested reserves or the one-BTC ceiling.
+
 The one-BTC cap is immutable. Raising it requires a new contract deployment,
 fresh review, and a new launch decision.
 

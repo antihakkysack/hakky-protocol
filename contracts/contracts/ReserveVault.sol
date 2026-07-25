@@ -187,7 +187,7 @@ contract ReserveVault is AccessControl, Pausable, ReentrancyGuard {
         if (r.status != RedeemStatus.Pending) revert BadStatus();
         r.status = RedeemStatus.Cancelled;
         pendingRedemptionSats -= r.amountSats;
-        cbtc.mint(r.account, r.amountSats);
+        cbtc.restore(r.account, r.amountSats);
         emit RedeemCancelled(id);
     }
 

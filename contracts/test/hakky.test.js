@@ -370,6 +370,46 @@ describe("ReserveVault", () => {
     expect(await vault.pendingRedemptionSats()).to.equal(0n);
   });
 
+  it("cancels a pending redemption even when the reserve attestation is stale", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+    expect(await cbtc.balanceOf(alice.address)).to.equal(HALF_BTC);
+
+    // The runbook's stop conditions pause the protocol precisely when the reserve
+    // publication goes stale, and the updater may be the failed/compromised component.
+    // Returning an unpayable redemption must not depend on refreshing the oracle.
+    await time.increase(12 * 60 * 60 + 1);
+    await vault.connect(admin).pause();
+
+    await expect(vault.connect(admin).cancelRedeem(1n)).to.emit(vault, "RedeemCancelled");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
+  it("restricts restore to BURNER_ROLE and keeps it inside reserves and the pilot cap", async () => {
+    const { vault, cbtc, oracle, admin, alice, mallory } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+
+    // Only the vault (BURNER_ROLE) may restore burned supply.
+    await expect(cbtc.connect(mallory).restore(mallory.address, HALF_BTC)).to.be.reverted;
+
+    // Supply is now 0.5 cBTC with 0.5 pending. If custody has since shrunk, restoring
+    // past the last attested reserves is refused even for the role holder.
+    await cbtc.connect(admin).grantRole(await cbtc.BURNER_ROLE(), admin.address);
+    await oracle.connect(admin).updateReserves(QUARTER_BTC, "ipfs://r2");
+    await expect(cbtc.connect(admin).restore(alice.address, HALF_BTC))
+      .to.be.revertedWithCustomError(cbtc, "ExceedsReserves");
+
+    // ...and with reserves no longer binding, the immutable one-BTC ceiling still is.
+    await oracle.connect(admin).updateReserves(10n * ONE_BTC, "ipfs://r3");
+    await expect(cbtc.connect(admin).restore(alice.address, ONE_BTC))
+      .to.be.revertedWithCustomError(cbtc, "ExceedsPilotSupplyCap");
+  });
+
   it("fails closed on invalid custody references and supports emergency pause", async () => {
     const { vault, oracle, admin, alice } = await deployFixture();
     await oracle.updateReserves(ONE_BTC, "ipfs://r");
