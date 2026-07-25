@@ -63,4 +63,10 @@ jobs:
         working-directory: .
         run: |
           cp services/.env.example services/.env
+          # Each write service reads its own gitignored signer file, so the API
+          # container never holds another role's key. Compose needs them to exist to
+          # validate the topology; the real files are injected from a secret manager.
+          : > services/.env.attestation
+          : > services/.env.reserve-oracle
+          : > services/.env.orchestrator
           docker compose -f provision/docker-compose.yml config --quiet
