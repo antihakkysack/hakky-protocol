@@ -370,6 +370,35 @@ describe("ReserveVault", () => {
     expect(await vault.pendingRedemptionSats()).to.equal(0n);
   });
 
+  it("refuses to settle two redemptions with the same Bitcoin payout", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+
+    // Two redemptions of equal size to the same address -- one user redeeming twice to
+    // one wallet. An exact-amount payout check cannot tell them apart, so a single
+    // on-chain payout would otherwise extinguish both liabilities.
+    await vault.connect(alice).requestRedeem(QUARTER_BTC, BTC_ADDRESS_A);
+    await vault.connect(alice).requestRedeem(QUARTER_BTC, BTC_ADDRESS_A);
+
+    const payout = ethers.id("btc-payout-tx");
+    await expect(vault.connect(admin).settleRedeem(1n, payout)).to.emit(vault, "RedeemSettled");
+
+    await expect(vault.connect(admin).settleRedeem(2n, payout))
+      .to.be.revertedWithCustomError(vault, "SettlementReferenceAlreadyUsed")
+      .withArgs(payout, 1n);
+
+    // The second liability must survive so it can be paid or cancelled properly.
+    expect((await vault.redemptions(2n)).status).to.equal(1); // Pending
+    expect(await vault.pendingRedemptionSats()).to.equal(QUARTER_BTC);
+    expect(await vault.settlementTxidRedemption(payout)).to.equal(1n);
+
+    // A distinct payout settles it normally.
+    await expect(vault.connect(admin).settleRedeem(2n, ethers.id("btc-payout-tx-2")))
+      .to.emit(vault, "RedeemSettled");
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
   it("cancels a pending redemption even when the reserve attestation is stale", async () => {
     const { vault, cbtc, oracle, admin, alice } = await deployFixture();
     await oracle.updateReserves(ONE_BTC, "ipfs://r");

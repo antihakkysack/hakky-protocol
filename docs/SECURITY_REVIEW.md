@@ -130,7 +130,7 @@ limiting. Fixed by redacting the `authorization` and `cookie` headers.
 
 ---
 
-## F-04 · OPEN · One Bitcoin payout can settle unlimited redemptions
+## F-04 · FIXED · One Bitcoin payout can settle unlimited redemptions
 
 `services/src/shared/bitcoin.ts:258-305`, `services/src/shared/db.ts:131-159`
 
@@ -144,9 +144,25 @@ extinguished for 5,000,000 sats paid, and both emit `RedeemSettled`. This is a t
 primitive for a compromised write key and a live footgun for an honest operator retrying
 against the wrong id.
 
-Suggested fix: a unique constraint on `btc_txid` in `redemption_jobs`, plus rejecting a
-txid already recorded against another redemption. Consider whether batched payouts should
-ever be supported; if so, the amount check must become per-redemption-output.
+**Fixed on-chain**, in `ReserveVault.settleRedeem`, rather than in the database. The
+contract is the authority: a `SETTLER_ROLE` holder can call `settleRedeem` directly, so a
+database constraint alone would be bypassable by exactly the party this guards against.
+
+A new `settlementTxidRedemption` mapping binds each payout txid to the single redemption
+it settled; a reused txid reverts with `SettlementReferenceAlreadyUsed(btcTxid,
+settledRedemptionId)`, naming the redemption that already consumed it. The unsettled
+liability stays `Pending` so it can still be paid or cancelled properly.
+
+This makes one payout settle at most one redemption, which matches the runbook's
+one-payout-per-redemption procedure. **If batched payouts are ever wanted, this guard must
+be revisited together with `verifyPayout`**, whose per-redemption exact-amount check is the
+other half of the same assumption.
+
+Still available as defence in depth, not implemented here: a unique constraint on
+`btc_txid` in `redemption_jobs`, which would reject a duplicate earlier and more cheaply
+than an on-chain revert. Left out because the schema change could not be verified in this
+environment (the integration suite needs a live PostgreSQL), and an unverified migration is
+worse than none.
 
 ---
 
@@ -317,15 +333,15 @@ Recorded so external auditors do not re-derive them:
 
 ## Suggested order of work
 
-1. **F-04, F-05, F-07** — settlement binding, chainstate verification, and fail-open
-   config. All are "mint or settle against something that is not real".
+1. **F-05, F-07** — chainstate verification and fail-open config. Both are "mint or settle
+   against something that is not real".
 2. **F-06** — split the environment files so the API container holds no signer.
 3. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
 4. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
    an alert, so an alert nobody receives is not a control.
 5. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
    hard parts.
-6. **F-01, F-02, F-03** — fixed; carry the regression tests forward.
+6. **F-01, F-02, F-03, F-04** — fixed; carry the regression tests forward.
 
 Then rehearse on signet or regtest (launch blocker 5). The rehearsal should now include a
 full-supply redemption and a buffer drawdown to `exhausted`, since those were the states
