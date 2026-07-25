@@ -217,7 +217,7 @@ separately.
 
 ---
 
-## F-07 · OPEN · `OPERATING_MODE` fails open
+## F-07 · FIXED · `OPERATING_MODE` fails open
 
 `services/src/shared/config.ts:13,35,63,99`
 
@@ -231,10 +231,18 @@ Worse, `REDEMPTION_MODE` then defaults to `demo-auto`, and `processDemoRedemptio
 BTC ever sent**. `DEPOSIT_VERIFICATION_MODE` defaults to `stub`, making `/deposit` mint a
 caller-asserted amount with no Bitcoin check.
 
-Suggested fix: derive live mode from mainnet indicators rather than trusting a single
-variable — if `CHAIN_ID` is 1 or `BITCOIN_NETWORK` is `main`, require the live profile and
-refuse to start otherwise. Demo settlement paths should be compile-time excluded from any
-mainnet build.
+Fixed by deriving the requirement from the mainnet settings themselves rather than trusting
+one flag. If `CHAIN_ID` is 1 or `BITCOIN_NETWORK` is `main`, `OPERATING_MODE=live` is
+mandatory and the process refuses to start without it. Validation also falls through to the
+full live requirements whenever mainnet is in play, so a misconfigured deployment reports
+every problem at once instead of one per restart.
+
+Non-mainnet demo configuration is unaffected, and there is a regression test asserting local
+and testnet development still parses.
+
+Residual: the `demo-auto` settlement path still exists in the binary and is now unreachable
+by configuration rather than absent. Excluding it at build time for mainnet artifacts would
+be strictly stronger and is worth doing before launch.
 
 ---
 
@@ -343,15 +351,13 @@ Recorded so external auditors do not re-derive them:
 
 ## Suggested order of work
 
-1. **F-05, F-07** — chainstate verification and fail-open config. Both are "mint or settle
-   against something that is not real".
-2. **F-06** — split the environment files so the API container holds no signer.
-3. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
-4. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
+1. **F-06** — split the environment files so the API container holds no signer.
+2. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
+3. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
    an alert, so an alert nobody receives is not a control.
-5. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
+4. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
    hard parts.
-6. **F-01, F-02, F-03, F-04** — fixed; carry the regression tests forward.
+5. **F-01 – F-05, F-07** — fixed; carry the regression tests forward.
 
 Then rehearse on signet or regtest (launch blocker 5). The rehearsal should now include a
 full-supply redemption and a buffer drawdown to `exhausted`, since those were the states

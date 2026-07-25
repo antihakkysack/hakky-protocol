@@ -45,6 +45,40 @@ test("live configuration accepts only the fail-closed mainnet profile", () => {
   assert.equal(config.BITCOIN_MIN_CONFIRMATIONS, 6);
 });
 
+test("mainnet settings cannot silently run without live-mode checks", () => {
+  // OPERATING_MODE defaults to "demo" and every fail-closed check is gated behind it,
+  // so a single dropped environment line would disable bytecode, chain-id, role, and
+  // settlement verification while the rest of the config still points at mainnet --
+  // and REDEMPTION_MODE would fall back to demo-auto, settling real redemptions
+  // against a synthetic txid with no BTC ever sent.
+  const { OPERATING_MODE: _dropped, ...withoutOperatingMode } = validLiveEnvironment;
+
+  assert.throws(
+    () => parseConfig(withoutOperatingMode),
+    /OPERATING_MODE/,
+    "mainnet CHAIN_ID and BITCOIN_NETWORK must not run without live mode",
+  );
+
+  // Either mainnet indicator alone is enough to demand it.
+  assert.throws(
+    () => parseConfig({ ...withoutOperatingMode, BITCOIN_NETWORK: "signet" }),
+    /OPERATING_MODE/,
+    "mainnet CHAIN_ID alone must demand live mode",
+  );
+  assert.throws(
+    () => parseConfig({ ...withoutOperatingMode, CHAIN_ID: "11155111" }),
+    /OPERATING_MODE/,
+    "Bitcoin mainnet alone must demand live mode",
+  );
+});
+
+test("non-mainnet demo configuration still parses", () => {
+  // The guard must not make ordinary local/testnet development impossible.
+  const demo = parseConfig({});
+  assert.equal(demo.OPERATING_MODE, "demo");
+  assert.equal(demo.BITCOIN_NETWORK, "regtest");
+});
+
 test("live configuration requires a funded fee buffer", () => {
   // Payouts pay the recipient exactly, so miner fees come out of custody while
   // liabilities fall by the payout amount alone. Without operator-funded headroom

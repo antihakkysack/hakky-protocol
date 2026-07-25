@@ -107,7 +107,31 @@ const schema = z
       }
     }
 
-    if (value.OPERATING_MODE !== "live") return;
+    // Every fail-closed check below is gated on OPERATING_MODE, which defaults to
+    // "demo". A single dropped environment line would therefore skip bytecode,
+    // chain-id, role, and settlement verification while the rest of the config still
+    // pointed at mainnet -- and REDEMPTION_MODE would fall back to demo-auto, settling
+    // real redemptions against a synthetic txid with no BTC ever sent. Derive the
+    // requirement from the mainnet settings themselves rather than trusting one flag.
+    const mainnetIndicators = [
+      value.CHAIN_ID === 1 ? "CHAIN_ID=1" : undefined,
+      value.BITCOIN_NETWORK === "main" ? "BITCOIN_NETWORK=main" : undefined,
+    ].filter((indicator): indicator is string => indicator !== undefined);
+
+    if (mainnetIndicators.length > 0 && value.OPERATING_MODE !== "live") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["OPERATING_MODE"],
+        message:
+          `mainnet configuration detected (${mainnetIndicators.join(", ")}) but ` +
+          `OPERATING_MODE is "${value.OPERATING_MODE}"; set OPERATING_MODE=live or ` +
+          "the live-mode safety checks would be silently skipped",
+      });
+    }
+
+    // Fall through to the live requirements whenever mainnet is in play, so a
+    // misconfigured deployment reports every problem at once rather than one per restart.
+    if (value.OPERATING_MODE !== "live" && mainnetIndicators.length === 0) return;
 
     for (const field of [
       "ADDR_CLEAN_BTC",
