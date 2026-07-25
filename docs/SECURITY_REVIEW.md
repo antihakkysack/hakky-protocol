@@ -195,7 +195,7 @@ the node an hour later.
 
 ---
 
-## F-06 · OPEN · All signing keys are injected into the internet-facing API container
+## F-06 · FIXED · All signing keys are injected into the internet-facing API container
 
 `provision/docker-compose.yml:26,41,54,68`
 
@@ -210,10 +210,22 @@ VERIFIER + SETTLER + RESERVE_UPDATER + ATTESTOR simultaneously: enough to publis
 fabricated reserve figure, mint to the cap against it, and settle every redemption without
 paying. Runbook promise versus deployment reality.
 
-Related: `assertSignerRoles` (`services/src/shared/chain.ts:99-116`) checks one wallet
-against every requirement, so live mode currently *forces* `VERIFIER` and `SETTLER` onto a
-single key, contradicting the same runbook line and `deploy.js`, which accepts them
-separately.
+Fixed at both layers, with the enforcement in code rather than only in deployment config.
+
+**Code:** a live process may hold at most its own role's signing key, and the `api` role may
+hold none. Anything else refuses to start. This matters because declining to *use* a key
+that sits in the process environment is not the same guarantee as not having it — the
+original defect was precisely that `chain.ts` declined to use keys the container was still
+holding.
+
+**Deployment:** `provision/docker-compose.yml` no longer shares one `env_file` across every
+service. Each write service reads its own `.env.<role>` file containing only its key, and
+the `api` container receives no signer file at all. All `.env.*` files are gitignored.
+
+Still open, tracked separately: `assertSignerRoles` (`services/src/shared/chain.ts:99-116`)
+checks one wallet against every requirement, so live mode still *forces* `VERIFIER` and
+`SETTLER` onto a single orchestrator key. Splitting those into two processes (or two signers
+within the orchestrator) is a larger change than this one and is not addressed here.
 
 ---
 
@@ -351,13 +363,14 @@ Recorded so external auditors do not re-derive them:
 
 ## Suggested order of work
 
-1. **F-06** — split the environment files so the API container holds no signer.
-2. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
-3. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
+1. **F-09** — indexer gap detection and cursor namespacing, before any redeploy.
+2. **F-11** — give the buffer and stop-condition alerts a delivery path. F-01's control is
    an alert, so an alert nobody receives is not a control.
-4. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
+3. **F-08, F-10** — disclose or fix before external review, so auditor time goes to the
    hard parts.
-5. **F-01 – F-05, F-07** — fixed; carry the regression tests forward.
+4. **Split `VERIFIER` from `SETTLER`** — the residual half of F-06. Live mode still forces
+   both roles onto one orchestrator key.
+5. **F-01 – F-07** — fixed; carry the regression tests forward.
 
 Then rehearse on signet or regtest (launch blocker 5). The rehearsal should now include a
 full-supply redemption and a buffer drawdown to `exhausted`, since those were the states

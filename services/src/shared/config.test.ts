@@ -121,6 +121,48 @@ test("live write services require distinct role-specific signers", () => {
   assert.equal(config.SERVICE_ROLE, "orchestrator");
 });
 
+test("a live process may hold at most its own role's signing key", () => {
+  const KEY = `0x${"11".repeat(32)}`;
+
+  // The API is the public HTTPS origin and the only container with a published port.
+  // The runbook promises it receives no signer at all; declining to *use* a key that
+  // is sitting in the process environment is not the same guarantee, because any
+  // environment dump in the most exposed component would hand over every role at once.
+  for (const field of [
+    "SIGNER_PRIVATE_KEY",
+    "ATTESTATION_SIGNER_PRIVATE_KEY",
+    "RESERVE_ORACLE_SIGNER_PRIVATE_KEY",
+    "ORCHESTRATOR_SIGNER_PRIVATE_KEY",
+  ]) {
+    assert.throws(
+      () => parseConfig({ ...validLiveEnvironment, SERVICE_ROLE: "api", [field]: KEY }),
+      /must not receive a signing key|only its own/,
+      `api must refuse to start holding ${field}`,
+    );
+  }
+
+  // A write service must not hold another role's key either.
+  assert.throws(
+    () =>
+      parseConfig({
+        ...validLiveEnvironment,
+        SERVICE_ROLE: "orchestrator",
+        ORCHESTRATOR_SIGNER_PRIVATE_KEY: KEY,
+        ATTESTATION_SIGNER_PRIVATE_KEY: KEY,
+      }),
+    /only its own/,
+    "orchestrator must refuse to start holding the attestation key",
+  );
+
+  // Its own key alone is fine.
+  const orchestrator = parseConfig({
+    ...validLiveEnvironment,
+    SERVICE_ROLE: "orchestrator",
+    ORCHESTRATOR_SIGNER_PRIVATE_KEY: KEY,
+  });
+  assert.equal(orchestrator.SERVICE_ROLE, "orchestrator");
+});
+
 test("live configuration rejects demo verification, screening, and settlement", () => {
   assert.throws(
     () =>

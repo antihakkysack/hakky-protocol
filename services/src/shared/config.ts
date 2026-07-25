@@ -157,6 +157,37 @@ const schema = z
       orchestrator: value.ORCHESTRATOR_SIGNER_PRIVATE_KEY,
     }[value.SERVICE_ROLE];
 
+    // A process must hold at most its own role's signing key. Declining to *use* a key
+    // that is present in the environment is not the same guarantee: every container in
+    // the reference deployment shares one env_file, so an environment dump in the
+    // internet-facing API -- the only published port and the public HTTPS origin --
+    // would surrender VERIFIER, SETTLER, RESERVE_UPDATER, and ATTESTOR at once.
+    const signerFields = [
+      ["SIGNER_PRIVATE_KEY", value.SIGNER_PRIVATE_KEY, undefined],
+      ["ATTESTATION_SIGNER_PRIVATE_KEY", value.ATTESTATION_SIGNER_PRIVATE_KEY, "attestation"],
+      [
+        "RESERVE_ORACLE_SIGNER_PRIVATE_KEY",
+        value.RESERVE_ORACLE_SIGNER_PRIVATE_KEY,
+        "reserve-oracle",
+      ],
+      ["ORCHESTRATOR_SIGNER_PRIVATE_KEY", value.ORCHESTRATOR_SIGNER_PRIVATE_KEY, "orchestrator"],
+    ] as const;
+
+    for (const [field, present, ownedBy] of signerFields) {
+      if (!present || ownedBy === value.SERVICE_ROLE) continue;
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message:
+          value.SERVICE_ROLE === "api"
+            ? `the api process must not receive a signing key, but ${field} is set; ` +
+              "give each service its own environment file"
+            : `a live ${value.SERVICE_ROLE} process may hold only its own signing key, ` +
+              `but ${field} is set; give each service its own environment file`,
+      });
+    }
+
     const liveRequirements: Array<[boolean, keyof typeof value, string]> = [
       [
         isPositiveSatoshiString(value.BITCOIN_FEE_BUFFER_SATS),
