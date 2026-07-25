@@ -183,6 +183,32 @@ describe("CompliancePolicy", () => {
     await expect(cbtc.connect(alice).transfer(bob.address, ONE_BTC)).to.not.be.reverted;
   });
 
+  it("GATED mode fails closed when the attestation registry is unavailable", async () => {
+    const { cbtc, policy, admin, alice, bob } = await fundedFixture();
+    await policy.connect(admin).setRegistry(ethers.ZeroAddress);
+    await policy.connect(admin).setMode(1); // GATED
+
+    await expect(
+      cbtc.connect(alice).transfer(bob.address, ONE_BTC)
+    ).to.be.revertedWithCustomError(cbtc, "TransferNotAllowed");
+  });
+
+  it("GATED mode never lets an allowlist override bypass sanctions", async () => {
+    const { cbtc, policy, registry, admin, alice, bob } = await fundedFixture();
+    await policy.connect(admin).setMode(1); // GATED
+    await policy.connect(admin).setAllowlisted(alice.address, true);
+    await policy.connect(admin).setAllowlisted(bob.address, true);
+
+    // Allowlisting bypasses the cleanliness-score requirement.
+    await expect(cbtc.connect(alice).transfer(bob.address, 1n)).to.not.be.reverted;
+
+    // It must not bypass an explicit sanctions flag.
+    await registry.connect(admin).attest(bob.address, 0, true, 0, "ipfs://ofac");
+    await expect(
+      cbtc.connect(alice).transfer(bob.address, ONE_BTC)
+    ).to.be.revertedWithCustomError(cbtc, "TransferNotAllowed");
+  });
+
   it("ALLOWLIST mode only permits explicitly allowlisted parties", async () => {
     const { cbtc, policy, admin, alice, bob } = await fundedFixture();
     await policy.connect(admin).setMode(2); // ALLOWLIST

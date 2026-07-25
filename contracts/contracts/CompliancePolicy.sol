@@ -81,8 +81,11 @@ contract CompliancePolicy is AccessControl, ICompliancePolicy {
             return fromOk && toOk;
         }
 
-        // Mode.GATED: allowlisted OR attested-clean, and never sanctioned.
-        if (address(registry) == address(0)) return true;
+        // Mode.GATED: allowlisted OR attested-clean, but never sanctioned.
+        // A missing registry cannot establish either cleanliness or sanctions
+        // status, so gating must fail closed.
+        if (address(registry) == address(0)) return false;
+        if (registry.isSanctioned(from) || registry.isSanctioned(to)) return false;
         if (!fromOk) fromOk = registry.isClean(from, minScore);
         if (!toOk) toOk = registry.isClean(to, minScore);
         return fromOk && toOk;
