@@ -8,6 +8,9 @@ pragma solidity ^0.8.24;
 interface IReserveOracle {
     /// @return The total BTC held in reserve, denominated in satoshis (1 BTC = 1e8 sats).
     function reserveSats() external view returns (uint256);
+
+    /// @return Unix timestamp of the most recent reserve publication.
+    function lastUpdated() external view returns (uint64);
 }
 
 /// @notice On-chain registry of address cleanliness attestations.

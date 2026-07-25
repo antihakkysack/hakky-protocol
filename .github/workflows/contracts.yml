@@ -29,8 +29,17 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Compile contracts
         run: npm run build
+
+      - name: Validate operational scripts
+        run: |
+          node --check scripts/deploy.js
+          node --check scripts/seed-demo.js
+          node --check scripts/redeem-demo.js
 
       - name: Run tests
         run: npm test

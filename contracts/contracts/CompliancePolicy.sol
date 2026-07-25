@@ -37,10 +37,13 @@ contract CompliancePolicy is AccessControl, ICompliancePolicy {
 
     event ModeUpdated(Mode mode);
     event MinScoreUpdated(uint8 minScore);
-    event RegistryUpdated(address registry);
+    event RegistryUpdated(address indexed registry);
     event AllowlistUpdated(address indexed account, bool allowed);
 
+    error ZeroAddress();
+
     constructor(address admin, IAttestationRegistry registry_) {
+        if (admin == address(0) || address(registry_) == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
         _grantRole(POLICY_ADMIN_ROLE, admin);
         registry = registry_;

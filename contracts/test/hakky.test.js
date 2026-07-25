@@ -3,6 +3,10 @@ const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 const ONE_BTC = 100_000_000n; // 1 BTC in satoshis / cBTC base units
+const HALF_BTC = ONE_BTC / 2n;
+const QUARTER_BTC = ONE_BTC / 4n;
+const BTC_ADDRESS_A = `bc1q${"a".repeat(38)}`;
+const BTC_ADDRESS_B = `bc1q${"b".repeat(38)}`;
 
 async function deployFixture() {
   const [admin, alice, bob, mallory] = await ethers.getSigners();
@@ -37,9 +41,36 @@ async function deployFixture() {
   await oracle.grantRole(await oracle.RESERVE_UPDATER_ROLE(), admin.address);
   await vault.grantRole(await vault.VERIFIER_ROLE(), admin.address);
   await vault.grantRole(await vault.SETTLER_ROLE(), admin.address);
+  await vault.grantRole(await vault.PAUSER_ROLE(), admin.address);
 
   return { admin, alice, bob, mallory, registry, oracle, policy, cbtc, vault };
 }
+
+describe("Deployment safety", () => {
+  it("rejects zero-address administrators and dependencies", async () => {
+    const [admin] = await ethers.getSigners();
+    const Registry = await ethers.getContractFactory("AttestationRegistry");
+    const Oracle = await ethers.getContractFactory("ReserveOracle");
+    const Policy = await ethers.getContractFactory("CompliancePolicy");
+    const CleanBTC = await ethers.getContractFactory("CleanBTC");
+
+    await expect(Registry.deploy(ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(Registry, "ZeroAddress");
+    await expect(Oracle.deploy(ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(Oracle, "ZeroAddress");
+
+    const registry = await Registry.deploy(admin.address);
+    const oracle = await Oracle.deploy(admin.address);
+    await expect(Policy.deploy(admin.address, ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(Policy, "ZeroAddress");
+    await expect(CleanBTC.deploy(admin.address, ethers.ZeroAddress, ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(CleanBTC, "ZeroAddress");
+
+    // Keep successful dependencies referenced so this test also proves normal deployment.
+    expect(await registry.getAddress()).to.not.equal(ethers.ZeroAddress);
+    expect(await oracle.getAddress()).to.not.equal(ethers.ZeroAddress);
+  });
+});
 
 describe("CleanBTC (cBTC)", () => {
   it("uses 8 decimals to mirror BTC", async () => {
@@ -54,19 +85,46 @@ describe("CleanBTC (cBTC)", () => {
 
     // No reserves yet -> mint must revert.
     await expect(
-      vault.processDeposit(alice.address, ONE_BTC, ethers.id("btc-tx-1"), "ipfs://ev1")
-    ).to.be.revertedWithCustomError(cbtc, "ExceedsReserves");
+      vault.processDeposit(alice.address, HALF_BTC, ethers.id("btc-tx-1"), 0, "ipfs://ev1")
+    ).to.be.revertedWithCustomError(vault, "ExceedsAvailableBacking");
 
-    // Attest 1 BTC of reserves, then mint exactly 1 cBTC.
-    await oracle.connect(admin).updateReserves(ONE_BTC, "ipfs://reserves-1");
-    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("btc-tx-1"), "ipfs://ev1");
-    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
-    expect(await cbtc.totalSupply()).to.equal(ONE_BTC);
+    // Attest 0.5 BTC of reserves, then mint exactly 0.5 cBTC.
+    await oracle.connect(admin).updateReserves(HALF_BTC, "ipfs://reserves-1");
+    await vault.processDeposit(alice.address, HALF_BTC, ethers.id("btc-tx-1"), 0, "ipfs://ev1");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(HALF_BTC);
+    expect(await cbtc.totalSupply()).to.equal(HALF_BTC);
 
     // Minting one more sat would exceed reserves.
     await expect(
-      vault.processDeposit(alice.address, 1n, ethers.id("btc-tx-2"), "ipfs://ev2")
-    ).to.be.revertedWithCustomError(cbtc, "ExceedsReserves");
+      vault.processDeposit(alice.address, 1n, ethers.id("btc-tx-2"), 0, "ipfs://ev2")
+    ).to.be.revertedWithCustomError(vault, "ExceedsAvailableBacking");
+  });
+
+  it("enforces an immutable one-BTC pilot supply ceiling", async () => {
+    const { cbtc, oracle, vault, alice } = await deployFixture();
+    await oracle.updateReserves(2n * ONE_BTC, "ipfs://reserves");
+
+    expect(await cbtc.PILOT_SUPPLY_CAP_SATS()).to.equal(ONE_BTC);
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("btc-tx-1"), 0, "ipfs://ev1");
+
+    await expect(
+      vault.processDeposit(alice.address, 1n, ethers.id("btc-tx-2"), 0, "ipfs://ev2")
+    )
+      .to.be.revertedWithCustomError(vault, "ExceedsPilotLiabilityCap")
+      .withArgs(ONE_BTC + 1n, ONE_BTC);
+  });
+
+  it("fails closed when the reserve publication is stale or unavailable", async () => {
+    const { cbtc, oracle, vault, admin, alice } = await deployFixture();
+
+    await expect(cbtc.connect(admin).setReserveOracle(ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(cbtc, "ZeroAddress");
+
+    await oracle.updateReserves(ONE_BTC, "ipfs://reserves");
+    await time.increase(12 * 60 * 60 + 1);
+    await expect(
+      vault.processDeposit(alice.address, ONE_BTC, ethers.id("stale-deposit"), 0, "ipfs://ev")
+    ).to.be.revertedWithCustomError(cbtc, "ReserveAttestationStale");
   });
 
   it("only allows MINTER_ROLE to mint and BURNER_ROLE to burn", async () => {
@@ -156,15 +214,15 @@ describe("AttestationRegistry", () => {
 describe("CompliancePolicy", () => {
   async function fundedFixture() {
     const f = await deployFixture();
-    await f.oracle.updateReserves(10n * ONE_BTC, "ipfs://reserves");
-    await f.vault.processDeposit(f.alice.address, 2n * ONE_BTC, ethers.id("d-alice"), "ipfs://e");
+    await f.oracle.updateReserves(ONE_BTC, "ipfs://reserves");
+    await f.vault.processDeposit(f.alice.address, ONE_BTC, ethers.id("d-alice"), 0, "ipfs://e");
     return f;
   }
 
   it("MONITOR mode (default) never blocks transfers", async () => {
     const { cbtc, alice, bob } = await fundedFixture();
-    await expect(cbtc.connect(alice).transfer(bob.address, ONE_BTC)).to.not.be.reverted;
-    expect(await cbtc.balanceOf(bob.address)).to.equal(ONE_BTC);
+    await expect(cbtc.connect(alice).transfer(bob.address, HALF_BTC)).to.not.be.reverted;
+    expect(await cbtc.balanceOf(bob.address)).to.equal(HALF_BTC);
   });
 
   it("GATED mode blocks transfers unless both parties are attested-clean", async () => {
@@ -174,13 +232,13 @@ describe("CompliancePolicy", () => {
 
     // Neither attested -> blocked.
     await expect(
-      cbtc.connect(alice).transfer(bob.address, ONE_BTC)
+      cbtc.connect(alice).transfer(bob.address, HALF_BTC)
     ).to.be.revertedWithCustomError(cbtc, "TransferNotAllowed");
 
     // Attest both -> allowed.
     await registry.connect(admin).attest(alice.address, 80, false, 0, "ipfs://a");
     await registry.connect(admin).attest(bob.address, 80, false, 0, "ipfs://b");
-    await expect(cbtc.connect(alice).transfer(bob.address, ONE_BTC)).to.not.be.reverted;
+    await expect(cbtc.connect(alice).transfer(bob.address, HALF_BTC)).to.not.be.reverted;
   });
 
   it("GATED mode fails closed when the attestation registry is unavailable", async () => {
@@ -189,7 +247,7 @@ describe("CompliancePolicy", () => {
     await policy.connect(admin).setMode(1); // GATED
 
     await expect(
-      cbtc.connect(alice).transfer(bob.address, ONE_BTC)
+      cbtc.connect(alice).transfer(bob.address, HALF_BTC)
     ).to.be.revertedWithCustomError(cbtc, "TransferNotAllowed");
   });
 
@@ -205,7 +263,7 @@ describe("CompliancePolicy", () => {
     // It must not bypass an explicit sanctions flag.
     await registry.connect(admin).attest(bob.address, 0, true, 0, "ipfs://ofac");
     await expect(
-      cbtc.connect(alice).transfer(bob.address, ONE_BTC)
+      cbtc.connect(alice).transfer(bob.address, HALF_BTC)
     ).to.be.revertedWithCustomError(cbtc, "TransferNotAllowed");
   });
 
@@ -214,81 +272,124 @@ describe("CompliancePolicy", () => {
     await policy.connect(admin).setMode(2); // ALLOWLIST
 
     await expect(
-      cbtc.connect(alice).transfer(bob.address, ONE_BTC)
+      cbtc.connect(alice).transfer(bob.address, HALF_BTC)
     ).to.be.revertedWithCustomError(cbtc, "TransferNotAllowed");
 
     await policy.connect(admin).setAllowlisted(alice.address, true);
     await policy.connect(admin).setAllowlisted(bob.address, true);
-    await expect(cbtc.connect(alice).transfer(bob.address, ONE_BTC)).to.not.be.reverted;
+    await expect(cbtc.connect(alice).transfer(bob.address, HALF_BTC)).to.not.be.reverted;
   });
 });
 
 describe("ReserveVault", () => {
   it("mints against verified deposits and guards against replay", async () => {
     const { vault, cbtc, oracle, admin, alice } = await deployFixture();
-    await oracle.updateReserves(5n * ONE_BTC, "ipfs://r");
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
 
     const txid = ethers.id("btc-deposit-A");
-    await vault.processDeposit(alice.address, ONE_BTC, txid, "ipfs://prov");
-    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
+    await vault.processDeposit(alice.address, HALF_BTC, txid, 0, "ipfs://prov");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(HALF_BTC);
 
-    // Same txid can't be processed twice.
+    // The same outpoint cannot be processed twice.
     await expect(
-      vault.processDeposit(alice.address, ONE_BTC, txid, "ipfs://prov")
+      vault.processDeposit(alice.address, HALF_BTC, txid, 0, "ipfs://prov")
     ).to.be.revertedWithCustomError(vault, "DepositAlreadyProcessed");
+
+    // A distinct output from the same transaction is a distinct deposit.
+    await vault.processDeposit(alice.address, HALF_BTC, txid, 1, "ipfs://prov-2");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
   });
 
   it("blocks minting to sanctioned recipients", async () => {
     const { vault, oracle, registry, admin, mallory } = await deployFixture();
-    await oracle.updateReserves(5n * ONE_BTC, "ipfs://r");
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
     await registry.connect(admin).attest(mallory.address, 0, true, 0, "ipfs://ofac");
 
     await expect(
-      vault.processDeposit(mallory.address, ONE_BTC, ethers.id("d"), "ipfs://p")
+      vault.processDeposit(mallory.address, ONE_BTC, ethers.id("d"), 0, "ipfs://p")
     ).to.be.revertedWithCustomError(vault, "RecipientSanctioned");
   });
 
   it("redeems by burning cBTC and records a pending payout", async () => {
     const { vault, cbtc, oracle, alice } = await deployFixture();
-    await oracle.updateReserves(5n * ONE_BTC, "ipfs://r");
-    await vault.processDeposit(alice.address, 2n * ONE_BTC, ethers.id("d"), "ipfs://p");
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("d"), 0, "ipfs://p");
 
-    await expect(vault.connect(alice).requestRedeem(ONE_BTC, "bc1qexamplepayout"))
+    await expect(vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A))
       .to.emit(vault, "RedeemRequested")
-      .withArgs(1n, alice.address, ONE_BTC, "bc1qexamplepayout");
+      .withArgs(1n, alice.address, HALF_BTC, BTC_ADDRESS_A);
 
-    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC); // 2 - 1 burned
+    expect(await cbtc.balanceOf(alice.address)).to.equal(HALF_BTC);
     const r = await vault.redemptions(1n);
     expect(r.status).to.equal(1); // Pending
-    expect(r.amountSats).to.equal(ONE_BTC);
+    expect(r.amountSats).to.equal(HALF_BTC);
   });
 
   it("settles and cancels redemptions correctly", async () => {
     const { vault, cbtc, oracle, admin, alice } = await deployFixture();
-    await oracle.updateReserves(5n * ONE_BTC, "ipfs://r");
-    await vault.processDeposit(alice.address, 2n * ONE_BTC, ethers.id("d"), "ipfs://p");
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("d"), 0, "ipfs://p");
 
     // Settle path.
-    await vault.connect(alice).requestRedeem(ONE_BTC, "bc1qpay1");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
     await expect(vault.connect(admin).settleRedeem(1n, ethers.id("btc-settle")))
       .to.emit(vault, "RedeemSettled");
     expect((await vault.redemptions(1n)).status).to.equal(2); // Settled
 
     // Cancel path re-mints the burned cBTC back to the requester.
-    await vault.connect(alice).requestRedeem(ONE_BTC, "bc1qpay2");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_B);
     expect(await cbtc.balanceOf(alice.address)).to.equal(0n);
     await vault.connect(admin).cancelRedeem(2n);
-    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
+    expect(await cbtc.balanceOf(alice.address)).to.equal(HALF_BTC);
     expect((await vault.redemptions(2n)).status).to.equal(3); // Cancelled
   });
 
   it("restricts verifier and settler actions by role", async () => {
     const { vault, oracle, alice } = await deployFixture();
-    await oracle.updateReserves(5n * ONE_BTC, "ipfs://r");
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
     await expect(
-      vault.connect(alice).processDeposit(alice.address, ONE_BTC, ethers.id("x"), "ipfs://p")
+      vault.connect(alice).processDeposit(alice.address, ONE_BTC, ethers.id("x"), 0, "ipfs://p")
     ).to.be.reverted;
     await expect(vault.connect(alice).settleRedeem(1n, ethers.id("y"))).to.be.reverted;
+  });
+
+  it("reserves liability capacity until a pending redemption settles or cancels", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(2n * ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+
+    expect(await cbtc.totalSupply()).to.equal(HALF_BTC);
+    expect(await vault.pendingRedemptionSats()).to.equal(HALF_BTC);
+    await expect(
+      vault.processDeposit(alice.address, 1n, ethers.id("deposit-b"), 0, "ipfs://p")
+    ).to.be.revertedWithCustomError(vault, "ExceedsPilotLiabilityCap");
+
+    await vault.connect(admin).cancelRedeem(1n);
+    expect(await cbtc.totalSupply()).to.equal(ONE_BTC);
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
+  it("fails closed on invalid custody references and supports emergency pause", async () => {
+    const { vault, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+
+    await expect(vault.connect(admin).setRegistry(ethers.ZeroAddress))
+      .to.be.revertedWithCustomError(vault, "ZeroAddress");
+    await expect(
+      vault.processDeposit(alice.address, ONE_BTC, ethers.ZeroHash, 0, "ipfs://p")
+    ).to.be.revertedWithCustomError(vault, "InvalidDepositReference");
+
+    await vault.connect(admin).pause();
+    await expect(
+      vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit"), 0, "ipfs://p")
+    ).to.be.revertedWithCustomError(vault, "EnforcedPause");
+    await vault.connect(admin).unpause();
+    await expect(
+      vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit"), 0, "ipfs://p")
+    ).to.not.be.reverted;
+    await expect(vault.connect(alice).requestRedeem(1n, "bad"))
+      .to.be.revertedWithCustomError(vault, "InvalidPayoutAddress");
   });
 });
 
@@ -296,26 +397,26 @@ describe("End-to-end: clean mint -> transfer -> redeem", () => {
   it("runs the full lifecycle with reserves fully backing supply", async () => {
     const { vault, cbtc, oracle, registry, admin, alice, bob } = await deployFixture();
 
-    // Custodian attests 3 BTC of reserves.
-    await oracle.updateReserves(3n * ONE_BTC, "ipfs://reserves-latest");
+    // Custodian attests one BTC of reserves: the full pilot ceiling.
+    await oracle.updateReserves(ONE_BTC, "ipfs://reserves-latest");
 
-    // Screened deposit -> mint 3 cBTC to Alice.
+    // Screened deposit -> mint one cBTC to Alice.
     await registry.connect(admin).attest(alice.address, 95, false, 0, "ipfs://clean-alice");
-    await vault.processDeposit(alice.address, 3n * ONE_BTC, ethers.id("btc-in"), "ipfs://prov");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("btc-in"), 0, "ipfs://prov");
 
     // Solvency holds: supply <= reserves.
-    expect(await cbtc.totalSupply()).to.equal(3n * ONE_BTC);
+    expect(await cbtc.totalSupply()).to.equal(ONE_BTC);
     expect(await cbtc.totalSupply()).to.be.lte(await oracle.reserveSats());
 
-    // Alice sends 1 cBTC to Bob (MONITOR mode: open transfer).
-    await cbtc.connect(alice).transfer(bob.address, ONE_BTC);
+    // Alice sends 0.25 cBTC to Bob (MONITOR mode: open transfer).
+    await cbtc.connect(alice).transfer(bob.address, QUARTER_BTC);
 
-    // Alice redeems her remaining 2 cBTC for BTC.
-    await vault.connect(alice).requestRedeem(2n * ONE_BTC, "bc1qalice");
+    // Alice redeems her remaining 0.75 cBTC for BTC.
+    await vault.connect(alice).requestRedeem(3n * QUARTER_BTC, BTC_ADDRESS_A);
     await vault.connect(admin).settleRedeem(1n, ethers.id("btc-out"));
 
     expect(await cbtc.balanceOf(alice.address)).to.equal(0n);
-    expect(await cbtc.balanceOf(bob.address)).to.equal(ONE_BTC);
-    expect(await cbtc.totalSupply()).to.equal(ONE_BTC);
+    expect(await cbtc.balanceOf(bob.address)).to.equal(QUARTER_BTC);
+    expect(await cbtc.totalSupply()).to.equal(QUARTER_BTC);
   });
 });

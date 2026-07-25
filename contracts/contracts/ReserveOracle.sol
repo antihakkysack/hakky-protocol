@@ -8,7 +8,8 @@ import {IReserveOracle} from "./interfaces/IHakky.sol";
 /// @author Hakky Protocol
 /// @notice Publishes the attested BTC reserve balance that backs cBTC 1:1.
 ///         This is the on-chain anchor for Hakky's proof-of-reserves invariant:
-///         `cBTC.totalSupply() <= reserveSats()` must hold at all times.
+///         cBTC supply plus pending redemption liabilities cannot exceed
+///         `reserveSats()` when new cBTC is minted.
 /// @dev    v1 is fed by a custodian-attestation multisig (RESERVE_UPDATER_ROLE).
 ///         The roadmap replaces this with threshold-signature / zk proof-of-reserves.
 contract ReserveOracle is AccessControl, IReserveOracle {
@@ -22,12 +23,15 @@ contract ReserveOracle is AccessControl, IReserveOracle {
     string public attestationURI;
 
     /// @notice Timestamp of the last reserve update.
-    uint64 public lastUpdated;
+    uint64 public override lastUpdated;
 
     event ReservesUpdated(uint256 reserveSats, string attestationURI, uint64 timestamp);
 
+    error ZeroAddress();
+
     /// @param admin Address granted DEFAULT_ADMIN_ROLE (should be a multisig/governance).
     constructor(address admin) {
+        if (admin == address(0)) revert ZeroAddress();
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
