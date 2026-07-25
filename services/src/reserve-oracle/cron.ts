@@ -14,6 +14,7 @@ import {
 } from "../shared/chain.js";
 import {
   assertBitcoinCustodyReady,
+  assertCustodyChainSynced,
   requireBitcoinCore,
 } from "../shared/custody.js";
 import { evaluateReserveBuffer, describeReserveBuffer } from "../shared/reserve-buffer.js";
@@ -33,13 +34,19 @@ async function tick(): Promise<void> {
   const cbtc = requireContract(cleanBtc, "CleanBTC");
   const vault = requireContract(reserveVault, "ReserveVault");
 
-  const target =
-    config.DEPOSIT_VERIFICATION_MODE === "bitcoin-core"
-      ? await requireBitcoinCore().getConfirmedCustodyBalanceSats(
-          config.BITCOIN_CUSTODY_ADDRESS,
-          config.BITCOIN_MIN_CONFIRMATIONS,
-        )
-      : BigInt(config.CUSTODY_BALANCE_SATS);
+  let target: bigint;
+  if (config.DEPOSIT_VERIFICATION_MODE === "bitcoin-core") {
+    // Refuse to publish anything derived from a stale chainstate. A stalled node
+    // still returns UTXOs spent at a height it has not seen, which would put a
+    // reserve figure on-chain for BTC that is already gone.
+    await assertCustodyChainSynced();
+    target = await requireBitcoinCore().getConfirmedCustodyBalanceSats(
+      config.BITCOIN_CUSTODY_ADDRESS,
+      config.BITCOIN_MIN_CONFIRMATIONS,
+    );
+  } else {
+    target = BigInt(config.CUSTODY_BALANCE_SATS);
+  }
   if (config.DEPOSIT_VERIFICATION_MODE === "stub" && target === 0n) {
     log.debug("CUSTODY_BALANCE_SATS=0 — keeper idle (nothing to publish)");
     return;

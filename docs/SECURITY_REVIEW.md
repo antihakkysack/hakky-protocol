@@ -170,7 +170,7 @@ worse than none.
 
 ---
 
-## F-05 · OPEN · Reserves are published from an unverified chainstate
+## F-05 · FIXED · Reserves are published from an unverified chainstate
 
 `services/src/shared/bitcoin.ts:177-182`, `services/src/reserve-oracle/cron.ts:35-41`
 
@@ -184,8 +184,14 @@ while the keeper continues publishing the pre-spend balance on-chain as proof of
 with `solvent: true`. The same stale UTXO set makes `gettxout` report a spent deposit as
 confirmed, so `/deposit` mints against BTC that is already gone.
 
-Suggested fix: assert `initialblockdownload === false` and `blocks === headers` (or a
-bounded lag) on every reserve tick and every deposit verification, not once at boot.
+Fixed by adding `assertChainSynced`, which checks the expected network, rejects a node in
+initial block download, rejects one lagging the header tip by more than one block (a single
+block is tolerated as normal propagation), and rejects incomplete verification progress.
+
+Critically it is called **per operation, not once at boot** — before publishing reserves,
+before verifying a deposit, and before verifying a payout at settlement. A node can stall at
+any point in a long-running process, so a startup check proves nothing about the state of
+the node an hour later.
 
 ---
 

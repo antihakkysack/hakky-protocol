@@ -30,6 +30,7 @@ import { requireWriteAuth } from "../shared/auth.js";
 import { bitcoinTxidToBytes32 } from "../shared/bitcoin.js";
 import {
   assertBitcoinCustodyReady,
+  assertCustodyChainSynced,
   requireBitcoinCore,
 } from "../shared/custody.js";
 import {
@@ -93,6 +94,9 @@ app.post("/deposit", requireWriteAuth, async (req, res) => {
     }
 
     try {
+      // A stalled node reports a spent outpoint as still unspent and confirmed,
+      // which would mint cBTC against BTC that has already left custody.
+      await assertCustodyChainSynced();
       const deposit = await requireBitcoinCore().verifyDeposit(
         txidInput,
         vout,
@@ -251,6 +255,9 @@ app.post("/redemptions/:id/settle", requireWriteAuth, async (req, res) => {
     }
     assertRedemptionMatchesJob(redemption, job);
 
+    // Settlement confirms a payout from the same chainstate; a stalled node could
+    // report confirmations for a transaction the real chain has reorganised away.
+    await assertCustodyChainSynced();
     const payout = await requireBitcoinCore().verifyPayout(
       bitcoinTxid,
       redemption.btcPayoutAddress,

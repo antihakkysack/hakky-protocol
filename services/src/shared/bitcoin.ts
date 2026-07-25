@@ -181,6 +181,50 @@ export class BitcoinCoreClient {
     }
   }
 
+  /**
+   * Assert the node is on the expected network *and* synced to the real tip.
+   *
+   * Bitcoin Core answers `listunspent` and `gettxout` from whatever chainstate it
+   * currently holds, without signalling that the state is stale. A node that has
+   * stalled -- lost peers, restarted mid-reindex, still in initial block download --
+   * keeps returning UTXOs that were spent at a height it has not seen. Reserves
+   * would then be published on-chain for BTC that is already gone, and a spent
+   * deposit would still verify as confirmed.
+   *
+   * This must run before every reserve publication and every deposit verification,
+   * not once at startup: a node can stall at any point during a long-running process.
+   */
+  async assertChainSynced(expected: string, maxLagBlocks = 1): Promise<void> {
+    const info = await this.call<{
+      chain: string;
+      blocks: number;
+      headers: number;
+      initialblockdownload?: boolean;
+      verificationprogress?: number;
+    }>("getblockchaininfo");
+
+    if (info.chain !== expected) {
+      throw new Error(`Bitcoin Core network mismatch: expected ${expected}, received ${info.chain}`);
+    }
+    if (info.initialblockdownload) {
+      throw new Error("Bitcoin Core is in initial block download; chainstate is not usable");
+    }
+
+    const lag = info.headers - info.blocks;
+    if (lag > maxLagBlocks) {
+      throw new Error(
+        `Bitcoin Core is ${lag} blocks behind the header tip (${info.blocks}/${info.headers}); chainstate is stale`,
+      );
+    }
+
+    // Present on a syncing or reindexing node; absent on some pruned/regtest responses.
+    if (info.verificationprogress !== undefined && info.verificationprogress < 0.999) {
+      throw new Error(
+        `Bitcoin Core reports incomplete block verification progress (${info.verificationprogress})`,
+      );
+    }
+  }
+
   async assertCustodyAddress(address: string): Promise<void> {
     const info = await this.call<AddressInfo>("getaddressinfo", [address]);
     if (info.address !== address) {
