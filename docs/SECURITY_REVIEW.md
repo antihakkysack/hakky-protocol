@@ -153,10 +153,14 @@ it settled; a reused txid reverts with `SettlementReferenceAlreadyUsed(btcTxid,
 settledRedemptionId)`, naming the redemption that already consumed it. The unsettled
 liability stays `Pending` so it can still be paid or cancelled properly.
 
-This makes one payout settle at most one redemption, which matches the runbook's
-one-payout-per-redemption procedure. **If batched payouts are ever wanted, this guard must
-be revisited together with `verifyPayout`**, whose per-redemption exact-amount check is the
-other half of the same assumption.
+This makes one payout settle at most one redemption. **Batched payouts are now excluded by
+decision, not by omission** — see `LIVE_PILOT.md` § One payout per redemption. At pilot
+scale batching would save a few thousand satoshis in total, against a class of bug that
+silently destroys user funds; the saving accrues to the operator while the risk falls on
+the holder.
+
+If that is ever revisited, `verifyPayout` must move to per-output matching **and** the
+on-chain guard must be relaxed together. Changing either alone reopens the double-settle.
 
 Still available as defence in depth, not implemented here: a unique constraint on
 `btc_txid` in `redemption_jobs`, which would reject a duplicate earlier and more cheaply

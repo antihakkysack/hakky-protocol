@@ -155,8 +155,27 @@ human is not.
 ## Working with Codex
 
 Codex is the primary builder and lands work via `codex/*` branches merged through PRs.
-Reviewing Codex's output is always in scope; reading never interferes. Modifying a surface
-it is actively working is not.
+Reviewing Codex's output is always in scope; reading never interferes.
+
+**Ownership is claimed by open work, not assigned by directory.** Static directory
+ownership goes stale the moment either party's scope shifts, and nobody remembers to update
+it. Instead, derive it from repository state at the start of every session:
+
+1. `git fetch --all --prune`
+2. `gh pr list --state open` — note every open PR and the files it touches
+3. `git branch -r` — note active branches
+
+Then:
+
+- A file touched by an open `codex/*` PR is **owned by Codex**. Do not modify it. If your
+  work needs it, either wait for the merge and rebase, or pick a different queue item.
+- A file touched by an open `claude/*` PR is yours until it merges.
+- Anything untouched by open work is claimable by whoever opens a PR first.
+- Conflicts are resolved by merge order, never by force-push.
+
+This needs no upfront agreement, no coordination message, and stays correct as scope
+changes on either side. It is also self-checking: if the fetch shows an open PR you did not
+expect, that is the signal to re-scope rather than to proceed.
 
 Watch for runtime collisions as well as code ones: `hardhat node` on port 8545, concurrent
 `npm install` in a shared directory, and same-deployer-key nonce clashes.

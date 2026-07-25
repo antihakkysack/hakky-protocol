@@ -73,6 +73,32 @@ Set `BITCOIN_FEE_BUFFER_SATS` to the buffer you intend to maintain. A live proce
 refuses to start unless it is greater than zero. Fund custody with the pilot BTC **plus**
 that buffer, and treat the buffer as operator capital, not user backing.
 
+### Sizing
+
+**The pilot default is 1,000,000 sats (0.01 BTC), one percent of the liability ceiling.**
+
+A redemption payout is roughly one or two P2WPKH inputs and two outputs — about 150 to 210
+vbytes. Budgeting 200 vbytes per payout:
+
+| Fee rate | Cost per payout | Payouts covered by 1,000,000 sats |
+| --- | --- | --- |
+| 5 sat/vB (quiet) | ~1,000 sats | ~1,000 |
+| 20 sat/vB (normal) | ~4,000 sats | ~250 |
+| 100 sat/vB (busy) | ~20,000 sats | ~50 |
+| 300 sat/vB (congested) | ~60,000 sats | ~16 |
+| 1,000 sat/vB (historic peak) | ~200,000 sats | ~5 |
+
+The buffer is deliberately generous relative to expected pilot volume. It is sized for the
+bad case, not the normal one: being unable to pay a redemption during a fee spike is a far
+worse outcome than 0.01 BTC of operator capital sitting idle, and a fee spike is exactly
+when a holder is most likely to want out. Under-sizing converts a fee-market event into a
+protocol liveness failure, and the cost of over-sizing is only opportunity cost on a
+hundredth of a Bitcoin.
+
+Raise it before the pilot if you expect either sustained congestion or more than a few
+dozen redemptions. Do not lower it below roughly 200,000 sats, which is a single payout at
+a historic peak fee rate.
+
 The buffer does not raise the liability ceiling: the one-BTC cap binds on
 `totalSupply + pendingRedemptionSats`, never on the custody balance. The published
 reserve figure remains the truthful confirmed custody balance, so the protocol reports
@@ -115,6 +141,27 @@ For every payout:
 
 Never settle first and promise to pay later.
 
+### One payout per redemption
+
+**Batched payouts are not supported, by decision rather than by omission.** Each Bitcoin
+transaction settles exactly one redemption, and `ReserveVault.settleRedeem` enforces this:
+a payout txid already recorded against another redemption is rejected.
+
+The reason is that off-chain verification can only prove that *some* transaction paid an
+exact amount to an address. Two redemptions of equal size to the same address — one holder
+redeeming twice to one wallet — both satisfy that proof, so without the constraint a single
+payout could extinguish two liabilities while paying once. Supporting batching safely means
+matching each redemption to a specific transaction *output*, not merely to a transaction,
+and that is materially more verification surface on the most sensitive path in the system.
+
+At pilot scale the trade is one-sided. Batching would save a few thousand satoshis across
+the entire pilot, against a class of bug that silently destroys user funds. The saving
+accrues to the operator; the risk falls on the holder.
+
+Revisit only if redemption volume makes per-transaction fees material. Doing so requires
+changing `verifyPayout` to per-output matching **and** relaxing the on-chain guard
+together — changing either alone reopens the double-settle.
+
 ## Mainnet configuration
 
 Start from `services/.env.example`. A live process refuses to start unless its
@@ -133,7 +180,7 @@ REDEMPTION_MODE=manual-verified
 EVM_EVENT_CONFIRMATIONS=12
 BITCOIN_PAYOUT_MIN_CONFIRMATIONS=6
 RESERVE_MAX_STALENESS_SECONDS=43200
-BITCOIN_FEE_BUFFER_SATS=<positive-operator-funded-fee-buffer>
+BITCOIN_FEE_BUFFER_SATS=1000000
 WRITE_API_KEY=<at-least-32-random-characters>
 ```
 
