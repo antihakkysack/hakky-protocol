@@ -52,6 +52,75 @@ function makeClient(fetchImpl: typeof fetch): BitcoinCoreClient {
   });
 }
 
+const SYNCED_CHAIN_INFO = {
+  chain: "regtest",
+  blocks: 800_000,
+  headers: 800_000,
+  initialblockdownload: false,
+  verificationprogress: 0.9999999,
+};
+
+test("a synced node passes the chainstate check", async () => {
+  const { fetchImpl } = mockRpc({ getblockchaininfo: () => SYNCED_CHAIN_INFO });
+  await makeClient(fetchImpl).assertChainSynced("regtest");
+});
+
+test("a node still in initial block download is rejected", async () => {
+  const { fetchImpl } = mockRpc({
+    getblockchaininfo: () => ({ ...SYNCED_CHAIN_INFO, initialblockdownload: true }),
+  });
+
+  await assert.rejects(
+    () => makeClient(fetchImpl).assertChainSynced("regtest"),
+    /initial block download/i,
+  );
+});
+
+test("a node lagging the header tip is rejected", async () => {
+  // A stalled node keeps serving its frozen chainstate: listunspent still returns
+  // UTXOs that were spent at a height it has not seen, and gettxout still reports
+  // a spent deposit as confirmed. Reserves would be published against BTC that is
+  // already gone.
+  const { fetchImpl } = mockRpc({
+    getblockchaininfo: () => ({ ...SYNCED_CHAIN_INFO, blocks: 799_990, headers: 800_000 }),
+  });
+
+  await assert.rejects(
+    () => makeClient(fetchImpl).assertChainSynced("regtest"),
+    /10 blocks behind/,
+  );
+});
+
+test("a single block of lag is tolerated as normal propagation", async () => {
+  const { fetchImpl } = mockRpc({
+    getblockchaininfo: () => ({ ...SYNCED_CHAIN_INFO, blocks: 799_999, headers: 800_000 }),
+  });
+
+  await makeClient(fetchImpl).assertChainSynced("regtest");
+});
+
+test("the chainstate check still enforces the expected network", async () => {
+  const { fetchImpl } = mockRpc({
+    getblockchaininfo: () => ({ ...SYNCED_CHAIN_INFO, chain: "main" }),
+  });
+
+  await assert.rejects(
+    () => makeClient(fetchImpl).assertChainSynced("regtest"),
+    /network mismatch/,
+  );
+});
+
+test("incomplete block verification is rejected", async () => {
+  const { fetchImpl } = mockRpc({
+    getblockchaininfo: () => ({ ...SYNCED_CHAIN_INFO, verificationprogress: 0.87 }),
+  });
+
+  await assert.rejects(
+    () => makeClient(fetchImpl).assertChainSynced("regtest"),
+    /verification progress/i,
+  );
+});
+
 test("BTC amounts convert to satoshis without floating-point drift", () => {
   assert.equal(btcToSats("1.00000000"), 100_000_000n);
   assert.equal(btcToSats("0.00000001"), 1n);

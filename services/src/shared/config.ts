@@ -5,6 +5,12 @@ export const PILOT_MAX_SATS = 100_000_000n;
 export const CONTRACT_MAX_RESERVE_AGE_SECONDS = 43_200;
 const EVM_ADDRESS_PATTERN = /^0x[0-9a-fA-F]{40}$/;
 const ZERO_EVM_ADDRESS = `0x${"0".repeat(40)}`;
+const SATOSHI_PATTERN = /^\d+$/;
+
+/** True for a plain decimal satoshi string greater than zero. */
+function isPositiveSatoshiString(value: string): boolean {
+  return SATOSHI_PATTERN.test(value.trim()) && BigInt(value.trim()) > 0n;
+}
 
 const schema = z
   .object({
@@ -45,6 +51,11 @@ const schema = z
   BITCOIN_RPC_WALLET: z.string().default(""),
   BITCOIN_CUSTODY_ADDRESS: z.string().default(""),
   BITCOIN_MIN_CONFIRMATIONS: z.coerce.number().int().min(1).max(144).default(6),
+  // Operator-funded satoshis held in custody above user liabilities, to pay
+  // redemption miner fees. Payouts must pay the recipient exactly, so without
+  // this headroom the first payout drops reserves below liabilities for good.
+  // Kept as a decimal string and parsed as a bigint; sats never touch a float.
+  BITCOIN_FEE_BUFFER_SATS: z.string().default("0"),
 
   // reserve-oracle keeper: demo mode may publish a configured stub balance.
   RESERVE_ORACLE_CRON: z.string().default("*/5 * * * *"), // every 5 minutes
@@ -96,7 +107,31 @@ const schema = z
       }
     }
 
-    if (value.OPERATING_MODE !== "live") return;
+    // Every fail-closed check below is gated on OPERATING_MODE, which defaults to
+    // "demo". A single dropped environment line would therefore skip bytecode,
+    // chain-id, role, and settlement verification while the rest of the config still
+    // pointed at mainnet -- and REDEMPTION_MODE would fall back to demo-auto, settling
+    // real redemptions against a synthetic txid with no BTC ever sent. Derive the
+    // requirement from the mainnet settings themselves rather than trusting one flag.
+    const mainnetIndicators = [
+      value.CHAIN_ID === 1 ? "CHAIN_ID=1" : undefined,
+      value.BITCOIN_NETWORK === "main" ? "BITCOIN_NETWORK=main" : undefined,
+    ].filter((indicator): indicator is string => indicator !== undefined);
+
+    if (mainnetIndicators.length > 0 && value.OPERATING_MODE !== "live") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["OPERATING_MODE"],
+        message:
+          `mainnet configuration detected (${mainnetIndicators.join(", ")}) but ` +
+          `OPERATING_MODE is "${value.OPERATING_MODE}"; set OPERATING_MODE=live or ` +
+          "the live-mode safety checks would be silently skipped",
+      });
+    }
+
+    // Fall through to the live requirements whenever mainnet is in play, so a
+    // misconfigured deployment reports every problem at once rather than one per restart.
+    if (value.OPERATING_MODE !== "live" && mainnetIndicators.length === 0) return;
 
     for (const field of [
       "ADDR_CLEAN_BTC",
@@ -122,7 +157,45 @@ const schema = z
       orchestrator: value.ORCHESTRATOR_SIGNER_PRIVATE_KEY,
     }[value.SERVICE_ROLE];
 
+    // A process must hold at most its own role's signing key. Declining to *use* a key
+    // that is present in the environment is not the same guarantee: every container in
+    // the reference deployment shares one env_file, so an environment dump in the
+    // internet-facing API -- the only published port and the public HTTPS origin --
+    // would surrender VERIFIER, SETTLER, RESERVE_UPDATER, and ATTESTOR at once.
+    const signerFields = [
+      ["SIGNER_PRIVATE_KEY", value.SIGNER_PRIVATE_KEY, undefined],
+      ["ATTESTATION_SIGNER_PRIVATE_KEY", value.ATTESTATION_SIGNER_PRIVATE_KEY, "attestation"],
+      [
+        "RESERVE_ORACLE_SIGNER_PRIVATE_KEY",
+        value.RESERVE_ORACLE_SIGNER_PRIVATE_KEY,
+        "reserve-oracle",
+      ],
+      ["ORCHESTRATOR_SIGNER_PRIVATE_KEY", value.ORCHESTRATOR_SIGNER_PRIVATE_KEY, "orchestrator"],
+    ] as const;
+
+    for (const [field, present, ownedBy] of signerFields) {
+      if (!present || ownedBy === value.SERVICE_ROLE) continue;
+
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message:
+          value.SERVICE_ROLE === "api"
+            ? `the api process must not receive a signing key, but ${field} is set; ` +
+              "give each service its own environment file"
+            : `a live ${value.SERVICE_ROLE} process may hold only its own signing key, ` +
+              `but ${field} is set; give each service its own environment file`,
+      });
+    }
+
     const liveRequirements: Array<[boolean, keyof typeof value, string]> = [
+      [
+        isPositiveSatoshiString(value.BITCOIN_FEE_BUFFER_SATS),
+        "BITCOIN_FEE_BUFFER_SATS",
+        "live mode requires a positive operator-funded fee buffer (in satoshis), " +
+          "because redemption payouts pay the recipient exactly and the miner fee " +
+          "is therefore taken from custody",
+      ],
       [value.CHAIN_ID === 1, "CHAIN_ID", "live mode requires Ethereum mainnet CHAIN_ID=1"],
       [
         value.DEPOSIT_VERIFICATION_MODE === "bitcoin-core",

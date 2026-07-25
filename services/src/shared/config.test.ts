@@ -28,6 +28,7 @@ const validLiveEnvironment: NodeJS.ProcessEnv = {
   REDEMPTION_MODE: "manual-verified",
   REDEMPTION_START_BLOCK: "12345678",
   EVM_EVENT_CONFIRMATIONS: "12",
+  BITCOIN_FEE_BUFFER_SATS: "200000",
   WRITE_API_KEY: "x".repeat(32),
 };
 
@@ -42,6 +43,64 @@ test("live configuration accepts only the fail-closed mainnet profile", () => {
   assert.equal(config.CHAIN_ID, 1);
   assert.equal(config.BITCOIN_NETWORK, "main");
   assert.equal(config.BITCOIN_MIN_CONFIRMATIONS, 6);
+});
+
+test("mainnet settings cannot silently run without live-mode checks", () => {
+  // OPERATING_MODE defaults to "demo" and every fail-closed check is gated behind it,
+  // so a single dropped environment line would disable bytecode, chain-id, role, and
+  // settlement verification while the rest of the config still points at mainnet --
+  // and REDEMPTION_MODE would fall back to demo-auto, settling real redemptions
+  // against a synthetic txid with no BTC ever sent.
+  const { OPERATING_MODE: _dropped, ...withoutOperatingMode } = validLiveEnvironment;
+
+  assert.throws(
+    () => parseConfig(withoutOperatingMode),
+    /OPERATING_MODE/,
+    "mainnet CHAIN_ID and BITCOIN_NETWORK must not run without live mode",
+  );
+
+  // Either mainnet indicator alone is enough to demand it.
+  assert.throws(
+    () => parseConfig({ ...withoutOperatingMode, BITCOIN_NETWORK: "signet" }),
+    /OPERATING_MODE/,
+    "mainnet CHAIN_ID alone must demand live mode",
+  );
+  assert.throws(
+    () => parseConfig({ ...withoutOperatingMode, CHAIN_ID: "11155111" }),
+    /OPERATING_MODE/,
+    "Bitcoin mainnet alone must demand live mode",
+  );
+});
+
+test("non-mainnet demo configuration still parses", () => {
+  // The guard must not make ordinary local/testnet development impossible.
+  const demo = parseConfig({});
+  assert.equal(demo.OPERATING_MODE, "demo");
+  assert.equal(demo.BITCOIN_NETWORK, "regtest");
+});
+
+test("live configuration requires a funded fee buffer", () => {
+  // Payouts pay the recipient exactly, so miner fees come out of custody while
+  // liabilities fall by the payout amount alone. Without operator-funded headroom
+  // the first redemption puts reserves permanently below liabilities.
+  for (const missing of ["0", ""]) {
+    assert.throws(
+      () => parseConfig({ ...validLiveEnvironment, BITCOIN_FEE_BUFFER_SATS: missing }),
+      /fee buffer/,
+      `expected a zero/absent buffer (${JSON.stringify(missing)}) to be rejected in live mode`,
+    );
+  }
+
+  assert.throws(
+    () => parseConfig({ ...validLiveEnvironment, BITCOIN_FEE_BUFFER_SATS: "-1" }),
+    /fee buffer/,
+  );
+  assert.throws(
+    () => parseConfig({ ...validLiveEnvironment, BITCOIN_FEE_BUFFER_SATS: "not-a-number" }),
+    /fee buffer/,
+  );
+
+  assert.equal(parseConfig(validLiveEnvironment).BITCOIN_FEE_BUFFER_SATS, "200000");
 });
 
 test("live write services require distinct role-specific signers", () => {
@@ -60,6 +119,48 @@ test("live write services require distinct role-specific signers", () => {
     ORCHESTRATOR_SIGNER_PRIVATE_KEY: `0x${"11".repeat(32)}`,
   });
   assert.equal(config.SERVICE_ROLE, "orchestrator");
+});
+
+test("a live process may hold at most its own role's signing key", () => {
+  const KEY = `0x${"11".repeat(32)}`;
+
+  // The API is the public HTTPS origin and the only container with a published port.
+  // The runbook promises it receives no signer at all; declining to *use* a key that
+  // is sitting in the process environment is not the same guarantee, because any
+  // environment dump in the most exposed component would hand over every role at once.
+  for (const field of [
+    "SIGNER_PRIVATE_KEY",
+    "ATTESTATION_SIGNER_PRIVATE_KEY",
+    "RESERVE_ORACLE_SIGNER_PRIVATE_KEY",
+    "ORCHESTRATOR_SIGNER_PRIVATE_KEY",
+  ]) {
+    assert.throws(
+      () => parseConfig({ ...validLiveEnvironment, SERVICE_ROLE: "api", [field]: KEY }),
+      /must not receive a signing key|only its own/,
+      `api must refuse to start holding ${field}`,
+    );
+  }
+
+  // A write service must not hold another role's key either.
+  assert.throws(
+    () =>
+      parseConfig({
+        ...validLiveEnvironment,
+        SERVICE_ROLE: "orchestrator",
+        ORCHESTRATOR_SIGNER_PRIVATE_KEY: KEY,
+        ATTESTATION_SIGNER_PRIVATE_KEY: KEY,
+      }),
+    /only its own/,
+    "orchestrator must refuse to start holding the attestation key",
+  );
+
+  // Its own key alone is fine.
+  const orchestrator = parseConfig({
+    ...validLiveEnvironment,
+    SERVICE_ROLE: "orchestrator",
+    ORCHESTRATOR_SIGNER_PRIVATE_KEY: KEY,
+  });
+  assert.equal(orchestrator.SERVICE_ROLE, "orchestrator");
 });
 
 test("live configuration rejects demo verification, screening, and settlement", () => {

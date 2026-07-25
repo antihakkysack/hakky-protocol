@@ -86,6 +86,33 @@ contract CleanBTC is ERC20, ERC20Permit, AccessControl {
         _burn(from, amount);
     }
 
+    /// @notice Return `amount` cBTC to `to` for a redemption that is being cancelled.
+    /// @dev Deliberately gated on neither reserve freshness nor reserve sufficiency,
+    ///      because cancellation is liability-neutral: the vault lowers
+    ///      `pendingRedemptionSats` by the same amount that supply rises, in the same
+    ///      call, so `totalSupply + pendingRedemptionSats` is unchanged. Both gates on
+    ///      `mint` exist to stop *new* issuance against an unverified or insufficient
+    ///      reserve, and neither describes this operation.
+    ///
+    ///      Applying them here would strand already-burned cBTC in exactly the states
+    ///      where a redemption most needs returning: a stale, failed, or revoked reserve
+    ///      updater, or a published reserve that has legitimately fallen below supply
+    ///      (a completed payout removes the payout amount *and* the miner fee from
+    ///      custody, while pending liabilities fall by the payout amount alone). Refusing
+    ///      to restore in those states does not improve solvency by one satoshi — the
+    ///      liability already exists — it only destroys the user's claim on it.
+    ///
+    ///      The pilot ceiling is retained as defence in depth. It cannot bind a genuine
+    ///      cancellation, since `totalSupply + amount <= totalSupply +
+    ///      pendingRedemptionSats <= PILOT_SUPPLY_CAP_SATS` already holds.
+    function restore(address to, uint256 amount) external onlyRole(BURNER_ROLE) {
+        uint256 newSupply = totalSupply() + amount;
+        if (newSupply > PILOT_SUPPLY_CAP_SATS) {
+            revert ExceedsPilotSupplyCap(newSupply, PILOT_SUPPLY_CAP_SATS);
+        }
+        _mint(to, amount);
+    }
+
     /// @notice Update the proof-of-reserves oracle.
     function setReserveOracle(IReserveOracle oracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (address(oracle) == address(0)) revert ZeroAddress();

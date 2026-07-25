@@ -25,6 +25,20 @@ export function requireBitcoinCore(): BitcoinCoreClient {
 
 export async function assertBitcoinCustodyReady(): Promise<void> {
   const client = requireBitcoinCore();
-  await client.assertNetwork(config.BITCOIN_NETWORK);
+  await client.assertChainSynced(config.BITCOIN_NETWORK);
   await client.assertCustodyAddress(config.BITCOIN_CUSTODY_ADDRESS);
+}
+
+/**
+ * Re-assert that Bitcoin Core is synced to the real tip, immediately before an
+ * operation whose result depends on the chainstate being current.
+ *
+ * A startup check is not sufficient. Bitcoin Core answers `listunspent` and
+ * `gettxout` from whatever chainstate it holds, with no indication that the state
+ * is stale, so a node that stalls mid-process keeps returning UTXOs spent at a
+ * height it has not seen. Call this before publishing reserves and before
+ * verifying a deposit.
+ */
+export async function assertCustodyChainSynced(): Promise<void> {
+  await requireBitcoinCore().assertChainSynced(config.BITCOIN_NETWORK);
 }

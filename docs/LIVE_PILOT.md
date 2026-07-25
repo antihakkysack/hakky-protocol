@@ -17,6 +17,16 @@ The pilot contracts enforce:
 - a pause on new deposits and redemption requests;
 - settlement and cancellation remain available while paused.
 
+Cancellation returns burned cBTC through `CleanBTC.restore`, which deliberately requires
+neither a fresh reserve publication nor sufficient published reserves. New issuance
+still requires both. Cancellation is liability-neutral — pending liabilities fall by the
+same amount that supply rises, so `totalSupply + pendingRedemptionSats` is unchanged —
+and the states that would trip those gates are exactly the states in which a redemption
+most needs returning: a stale, failed, or revoked reserve updater, or a published
+reserve that has fallen below supply. Refusing to restore in those states does not
+improve solvency; it only destroys the user's claim. The one-BTC ceiling still applies
+and cannot bind a genuine cancellation.
+
 The one-BTC cap is immutable. Raising it requires a new contract deployment,
 fresh review, and a new launch decision.
 
@@ -45,6 +55,67 @@ Do not place real BTC into custody until all of these are complete:
    Solidity dependencies currently audit clean; the development toolchain does
    not.
 
+## Fee buffer
+
+A payout must pay the recipient *exactly* the requested satoshis, so the Bitcoin miner
+fee is funded from custody rather than deducted from the user. Custody therefore falls by
+`amount + fee` on every redemption while `pendingRedemptionSats` falls by `amount` alone.
+
+Custody must hold an operator-funded buffer above user liabilities to absorb those fees.
+Without it, reserves drop below liabilities by the fee on the first redemption and stay
+there — which permanently blocks minting, because `processDeposit` requires
+`newLiabilities <= reserves` and a new deposit raises both sides equally. It would also
+trip this runbook's first stop condition during entirely normal operation, and a
+full-supply redemption would be unpayable outright, since an output equal to the whole
+custody balance implies a zero fee and will not relay.
+
+Set `BITCOIN_FEE_BUFFER_SATS` to the buffer you intend to maintain. A live process
+refuses to start unless it is greater than zero. Fund custody with the pilot BTC **plus**
+that buffer, and treat the buffer as operator capital, not user backing.
+
+### Sizing
+
+**The pilot default is 1,000,000 sats (0.01 BTC), one percent of the liability ceiling.**
+
+A redemption payout is roughly one or two P2WPKH inputs and two outputs — about 150 to 210
+vbytes. Budgeting 200 vbytes per payout:
+
+| Fee rate | Cost per payout | Payouts covered by 1,000,000 sats |
+| --- | --- | --- |
+| 5 sat/vB (quiet) | ~1,000 sats | ~1,000 |
+| 20 sat/vB (normal) | ~4,000 sats | ~250 |
+| 100 sat/vB (busy) | ~20,000 sats | ~50 |
+| 300 sat/vB (congested) | ~60,000 sats | ~16 |
+| 1,000 sat/vB (historic peak) | ~200,000 sats | ~5 |
+
+The buffer is deliberately generous relative to expected pilot volume. It is sized for the
+bad case, not the normal one: being unable to pay a redemption during a fee spike is a far
+worse outcome than 0.01 BTC of operator capital sitting idle, and a fee spike is exactly
+when a holder is most likely to want out. Under-sizing converts a fee-market event into a
+protocol liveness failure, and the cost of over-sizing is only opportunity cost on a
+hundredth of a Bitcoin.
+
+Raise it before the pilot if you expect either sustained congestion or more than a few
+dozen redemptions. Do not lower it below roughly 200,000 sats, which is a single payout at
+a historic peak fee rate.
+
+The buffer does not raise the liability ceiling: the one-BTC cap binds on
+`totalSupply + pendingRedemptionSats`, never on the custody balance. The published
+reserve figure remains the truthful confirmed custody balance, so the protocol reports
+as over-collateralised rather than over-reported.
+
+The reserve keeper escalates as the buffer drains, before backing is ever at risk:
+
+| State | Meaning | Action |
+| --- | --- | --- |
+| `healthy` | Headroom covers the full configured buffer. | None. |
+| `depleted` | Fees have eaten into the buffer. Still fully backed. | Top up custody. |
+| `exhausted` | No headroom left. Still fully backed, but the next payout fee is unfunded. | Top up before settling anything further. |
+| `insolvent` | Custody is below liabilities. | Stop condition — pause immediately. |
+
+Top up custody with the operator's own BTC. A top-up is not a deposit and must never be
+submitted to `/deposit`.
+
 ## Custody boundary
 
 Use a dedicated Bitcoin Core wallet and one configured custody address. The
@@ -70,6 +141,27 @@ For every payout:
 
 Never settle first and promise to pay later.
 
+### One payout per redemption
+
+**Batched payouts are not supported, by decision rather than by omission.** Each Bitcoin
+transaction settles exactly one redemption, and `ReserveVault.settleRedeem` enforces this:
+a payout txid already recorded against another redemption is rejected.
+
+The reason is that off-chain verification can only prove that *some* transaction paid an
+exact amount to an address. Two redemptions of equal size to the same address — one holder
+redeeming twice to one wallet — both satisfy that proof, so without the constraint a single
+payout could extinguish two liabilities while paying once. Supporting batching safely means
+matching each redemption to a specific transaction *output*, not merely to a transaction,
+and that is materially more verification surface on the most sensitive path in the system.
+
+At pilot scale the trade is one-sided. Batching would save a few thousand satoshis across
+the entire pilot, against a class of bug that silently destroys user funds. The saving
+accrues to the operator; the risk falls on the holder.
+
+Revisit only if redemption volume makes per-transaction fees material. Doing so requires
+changing `verifyPayout` to per-output matching **and** relaxing the on-chain guard
+together — changing either alone reopens the double-settle.
+
 ## Mainnet configuration
 
 Start from `services/.env.example`. A live process refuses to start unless its
@@ -88,6 +180,7 @@ REDEMPTION_MODE=manual-verified
 EVM_EVENT_CONFIRMATIONS=12
 BITCOIN_PAYOUT_MIN_CONFIRMATIONS=6
 RESERVE_MAX_STALENESS_SECONDS=43200
+BITCOIN_FEE_BUFFER_SATS=1000000
 WRITE_API_KEY=<at-least-32-random-characters>
 ```
 
@@ -126,7 +219,9 @@ any service. Do not reuse the committed legacy Sepolia addresses.
 2. Confirm `/health` succeeds and `/proof-of-reserves` shows zero supply,
    zero pending redemptions, a fresh reserve report, and the one-BTC cap.
 3. Exercise emergency pause and unpause with no funds present.
-4. Fund custody with no more than one BTC and wait for six confirmations.
+4. Fund custody with no more than one BTC of pilot backing, plus the configured
+   `BITCOIN_FEE_BUFFER_SATS` of operator capital for payout fees, and wait for six
+   confirmations.
 5. Confirm the reserve update on-chain and independently reconcile its UTXOs.
 6. Screen one recipient with retained evidence.
 7. Submit only the verified custody outpoint to `/deposit`.

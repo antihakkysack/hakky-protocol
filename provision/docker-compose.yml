@@ -1,6 +1,18 @@
 # Hakky Protocol — server stack (run on the Hetzner box from this folder).
 # Brings up Postgres, the read API, and Caddy (auto-HTTPS reverse proxy).
-# Reads env from ../services/.env
+#
+# Secrets are split per service. ../services/.env holds only shared, non-secret
+# settings; each write service additionally reads its own .env.<role> file holding
+# that role's signing key and nothing else.
+#
+# The api container deliberately receives no signer file. It is the only published
+# port and the public HTTPS origin, so an environment dump there must not surrender
+# any signing key. A live process refuses to start holding a key it does not own.
+#
+#   ../services/.env                 shared, no signing keys
+#   ../services/.env.attestation     ATTESTATION_SIGNER_PRIVATE_KEY
+#   ../services/.env.reserve-oracle  RESERVE_ORACLE_SIGNER_PRIVATE_KEY
+#   ../services/.env.orchestrator    ORCHESTRATOR_SIGNER_PRIVATE_KEY
 
 services:
   postgres:
@@ -23,6 +35,8 @@ services:
     build: ../services
     restart: unless-stopped
     command: ["npx", "tsx", "src/api/server.ts"]
+    # No signer file. The api holds no signing key; a live process refuses to start
+    # if one is present in its environment.
     env_file: ../services/.env
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
@@ -38,7 +52,9 @@ services:
     build: ../services
     restart: unless-stopped
     command: ["npx", "tsx", "src/reserve-oracle/cron.ts"]
-    env_file: ../services/.env
+    env_file:
+      - ../services/.env
+      - ../services/.env.reserve-oracle
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
       SERVICE_ROLE: reserve-oracle
@@ -51,7 +67,9 @@ services:
     build: ../services
     restart: unless-stopped
     command: ["npx", "tsx", "src/attestation/worker.ts"]
-    env_file: ../services/.env
+    env_file:
+      - ../services/.env
+      - ../services/.env.attestation
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
       SERVICE_ROLE: attestation
@@ -65,7 +83,9 @@ services:
     build: ../services
     restart: unless-stopped
     command: ["npx", "tsx", "src/orchestrator/worker.ts"]
-    env_file: ../services/.env
+    env_file:
+      - ../services/.env
+      - ../services/.env.orchestrator
     environment:
       DATABASE_URL: postgres://hakky:hakky@postgres:5432/hakky
       SERVICE_ROLE: orchestrator

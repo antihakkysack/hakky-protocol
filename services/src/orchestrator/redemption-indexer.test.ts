@@ -2,9 +2,42 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   initialRedemptionCursor,
+  missingRedemptionIds,
   nextRedemptionScanRange,
+  redemptionCursorKey,
   safeEventHead,
 } from "./redemption-indexer.js";
+
+const VAULT = `0x${"ab".repeat(20)}`;
+const OTHER_VAULT = `0x${"cd".repeat(20)}`;
+
+test("a skipped redemption is detectable from the sequential id space", () => {
+  // queryFilter returns [] rather than an error when a load-balanced RPC backend
+  // lags the head, so the cursor can advance past a real event. Ids are strictly
+  // sequential and redemptionCount() is authoritative, so any gap is visible.
+  assert.deepEqual(missingRedemptionIds([1n, 2n, 4n], 4n), [3n]);
+  assert.deepEqual(missingRedemptionIds([], 3n), [1n, 2n, 3n]);
+  assert.deepEqual(missingRedemptionIds([1n, 2n, 3n], 3n), []);
+});
+
+test("gap detection tolerates a lagging index and unordered input", () => {
+  // The tail of the range may legitimately not be indexed yet this poll.
+  assert.deepEqual(missingRedemptionIds([1n, 2n], 2n), []);
+  assert.deepEqual(missingRedemptionIds([3n, 1n, 2n], 3n), []);
+  // Duplicates must not manufacture a phantom gap.
+  assert.deepEqual(missingRedemptionIds([1n, 1n, 2n], 2n), []);
+  assert.deepEqual(missingRedemptionIds([], 0n), []);
+});
+
+test("the cursor key is namespaced by chain and vault", () => {
+  // Launch blockers 1 and 8 make a vault redeploy likely while blocker 6 requires the
+  // database to survive it. A global key would carry the old vault's block height into
+  // the new deployment and silently skip everything before it.
+  const key = redemptionCursorKey(1, VAULT);
+  assert.notEqual(key, redemptionCursorKey(11155111, VAULT), "chain must namespace");
+  assert.notEqual(key, redemptionCursorKey(1, OTHER_VAULT), "vault must namespace");
+  assert.equal(key, redemptionCursorKey(1, VAULT.toUpperCase()), "case must not fork the key");
+});
 
 test("safe head excludes unconfirmed EVM blocks", () => {
   assert.equal(safeEventHead(1_000, 12), 988);

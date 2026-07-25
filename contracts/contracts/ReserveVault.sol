@@ -50,6 +50,14 @@ contract ReserveVault is AccessControl, Pausable, ReentrancyGuard {
     /// @notice Guards against replaying the same Bitcoin outpoint (`txid:vout`).
     mapping(bytes32 => bool) public processedDeposits;
 
+    /// @notice Redemption id a given Bitcoin payout txid has already settled (0 if unused).
+    /// @dev Binds one payout to one redemption. Settlement proves only that some
+    ///      transaction paid an exact amount to an address, so two redemptions of equal
+    ///      size to the same address — one holder redeeming twice to one wallet — would
+    ///      otherwise both be satisfiable by a single payout, extinguishing two
+    ///      liabilities for one transfer.
+    mapping(bytes32 => uint256) public settlementTxidRedemption;
+
     /// @notice Redemption requests by id.
     mapping(uint256 => Redemption) public redemptions;
     /// @notice Total number of redemption requests ever created.
@@ -84,6 +92,7 @@ contract ReserveVault is AccessControl, Pausable, ReentrancyGuard {
     error RegistryUnavailable();
     error InvalidPayoutAddress();
     error InvalidSettlementReference();
+    error SettlementReferenceAlreadyUsed(bytes32 btcTxid, uint256 settledRedemptionId);
     error ExceedsPilotLiabilityCap(uint256 newLiabilities, uint256 capSats);
     error ExceedsAvailableBacking(uint256 newLiabilities, uint256 reserveSats);
 
@@ -170,10 +179,18 @@ contract ReserveVault is AccessControl, Pausable, ReentrancyGuard {
     }
 
     /// @notice Mark a redemption settled after BTC has been paid out off-chain.
+    /// @dev One payout settles at most one redemption. Off-chain verification can only
+    ///      prove that some transaction paid an exact amount to an address, which two
+    ///      equal redemptions to the same address both satisfy; without this guard a
+    ///      single payout could clear both liabilities, and both would emit
+    ///      `RedeemSettled` as though each had been paid.
     function settleRedeem(uint256 id, bytes32 btcTxid) external onlyRole(SETTLER_ROLE) {
         Redemption storage r = redemptions[id];
         if (r.status != RedeemStatus.Pending) revert BadStatus();
         if (btcTxid == bytes32(0)) revert InvalidSettlementReference();
+        uint256 settledBy = settlementTxidRedemption[btcTxid];
+        if (settledBy != 0) revert SettlementReferenceAlreadyUsed(btcTxid, settledBy);
+        settlementTxidRedemption[btcTxid] = id;
         r.status = RedeemStatus.Settled;
         r.btcTxid = btcTxid;
         pendingRedemptionSats -= r.amountSats;
@@ -187,7 +204,7 @@ contract ReserveVault is AccessControl, Pausable, ReentrancyGuard {
         if (r.status != RedeemStatus.Pending) revert BadStatus();
         r.status = RedeemStatus.Cancelled;
         pendingRedemptionSats -= r.amountSats;
-        cbtc.mint(r.account, r.amountSats);
+        cbtc.restore(r.account, r.amountSats);
         emit RedeemCancelled(id);
     }
 

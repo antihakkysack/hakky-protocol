@@ -370,6 +370,85 @@ describe("ReserveVault", () => {
     expect(await vault.pendingRedemptionSats()).to.equal(0n);
   });
 
+  it("refuses to settle two redemptions with the same Bitcoin payout", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+
+    // Two redemptions of equal size to the same address -- one user redeeming twice to
+    // one wallet. An exact-amount payout check cannot tell them apart, so a single
+    // on-chain payout would otherwise extinguish both liabilities.
+    await vault.connect(alice).requestRedeem(QUARTER_BTC, BTC_ADDRESS_A);
+    await vault.connect(alice).requestRedeem(QUARTER_BTC, BTC_ADDRESS_A);
+
+    const payout = ethers.id("btc-payout-tx");
+    await expect(vault.connect(admin).settleRedeem(1n, payout)).to.emit(vault, "RedeemSettled");
+
+    await expect(vault.connect(admin).settleRedeem(2n, payout))
+      .to.be.revertedWithCustomError(vault, "SettlementReferenceAlreadyUsed")
+      .withArgs(payout, 1n);
+
+    // The second liability must survive so it can be paid or cancelled properly.
+    expect((await vault.redemptions(2n)).status).to.equal(1); // Pending
+    expect(await vault.pendingRedemptionSats()).to.equal(QUARTER_BTC);
+    expect(await vault.settlementTxidRedemption(payout)).to.equal(1n);
+
+    // A distinct payout settles it normally.
+    await expect(vault.connect(admin).settleRedeem(2n, ethers.id("btc-payout-tx-2")))
+      .to.emit(vault, "RedeemSettled");
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
+  it("cancels a pending redemption even when the reserve attestation is stale", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+    expect(await cbtc.balanceOf(alice.address)).to.equal(HALF_BTC);
+
+    // The runbook's stop conditions pause the protocol precisely when the reserve
+    // publication goes stale, and the updater may be the failed/compromised component.
+    // Returning an unpayable redemption must not depend on refreshing the oracle.
+    await time.increase(12 * 60 * 60 + 1);
+    await vault.connect(admin).pause();
+
+    await expect(vault.connect(admin).cancelRedeem(1n)).to.emit(vault, "RedeemCancelled");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
+  it("cancels a pending redemption after custody reserves have fallen", async () => {
+    const { vault, cbtc, oracle, admin, alice } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+
+    // A completed payout removes the payout amount *and* the miner fee from custody,
+    // so the published reserve figure legitimately falls below outstanding supply.
+    // Cancelling an unrelated redemption is liability-neutral -- pending falls by the
+    // same amount supply rises -- so it must not be blocked by the shortfall.
+    await oracle.connect(admin).updateReserves(QUARTER_BTC, "ipfs://r2");
+
+    await expect(vault.connect(admin).cancelRedeem(1n)).to.emit(vault, "RedeemCancelled");
+    expect(await cbtc.balanceOf(alice.address)).to.equal(ONE_BTC);
+    expect(await vault.pendingRedemptionSats()).to.equal(0n);
+  });
+
+  it("restricts restore to BURNER_ROLE and keeps it inside the pilot cap", async () => {
+    const { vault, cbtc, oracle, admin, alice, mallory } = await deployFixture();
+    await oracle.updateReserves(ONE_BTC, "ipfs://r");
+    await vault.processDeposit(alice.address, ONE_BTC, ethers.id("deposit-a"), 0, "ipfs://p");
+    await vault.connect(alice).requestRedeem(HALF_BTC, BTC_ADDRESS_A);
+
+    // Only the vault (BURNER_ROLE) may restore burned supply.
+    await expect(cbtc.connect(mallory).restore(mallory.address, HALF_BTC)).to.be.reverted;
+
+    // The immutable one-BTC ceiling still binds.
+    await cbtc.connect(admin).grantRole(await cbtc.BURNER_ROLE(), admin.address);
+    await expect(cbtc.connect(admin).restore(alice.address, ONE_BTC))
+      .to.be.revertedWithCustomError(cbtc, "ExceedsPilotSupplyCap");
+  });
+
   it("fails closed on invalid custody references and supports emergency pause", async () => {
     const { vault, oracle, admin, alice } = await deployFixture();
     await oracle.updateReserves(ONE_BTC, "ipfs://r");

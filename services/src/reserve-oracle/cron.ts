@@ -14,8 +14,10 @@ import {
 } from "../shared/chain.js";
 import {
   assertBitcoinCustodyReady,
+  assertCustodyChainSynced,
   requireBitcoinCore,
 } from "../shared/custody.js";
+import { evaluateReserveBuffer, describeReserveBuffer } from "../shared/reserve-buffer.js";
 
 const log = logger.child({ service: "reserve-oracle" });
 
@@ -32,13 +34,19 @@ async function tick(): Promise<void> {
   const cbtc = requireContract(cleanBtc, "CleanBTC");
   const vault = requireContract(reserveVault, "ReserveVault");
 
-  const target =
-    config.DEPOSIT_VERIFICATION_MODE === "bitcoin-core"
-      ? await requireBitcoinCore().getConfirmedCustodyBalanceSats(
-          config.BITCOIN_CUSTODY_ADDRESS,
-          config.BITCOIN_MIN_CONFIRMATIONS,
-        )
-      : BigInt(config.CUSTODY_BALANCE_SATS);
+  let target: bigint;
+  if (config.DEPOSIT_VERIFICATION_MODE === "bitcoin-core") {
+    // Refuse to publish anything derived from a stale chainstate. A stalled node
+    // still returns UTXOs spent at a height it has not seen, which would put a
+    // reserve figure on-chain for BTC that is already gone.
+    await assertCustodyChainSynced();
+    target = await requireBitcoinCore().getConfirmedCustodyBalanceSats(
+      config.BITCOIN_CUSTODY_ADDRESS,
+      config.BITCOIN_MIN_CONFIRMATIONS,
+    );
+  } else {
+    target = BigInt(config.CUSTODY_BALANCE_SATS);
+  }
   if (config.DEPOSIT_VERIFICATION_MODE === "stub" && target === 0n) {
     log.debug("CUSTODY_BALANCE_SATS=0 — keeper idle (nothing to publish)");
     return;
@@ -52,16 +60,43 @@ async function tick(): Promise<void> {
   ]);
   const liabilities = supply + pendingRedemptions;
 
-  if (target < liabilities) {
-    log.error(
-      {
-        target: target.toString(),
-        supply: supply.toString(),
-        pendingRedemptions: pendingRedemptions.toString(),
-        liabilities: liabilities.toString(),
-      },
-      "confirmed BTC reserves are below total liabilities; publishing insolvency state",
-    );
+  const buffer = evaluateReserveBuffer({
+    custodySats: target,
+    liabilitiesSats: liabilities,
+    bufferSats: BigInt(config.BITCOIN_FEE_BUFFER_SATS),
+  });
+  const bufferContext = {
+    ...describeReserveBuffer(buffer),
+    target: target.toString(),
+    supply: supply.toString(),
+    pendingRedemptions: pendingRedemptions.toString(),
+    liabilities: liabilities.toString(),
+  };
+
+  // Fees are funded from operator headroom, so the buffer drains before backing
+  // does. Escalate on the way down rather than only once solvency is already gone.
+  switch (buffer.state) {
+    case "insolvent":
+      log.error(
+        bufferContext,
+        "confirmed BTC reserves are below total liabilities; publishing insolvency state",
+      );
+      break;
+    case "exhausted":
+      log.error(
+        bufferContext,
+        "fee buffer is exhausted; the next redemption payout cannot fund its miner fee without breaking backing — top up custody",
+      );
+      break;
+    case "depleted":
+      log.warn(
+        bufferContext,
+        "fee buffer is below its configured target; top up custody before the next redemption payout",
+      );
+      break;
+    case "healthy":
+      log.debug(bufferContext, "custody covers liabilities and the full fee buffer");
+      break;
   }
   const ageSeconds = BigInt(Math.floor(Date.now() / 1000)) - lastUpdated;
   if (
@@ -86,7 +121,10 @@ async function tick(): Promise<void> {
     supplySats: supply.toString(),
     pendingRedemptionSats: pendingRedemptions.toString(),
     totalLiabilitiesSats: liabilities.toString(),
-    solvent: target >= liabilities,
+    solvent: buffer.solvent,
+    feeBufferSats: buffer.bufferSats.toString(),
+    feeBufferHeadroomSats: buffer.headroomSats.toString(),
+    feeBufferState: buffer.state,
     verificationMode: config.DEPOSIT_VERIFICATION_MODE,
     uri: config.RESERVE_REPORT_URI,
     txHash: receipt?.hash,
