@@ -35,7 +35,7 @@ carry a verifiable attestation of provenance with it.
 
 | Module | Contract | Responsibility |
 |---|---|---|
-| Clean BTC token | `CleanBTC` (cBTC) | ERC-20; supply can never exceed proven reserves; transfers can be compliance-gated |
+| Clean BTC token | `CleanBTC` (cBTC) | ERC-20; pilot supply is capped at one BTC, minting requires fresh proven reserves, and transfers can be compliance-gated |
 | Reserve oracle | `ReserveOracle` | Publishes attested BTC reserve balance (proof-of-reserves) |
 | Mint/redeem vault | `ReserveVault` | Mints cBTC against verified BTC deposits; processes 1:1 redemptions |
 | Attestation registry | `AttestationRegistry` | Accredited attestors publish signed cleanliness attestations per address |
@@ -46,9 +46,13 @@ carry a verifiable attestation of provenance with it.
 - **Name / symbol:** Clean BTC / **cBTC**
 - **Decimals:** 8 (matches BTC).
 - **Peg:** 1 cBTC = 1 BTC, redeemable 1:1.
-- **Solvency invariant:** `totalSupply() <= ReserveOracle.reserveSats()` — enforced at mint.
-- **Mint:** only `ReserveVault` (MINTER_ROLE) after a BTC deposit is verified by the reserve oracle.
+- **Pilot ceiling:** `totalSupply() + pendingRedemptionSats <= 100,000,000` satoshis. The ceiling is immutable and increasing it requires a new deployment and review.
+- **Mint solvency check:** a mint is refused unless `totalSupply() + pendingRedemptionSats + amount <= ReserveOracle.reserveSats()`. A later custody loss can still make reported reserves lower than liabilities and must be surfaced as insolvency.
+- **Freshness invariant:** minting stops when the latest reserve publication is missing or more than 12 hours old.
+- **Mint:** only `ReserveVault` (MINTER_ROLE), after the off-chain verifier proves an exact confirmed Bitcoin custody outpoint (`txid:vout`). An outpoint can be processed once.
 - **Burn/redeem:** holder burns cBTC → vault releases an equal amount of BTC to their BTC payout address.
+- **Pending liability:** burning for redemption reduces supply but creates an equal `pendingRedemptionSats` liability until the BTC payout settles or the redemption is cancelled and cBTC is re-minted.
+- **Emergency pause:** `PAUSER_ROLE` can stop new deposits and redemption requests. Existing redemptions remain settleable or cancellable.
 - **Compliance hook (optional/config):** on transfer, `CompliancePolicy` may require sender+recipient to satisfy the active policy (never sanctioned; score ≥ threshold when gating is enabled). Default deployment ships **monitor-only** (no blocking) so cBTC behaves like a normal ERC-20 until governance explicitly enables gating.
 
 ## 5. Cleanliness attestations
@@ -62,7 +66,8 @@ carry a verifiable attestation of provenance with it.
 
 - `ReserveOracle` stores `reserveSats` (total BTC in custody, in satoshis) and a `merkleRoot` / `attestationURI` pointing to the published reserve report and signed custody attestations.
 - Updated by `RESERVE_UPDATER_ROLE` (a multisig fed by custodian attestations; roadmap: threshold-signature / zk proof of reserves).
-- The public invariant `cBTC.totalSupply() <= reserveSats` is verifiable by anyone at any block.
+- The public comparison `cBTC.totalSupply() + ReserveVault.pendingRedemptionSats() <= reserveSats` is verifiable by anyone at any block. It is a mint admission check and a live solvency signal, not a guarantee that custody reserves cannot later decline.
+- The reserve updater publishes a heartbeat even when the confirmed custody balance is unchanged. Minting fails closed after 12 hours without a publication.
 
 ## 7. Trust model & honesty
 
@@ -86,6 +91,10 @@ carry a verifiable attestation of provenance with it.
 | Param | Default | Notes |
 |---|---|---|
 | cBTC decimals | 8 | BTC-native |
+| Pilot liability cap | 100,000,000 sats | Immutable; includes supply plus pending redemptions |
+| Maximum reserve age for mint | 12 hours | Enforced on-chain |
+| Bitcoin deposit confirmations | 6 | Minimum live configuration |
+| EVM event confirmations | 12 | Minimum live redemption indexer configuration |
 | Compliance mode | `MONITOR` | `MONITOR` \| `GATED` \| `ALLOWLIST` |
 | Min score (when GATED) | 50 | 0–100 |
 | Attestation TTL | 90 days | configurable |
