@@ -7,6 +7,7 @@ const SCHEMA_URLS = Object.freeze({
   "launchlab-v2": new URL("../schemas/proof/mainnet-launchlab-v2.schema.json", import.meta.url),
   "graduation-v1": new URL("../schemas/proof/mainnet-graduation-v1.schema.json", import.meta.url),
   "launch-v2": new URL("../schemas/web/launch-v2.schema.json", import.meta.url),
+  "launch-v3": new URL("../schemas/web/launch-v3.schema.json", import.meta.url),
 });
 
 const ajv = new Ajv2020({
