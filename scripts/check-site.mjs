@@ -5,6 +5,10 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  APPROVED_IMAGE_CID,
+  assertCanonicalHakkyMetadataBytes,
+} from "../src/metadata-integrity.mjs";
 import { validateLaunchRecord } from "../web/lib/launch-policy.js";
 
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -32,6 +36,7 @@ const REQUIRED_FILES = Object.freeze([
   "web/index.html",
   "web/lib/launch-policy.js",
   "web/lib/launch-view.js",
+  "web/metadata/hakky-v1.json",
   "web/styles.css",
 ]);
 const REQUIRED_HTML = Object.freeze([
@@ -282,6 +287,15 @@ export async function checkSite({ root = PROJECT_ROOT } = {}) {
       );
     } catch (error) {
       issues.push(`web/data/launch.json: invalid JSON (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+
+  const metadataBytes = files.get("web/metadata/hakky-v1.json")?.bytes;
+  if (metadataBytes) {
+    try {
+      assertCanonicalHakkyMetadataBytes(metadataBytes, APPROVED_IMAGE_CID);
+    } catch (error) {
+      issues.push(`web/metadata/hakky-v1.json: ${error.message}`);
     }
   }
 

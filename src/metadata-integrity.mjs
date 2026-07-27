@@ -20,6 +20,10 @@ export const METADATA_JSON_PATH = "artifacts/metadata/token.json";
 export const METADATA_DRAFT_PATH = "artifacts/metadata/draft-manifest.json";
 export const METADATA_MANIFEST_PATH = "artifacts/metadata/manifest.json";
 export const METADATA_READBACK_PATH = "artifacts/metadata/readback.json";
+export const HAKKY_METADATA_PATH = "web/metadata/hakky-v1.json";
+export const HAKKY_METADATA_URI = "https://hakky.xyz/metadata/hakky-v1.json";
+export const APPROVED_IMAGE_CID =
+  "bafkreie6m4wnyrkomjeyopg7gwnvdipy62t7riipav6xp6c6zttqlpfiua";
 export const REMOTE_VERIFICATION_TIMEOUT_MS = 15_000;
 export const MAX_REMOTE_CONTENT_BYTES = APPROVED_IMAGE_BYTE_LENGTH;
 
@@ -28,6 +32,8 @@ const METADATA_SYMBOL = "HAKKY";
 const METADATA_DESCRIPTION = "HAKKY is a high-risk public-only Solana meme coin launch. HakkyAgent verifies published launch facts; it does not promise safety or returns.";
 const METADATA_EXTERNAL_URL = "https://hakky.xyz";
 const METADATA_TWITTER = "https://x.com/antihakkysack";
+const HAKKY_METADATA_DESCRIPTION =
+  "HAKKY is a fixed-supply Solana token with an immutable permissionless curve-to-pool market and zero creator allocation at launch.";
 const BASE32_ALPHABET = "abcdefghijklmnopqrstuvwxyz234567";
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/u;
 const UTC_MILLISECOND_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -105,6 +111,37 @@ function parseIpfsIdentity(rawUri) {
   }
   if (`b${base32Encode(decoded)}` !== match[1]) fail("IPFS CID is not canonical lowercase unpadded base32");
   return { kind: "ipfs", identity: match[1], digest: decoded.subarray(4).toString("hex") };
+}
+
+export function assertCanonicalCid(imageCid) {
+  if (typeof imageCid !== "string" || imageCid.startsWith("ipfs://")) {
+    fail("image CID must be the bare canonical CIDv1 raw SHA-256 identity");
+  }
+  const identity = parseIpfsIdentity(`ipfs://${imageCid}`);
+  if (!identity) fail("image CID must be the bare canonical CIDv1 raw SHA-256 identity");
+  return imageCid;
+}
+
+export function canonicalHakkyMetadata(imageCid) {
+  assertCanonicalCid(imageCid);
+  return `${JSON.stringify({
+    name: METADATA_NAME,
+    symbol: METADATA_SYMBOL,
+    description: HAKKY_METADATA_DESCRIPTION,
+    image: `ipfs://${imageCid}`,
+  })}\n`;
+}
+
+export function assertCanonicalHakkyMetadataBytes(bytes, imageCid = APPROVED_IMAGE_CID) {
+  const candidate = Buffer.from(bytes);
+  if (candidate.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf]))) {
+    fail("HAKKY metadata must not contain a UTF-8 BOM");
+  }
+  const expected = Buffer.from(canonicalHakkyMetadata(imageCid), "utf8");
+  if (!candidate.equals(expected)) {
+    fail("HAKKY metadata bytes do not match the exact approved one-line JSON contract");
+  }
+  return JSON.parse(candidate.toString("utf8"));
 }
 
 function parseArweaveIdentity(rawUri) {
