@@ -20,6 +20,7 @@
     "lore:ledger": "node scripts/build-lore-ledger.mjs",
     "lore:collect": "node scripts/collect-reddit-lore.mjs",
     "metadata:finalize": "node scripts/finalize-metadata-manifest.mjs",
+    "metadata:image:verify": "node scripts/verify-image-ipfs.mjs",
     "metadata:prepare": "node scripts/prepare-metadata.mjs",
     "metadata:verify": "node scripts/verify-metadata-upload.mjs",
     "program:build-candidate": "node scripts/build-hakky-sbf.mjs --lane candidate-sbf",
