@@ -296,6 +296,42 @@ fn accepted_pool_states_cover_both_sides_of_the_transition_reserves() {
 }
 
 #[test]
+fn pool_sell_accepts_low_base_high_quote_reserves_without_decreasing_k() {
+    let base_reserve = POOL_SEED / 2;
+    let quote_reserve = TERMINAL_QUOTE * 2;
+    let gross_base_in = 10_000;
+    let quote_out = quote_pool_sell_exact_in(base_reserve, quote_reserve, gross_base_in).unwrap();
+    assert!(base_reserve < POOL_SEED && quote_reserve > TERMINAL_QUOTE);
+    assert_eq!(quote_out, 478);
+
+    let base_after = base_reserve + gross_base_in;
+    let quote_after = quote_reserve - quote_out;
+    let k_before = product(base_reserve, quote_reserve);
+    let k_after = product(base_after, quote_after);
+    assert!(base_after > 0 && quote_after > 0);
+    assert!(k_after >= k_before);
+    assert!(k_after >= product(POOL_SEED, TERMINAL_QUOTE));
+}
+
+#[test]
+fn pool_buy_accepts_high_base_low_quote_reserves_without_decreasing_k() {
+    let base_reserve = POOL_SEED * 2;
+    let quote_reserve = TERMINAL_QUOTE / 2;
+    let base_out = 10_000;
+    let gross_quote = quote_pool_buy_exact_out(base_reserve, quote_reserve, base_out).unwrap();
+    assert!(base_reserve > POOL_SEED && quote_reserve < TERMINAL_QUOTE);
+    assert_eq!(gross_quote, 32);
+
+    let base_after = base_reserve - base_out;
+    let quote_after = quote_reserve + gross_quote;
+    let k_before = product(base_reserve, quote_reserve);
+    let k_after = product(base_after, quote_after);
+    assert!(base_after > 0 && quote_after > 0);
+    assert!(k_after >= k_before);
+    assert!(k_after >= product(POOL_SEED, TERMINAL_QUOTE));
+}
+
+#[test]
 fn pool_overflow_adjacent_inputs_are_checked() {
     assert_eq!(
         quote_pool_buy_exact_out(POOL_SEED, u64::MAX, 1),
