@@ -129,7 +129,7 @@ only when it is:
 - consumed successfully by the no-mainnet readiness evaluator.
 
 Do not register a placeholder, shared operator key, anonymous reviewer, or
-self-attestation as independent evidence.
+self-issued evidence as independent evidence.
 
 ## Findings and rebuild rule
 
