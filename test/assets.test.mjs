@@ -96,6 +96,16 @@ test("banner description uses neutral literal wording", async () => {
   assert.doesNotMatch(banner, /fair-launch proof/i);
 });
 
+test("public HakkyAgent artwork is local, self-contained, and non-animated", async () => {
+  const html = await readFile("web/index.html", "utf8");
+  const agent = await readFile("web/assets/hakkyagent.svg", "utf8");
+  assert.match(
+    html,
+    /<img src="\.\/assets\/hakkyagent\.svg" alt="HakkyAgent, the fictional HAKKY proof character"/u,
+  );
+  assert.doesNotMatch(agent, /(?:href|src)=["']https?:|<script\b|<animate\b|<set\b/iu);
+});
+
 for (const [file, , , expectedHash] of EXPORTS) {
   test(`${file} matches its committed golden SHA-256`, async () => {
     const hash = createHash("sha256").update(await readFile(file)).digest("hex");
