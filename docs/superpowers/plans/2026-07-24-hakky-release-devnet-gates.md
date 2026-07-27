@@ -622,21 +622,26 @@ rtk git commit -m "metadata: verify image-only IPFS receipt"
 **Files:**
 - Create: `docs/qa/immutable-market-browser-checklist.md`
 - Create: `test/browser-qa-contract.test.mjs`
+- Create: `src/browser-qa.mjs`
+- Create: `scripts/certify-browser-qa.mjs`
 - Modify: `scripts/check-site.mjs`
+- Modify: `package.json`
 
 **Interfaces:**
 - Consumes: final local static site and generated browser client.
 - Produces ignored screenshots/console/network records and a public-safe local
   QA receipt.
 
-- [ ] **Step 1: Write failing QA contract tests**
+- [x] **Step 1: Write failing QA contract tests**
 
 Require both viewport sizes, no horizontal overflow, no console/page error,
-prelaunch destination hiding, explicit connect/quote/preview/confirm sequence,
-phase and fee disclosures, decoded transaction equality, wallet rejection
-recovery, stale-state clearing, and no automatic signature/send/retry.
+prelaunch destination hiding, the approved explanatory future-market sequence,
+and no wallet/trading controls or automatic signature/send/retry. The
+interactive connect/quote/preview/confirm and rejection-recovery sequence is
+deferred to a separately approved launch interface; it is not added to the
+approved prelaunch design.
 
-- [ ] **Step 2: Run RED**
+- [x] **Step 2: Run RED**
 
 ```powershell
 rtk node --test test/browser-qa-contract.test.mjs
@@ -644,28 +649,30 @@ rtk node --test test/browser-qa-contract.test.mjs
 
 Expected: FAIL because the checklist/receipt contract does not exist.
 
-- [ ] **Step 3: Implement the deterministic checklist and site gate**
+- [x] **Step 3: Implement the deterministic checklist and site gate**
 
-The checklist records route, viewport, source commit, generated bundle hash,
-launch-record hash, console errors, network failures, layout measurements,
-transaction preview fields, and result. `check-site` rejects a missing or stale
-generated browser client.
+The checklist records route, viewport, source commit, exact site-file hashes,
+launch-record hash, console errors, page errors, network failures, layout
+measurements, prelaunch control absence, screenshots, and result. `check-site`
+locks the explanatory future-market sequence and the explicit statement that
+the flow is unavailable during prelaunch.
 
-- [ ] **Step 4: Run GREEN and inspect locally**
+- [x] **Step 4: Run GREEN and inspect locally**
 
 ```powershell
 rtk node --test test/browser-qa-contract.test.mjs
 rtk npm run preview
 ```
 
-Using Chrome control, inspect `1440x1000` and `390x844`, complete all checklist
-cases without signing or sending, and save only ignored local evidence.
+Using browser automation, inspect `1440x1000` and `390x844`, complete all
+prelaunch checklist cases without signing or sending, and save only ignored
+local evidence.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
-rtk git add docs/qa/immutable-market-browser-checklist.md test/browser-qa-contract.test.mjs scripts/check-site.mjs
-rtk git commit -m "qa: certify local immutable market UI"
+rtk git add docs/qa/immutable-market-browser-checklist.md test/browser-qa-contract.test.mjs src/browser-qa.mjs scripts/certify-browser-qa.mjs scripts/check-site.mjs package.json
+rtk git commit -m "qa: certify local prelaunch site"
 ```
 
 ---

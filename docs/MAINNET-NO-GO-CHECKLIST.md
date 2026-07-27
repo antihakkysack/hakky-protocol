@@ -86,8 +86,10 @@ condition.
 - [ ] Record the returned canonical CID and pass the two-gateway byte verifier.
 - [ ] Rebuild the exact metadata JSON only if its approved CID binding changes.
 - [ ] Publish metadata to the exact HTTPS path and pass byte-for-byte readback.
-- [ ] Produce a dated local browser-QA receipt at `1440 x 1000` and
-  `390 x 844`, with no overflow, console error, or failed required asset.
+- [x] A dated local browser-QA receipt covers `1440 x 1000` and `390 x 844`
+  with no overflow, console error, page error, failed request, wallet/trading
+  control, or trade destination. The screenshots, observation, and receipt
+  remain ignored local evidence under `artifacts/qa/`.
 - [ ] Obtain separate approval to push the exact reviewed commit.
 - [ ] Obtain separate approval to create or update a pull request.
 - [ ] Obtain approval that explicitly names both merge and automatic website

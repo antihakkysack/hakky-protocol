@@ -34,6 +34,7 @@
     "program:test-test-sbf": "node scripts/test-hakky-test-sbf.mjs",
     "program:vendor-dependencies": "node scripts/materialize-hakky-cargo-vendor.mjs",
     "preview": "serve web",
+    "qa:browser:certify": "node scripts/certify-browser-qa.mjs",
     "rehearsal:devnet": "node scripts/rehearse-devnet.mjs",
     "schemas": "node scripts/render-launch-schema-validator.mjs",
     "session:receipt": "node scripts/session-receipt.mjs",
