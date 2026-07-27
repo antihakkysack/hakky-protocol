@@ -6,6 +6,7 @@ import {
   SBF_IMAGE,
   SBF_IMAGE_DIGEST,
   isCleanRtkGitStatus,
+  parseBuildOptions,
   planSbfBuild,
 } from "../scripts/build-hakky-sbf.mjs";
 
@@ -58,14 +59,66 @@ test("pins the exact SBF image and hermetic cargo-build-sbf invocation", () => {
 
 test("candidate lane is clean-tree gated and no unknown lane is accepted", () => {
   const root = path.resolve("C:/repo");
-  const plan = planSbfBuild({ lane: "candidate-sbf", repositoryRoot: root });
+  const plan = planSbfBuild({
+    lane: "candidate-sbf",
+    repositoryRoot: root,
+    outputRelativePath: "artifacts/build/candidate/local-a",
+  });
   assert.equal(plan.requiresCleanTree, true);
   assert.equal(plan.testSourceDirectory, null);
-  assert.equal(plan.sourceBinary, path.resolve("C:/repo/target/deploy/hakky_market.so"));
+  assert.equal(
+    plan.outputDirectory,
+    path.resolve("C:/repo/artifacts/build/candidate/local-a"),
+  );
+  assert.equal(
+    plan.sourceDirectory,
+    path.resolve("C:/repo/artifacts/build/candidate/local-a/source"),
+  );
+  assert.equal(
+    plan.sourceBinary,
+    path.resolve(
+      "C:/repo/artifacts/build/candidate/local-a/source/target/deploy/hakky_market.so",
+    ),
+  );
   assert.deepEqual(
     plan.command.slice(plan.command.indexOf("-w"), plan.command.indexOf("-w") + 2),
     ["-w", "/workspace"],
   );
+  assert(plan.command.some((argument) => argument.endsWith(":/workspace:rw")));
+  assert.equal(
+    plan.command.some((argument) =>
+      argument.startsWith(`${path.resolve("C:/repo")}:`),
+    ),
+    false,
+  );
+  assert.deepEqual(
+    parseBuildOptions([
+      "--lane",
+      "candidate-sbf",
+      "--output",
+      "artifacts/build/candidate/local-a",
+    ]),
+    {
+      lane: "candidate-sbf",
+      outputRelativePath: "artifacts/build/candidate/local-a",
+    },
+  );
+  for (const argv of [
+    ["--lane", "candidate-sbf"],
+    ["--lane", "test-sbf", "--output", "artifacts/build/candidate/local-a"],
+    ["--lane", "candidate-sbf", "--output", "artifacts/build/candidate"],
+    ["--lane", "candidate-sbf", "--output", "../../outside"],
+    [
+      "--lane",
+      "candidate-sbf",
+      "--output",
+      "artifacts/build/candidate/local-a",
+      "--wallet",
+      "x",
+    ],
+  ]) {
+    assert.throws(() => parseBuildOptions(argv), /Usage|candidate|output/u);
+  }
   assert.throws(
     () => planSbfBuild({ lane: "other", repositoryRoot: root }),
     /lane/i,

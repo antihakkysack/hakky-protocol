@@ -27,6 +27,7 @@
     "program:build-test-sbf": "node scripts/build-hakky-test-sbf.mjs",
     "program:fuzz": "node scripts/run-hakky-fuzz.mjs",
     "program:inspect-candidate": "node scripts/inspect-hakky-program.mjs",
+    "program:reproduce-candidate": "node scripts/verify-sbf-reproduction.mjs --lane candidate-sbf",
     "program:test-native": "node scripts/test-hakky-native.mjs",
     "program:test-candidate-sbf": "node scripts/test-hakky-candidate-sbf.mjs",
     "program:test-test-sbf": "node scripts/test-hakky-test-sbf.mjs",

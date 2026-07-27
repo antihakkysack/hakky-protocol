@@ -1,8 +1,9 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   cp,
   copyFile,
+  lstat,
   mkdir,
   readFile,
   readdir,
@@ -14,41 +15,73 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { PublicKey } from "@solana/web3.js";
 
+import { parseExactCliOptions } from "../src/exact-cli-options.mjs";
+import {
+  BUILD_IMAGE,
+  CANDIDATE_COMMAND,
+  CANDIDATE_ENVIRONMENT,
+  LOCAL_BUILD_OPERATOR_BYTES,
+  LOCAL_BUILD_OPERATOR_PATH,
+  LOCAL_BUILD_OPERATOR_SHA256,
+  MAX_CANDIDATE_BYTES,
+  RELEASE_PROGRAM_ID,
+  TEST_PROGRAM_ID,
+  assertBuildRecord,
+  serializeBuildRecord,
+} from "../src/release-manifest.mjs";
 import { validateVendorBundle } from "./materialize-hakky-cargo-vendor.mjs";
 
 export const SBF_IMAGE_DIGEST =
   "sha256:0b4e3716fad9ca4b4aac3e3f977f43aad93a18c22296c0c0f44fc22e644bdd68";
-export const SBF_IMAGE =
-  `solanafoundation/solana-verifiable-build:4.0.0@${SBF_IMAGE_DIGEST}`;
+export const SBF_IMAGE = BUILD_IMAGE;
 export const SBF_TOOLS_VERSION = "v1.53";
 export const SBF_ARCH = "v0";
 export const SBF_HOST_TOOLCHAIN = "1.93.1";
-export const MAX_PROGRAM_BYTES = 120_000;
-export const TEST_PROGRAM_ID = "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF";
+export const MAX_PROGRAM_BYTES = MAX_CANDIDATE_BYTES;
 
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const VENDOR_RELATIVE = "artifacts/build/dependencies/vendor";
 const CARGO_HOME_RELATIVE = "artifacts/build/dependencies/cargo-home";
 const SOURCE_BINARY_RELATIVE = "target/deploy/hakky_market.so";
 const TEST_SOURCE_RELATIVE = "artifacts/build/test-sbf/source";
+const CANDIDATE_OUTPUT_PATTERN =
+  /^artifacts\/build\/candidate\/[a-z0-9][a-z0-9-]*$/u;
 
 function volume(hostPath, containerPath, mode) {
   return `${path.resolve(hostPath)}:${containerPath}:${mode}`;
 }
 
-export function planSbfBuild({ lane, repositoryRoot = DEFAULT_REPOSITORY_ROOT }) {
+export function planSbfBuild({
+  lane,
+  repositoryRoot = DEFAULT_REPOSITORY_ROOT,
+  outputRelativePath,
+}) {
   if (lane !== "test-sbf" && lane !== "candidate-sbf") {
     throw new Error("SBF lane must be test-sbf or candidate-sbf");
   }
+  if (
+    lane === "candidate-sbf" &&
+    !CANDIDATE_OUTPUT_PATTERN.test(outputRelativePath ?? "")
+  ) {
+    throw new Error(
+      "Candidate SBF output must be artifacts/build/candidate/<build-id>",
+    );
+  }
+  if (lane === "test-sbf" && outputRelativePath !== undefined) {
+    throw new Error("Test SBF output is fixed");
+  }
   const root = path.resolve(repositoryRoot);
   const vendorDirectory = path.join(root, VENDOR_RELATIVE);
-  const cargoHome = path.join(root, CARGO_HOME_RELATIVE);
-  const outputDirectory = path.join(
-    root,
-    "artifacts",
-    "build",
-    lane === "candidate-sbf" ? "candidate" : "test-sbf",
-  );
+  const outputDirectory =
+    lane === "candidate-sbf"
+      ? path.resolve(root, ...outputRelativePath.split("/"))
+      : path.join(root, "artifacts", "build", "test-sbf");
+  const sourceDirectory =
+    lane === "candidate-sbf" ? path.join(outputDirectory, "source") : root;
+  const cargoHome =
+    lane === "candidate-sbf"
+      ? path.join(outputDirectory, "cargo-home")
+      : path.join(root, CARGO_HOME_RELATIVE);
   const testSourceDirectory =
     lane === "test-sbf" ? path.join(root, TEST_SOURCE_RELATIVE) : null;
   const containerWorkdir =
@@ -67,7 +100,11 @@ export function planSbfBuild({ lane, repositoryRoot = DEFAULT_REPOSITORY_ROOT })
     "-e",
     "CARGO_HOME=/cargo-home",
     "-v",
-    volume(root, "/workspace", "rw"),
+    volume(
+      lane === "candidate-sbf" ? sourceDirectory : root,
+      "/workspace",
+      "rw",
+    ),
     "-v",
     volume(vendorDirectory, "/vendor", "ro"),
     "-v",
@@ -75,24 +112,21 @@ export function planSbfBuild({ lane, repositoryRoot = DEFAULT_REPOSITORY_ROOT })
     "-w",
     containerWorkdir,
     SBF_IMAGE,
-    "cargo-build-sbf",
-    "--offline",
-    "--skip-tools-install",
-    "--tools-version",
-    SBF_TOOLS_VERSION,
-    "--arch",
-    SBF_ARCH,
-    "--",
-    "--locked",
+    ...CANDIDATE_COMMAND,
   ];
   return {
+    buildDirectory: outputRelativePath,
     cargoHome,
     command,
     lane,
     outputDirectory,
     repositoryRoot: root,
     requiresCleanTree: lane === "candidate-sbf",
-    sourceBinary: path.join(testSourceDirectory ?? root, SOURCE_BINARY_RELATIVE),
+    sourceBinary: path.join(
+      testSourceDirectory ?? sourceDirectory,
+      SOURCE_BINARY_RELATIVE,
+    ),
+    sourceDirectory,
     testSourceDirectory,
     vendorDirectory,
   };
@@ -230,17 +264,323 @@ async function assertVendorBundle(plan) {
   }
   const entries = await readdir(plan.vendorDirectory);
   if (entries.length === 0) throw new Error("sealed vendor bundle is empty");
-  await validateVendorBundle(plan.repositoryRoot);
+  return validateVendorBundle(plan.repositoryRoot);
+}
+
+async function prepareCandidateSource(plan, exec) {
+  const existing = await lstat(plan.outputDirectory).catch((error) => {
+    if (error?.code === "ENOENT") return null;
+    throw error;
+  });
+  if (existing) {
+    throw new Error("candidate build directory must not already exist");
+  }
+  await mkdir(plan.sourceDirectory, { recursive: true });
+  const prefix = `${plan.sourceDirectory.replaceAll("\\", "/")}/`;
+  exec(
+    "rtk",
+    ["git", "checkout-index", "--all", "--force", `--prefix=${prefix}`],
+    {
+      cwd: plan.repositoryRoot,
+      encoding: "utf8",
+    },
+  );
+}
+
+function runCaptured(spawn, command, cwd) {
+  const [executable, ...args] = command;
+  const result = spawn(executable, args, {
+    cwd,
+    encoding: null,
+    maxBuffer: 64 * 1024 * 1024,
+    windowsHide: true,
+  });
+  if (result?.error) throw result.error;
+  const stdout = Buffer.from(result?.stdout ?? []);
+  const stderr = Buffer.from(result?.stderr ?? []);
+  return {
+    status: result?.status,
+    signal: result?.signal ?? null,
+    stdout,
+    stderr,
+  };
+}
+
+function parseToolchainProbe(stdout) {
+  const values = new Map();
+  for (const line of stdout.toString("utf8").trim().split(/\r?\n/u)) {
+    const match = /^(rustc|cargo|solana|cargoBuildSbf)=(.+)$/u.exec(line);
+    if (!match || values.has(match[1])) {
+      throw new Error("SBF toolchain probe output is malformed");
+    }
+    values.set(match[1], match[2]);
+  }
+  if (values.size !== 4) {
+    throw new Error("SBF toolchain probe output is incomplete");
+  }
+  return Object.fromEntries(values);
+}
+
+function probeToolchain(plan, spawn) {
+  const script = [
+    "set -eu",
+    "printf 'rustc='; rustc --version",
+    "printf 'cargo='; cargo --version",
+    "printf 'solana='; solana --version",
+    "printf 'cargoBuildSbf='; cargo-build-sbf --version",
+  ].join("; ");
+  const result = runCaptured(
+    spawn,
+    [
+      "rtk",
+      "docker",
+      "run",
+      "--rm",
+      "--network",
+      "none",
+      "-e",
+      `RUSTUP_TOOLCHAIN=${SBF_HOST_TOOLCHAIN}`,
+      "-e",
+      "CARGO_HOME=/cargo-home",
+      "-v",
+      volume(plan.cargoHome, "/cargo-home", "rw"),
+      SBF_IMAGE,
+      "sh",
+      "-lc",
+      script,
+    ],
+    plan.repositoryRoot,
+  );
+  if (result.status !== 0 || result.signal !== null) {
+    throw new Error("SBF toolchain probe failed");
+  }
+  return parseToolchainProbe(result.stdout);
+}
+
+function countOccurrences(haystack, needle) {
+  const bytes = Buffer.from(needle);
+  if (bytes.byteLength === 0) return 0;
+  let count = 0;
+  let offset = 0;
+  while (offset <= haystack.byteLength - bytes.byteLength) {
+    const found = haystack.indexOf(bytes, offset);
+    if (found === -1) break;
+    count += 1;
+    offset = found + bytes.byteLength;
+  }
+  return count;
+}
+
+async function deriveCandidateSurface(binary, sourceDirectory) {
+  const releaseBytes = Buffer.from(new PublicKey(RELEASE_PROGRAM_ID).toBytes());
+  const testBytes = Buffer.from(new PublicKey(TEST_PROGRAM_ID).toBytes());
+  const testArtifactPath =
+    "programs/hakky-market/src/test_release_config.rs";
+  const testArtifact = await readFile(
+    path.join(sourceDirectory, ...testArtifactPath.split("/")),
+  );
+  const testArtifactSha256 = sha256(testArtifact);
+  return {
+    method: "raw-executable-byte-scan-v1",
+    releaseProgramId: RELEASE_PROGRAM_ID,
+    releaseProgramIdByteOccurrences: countOccurrences(binary, releaseBytes),
+    testProgramId: TEST_PROGRAM_ID,
+    testProgramIdByteOccurrences: countOccurrences(binary, testBytes),
+    testProgramIdTextOccurrences: countOccurrences(
+      binary,
+      Buffer.from(TEST_PROGRAM_ID, "utf8"),
+    ),
+    testArtifactPathOccurrences:
+      countOccurrences(binary, Buffer.from(testArtifactPath, "utf8")) +
+      countOccurrences(
+        binary,
+        Buffer.from("test_release_config.rs", "utf8"),
+      ),
+    testArtifactSha256Occurrences:
+      countOccurrences(binary, Buffer.from(testArtifactSha256, "utf8")) +
+      countOccurrences(binary, Buffer.from(testArtifactSha256, "hex")),
+  };
+}
+
+function readGitText(exec, repositoryRoot, revision) {
+  return exec("rtk", ["git", "rev-parse", revision], {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+  }).trim();
+}
+
+async function runCandidateSbfBuild({
+  plan,
+  exec,
+  spawn,
+  vendorManifest,
+}) {
+  await prepareCandidateSource(plan, exec);
+  await prepareCargoHome(plan);
+  const sourceCommit = readGitText(exec, plan.repositoryRoot, "HEAD");
+  const sourceTree = readGitText(exec, plan.repositoryRoot, "HEAD^{tree}");
+  const sourceSha256 = await hashSourceTree(plan.repositoryRoot);
+  const stagedSourceSha256 = await hashSourceTree(plan.sourceDirectory);
+  if (sourceSha256 !== stagedSourceSha256) {
+    throw new Error("candidate staged source differs from the clean source");
+  }
+  const operatorBytes = await readFile(
+    path.join(plan.repositoryRoot, ...LOCAL_BUILD_OPERATOR_PATH.split("/")),
+  );
+  if (!Buffer.from(operatorBytes).equals(LOCAL_BUILD_OPERATOR_BYTES)) {
+    throw new Error("local build operator configuration drifted");
+  }
+  const toolchain = probeToolchain(plan, spawn);
+  const startedAt = new Date().toISOString();
+  const result = runCaptured(spawn, plan.command, plan.repositoryRoot);
+  const completedAt = new Date().toISOString();
+  await Promise.all([
+    writeFile(path.join(plan.outputDirectory, "build-stdout.log"), result.stdout),
+    writeFile(path.join(plan.outputDirectory, "build-stderr.log"), result.stderr),
+  ]);
+  if (result.status !== 0 || result.signal !== null) {
+    throw new Error("candidate SBF build failed; inspect build logs");
+  }
+  const binary = await readFile(plan.sourceBinary);
+  if (binary.byteLength > MAX_PROGRAM_BYTES) {
+    throw new Error(
+      `SBF binary is ${binary.byteLength} bytes; maximum is ${MAX_PROGRAM_BYTES}`,
+    );
+  }
+  const outputBinary = path.join(plan.outputDirectory, "hakky_market.so");
+  await copyFile(plan.sourceBinary, outputBinary);
+  const [
+    cargoLockBytes,
+    vendorManifestBytes,
+    vendorSourceConfigBytes,
+    releaseConfigBytes,
+    rustViewBytes,
+    javascriptViewBytes,
+  ] = await Promise.all([
+    readFile(path.join(plan.repositoryRoot, "Cargo.lock")),
+    readFile(
+      path.join(
+        plan.repositoryRoot,
+        "artifacts",
+        "build",
+        "dependencies",
+        "vendor-manifest.json",
+      ),
+    ),
+    readFile(
+      path.join(
+        plan.repositoryRoot,
+        "artifacts",
+        "build",
+        "dependencies",
+        "source-config.toml",
+      ),
+    ),
+    readFile(path.join(plan.sourceDirectory, "config", "hakky-release-v1.json")),
+    readFile(
+      path.join(
+        plan.sourceDirectory,
+        "programs",
+        "hakky-market",
+        "src",
+        "constants.rs",
+      ),
+    ),
+    readFile(
+      path.join(
+        plan.sourceDirectory,
+        "src",
+        "hakky-release-config.generated.mjs",
+      ),
+    ),
+  ]);
+  const releaseConfig = JSON.parse(releaseConfigBytes.toString("utf8"));
+  if (releaseConfig.programId !== RELEASE_PROGRAM_ID) {
+    throw new Error("candidate release program identity drifted");
+  }
+  const record = {
+    schemaVersion: "hakky-sbf-build-record-v1",
+    lane: "candidate-sbf",
+    buildDirectory: plan.buildDirectory,
+    startedAt,
+    completedAt,
+    source: {
+      commit: sourceCommit,
+      tree: sourceTree,
+      clean: true,
+      sha256: sourceSha256,
+    },
+    operator: {
+      schemaVersion: "hakky-local-build-operator-v1",
+      organizationId: "hakky-local",
+      operatorId: "local-controller",
+      configPath: LOCAL_BUILD_OPERATOR_PATH,
+      configSha256: LOCAL_BUILD_OPERATOR_SHA256,
+    },
+    dependencies: {
+      cargoLockSha256: sha256(cargoLockBytes),
+      vendorManifestSha256: sha256(vendorManifestBytes),
+      vendorTreeSha256: vendorManifest.treeSha256,
+      vendorSourceConfigSha256: sha256(vendorSourceConfigBytes),
+    },
+    release: {
+      configSha256: sha256(releaseConfigBytes),
+      rustViewSha256: sha256(rustViewBytes),
+      javascriptViewSha256: sha256(javascriptViewBytes),
+    },
+    container: {
+      image: SBF_IMAGE,
+      network: "none",
+    },
+    toolchain,
+    invocation: {
+      command: [...CANDIDATE_COMMAND],
+      environment: { ...CANDIDATE_ENVIRONMENT },
+    },
+    logs: {
+      stdoutSha256: sha256(result.stdout),
+      stderrSha256: sha256(result.stderr),
+    },
+    surface: await deriveCandidateSurface(binary, plan.sourceDirectory),
+    executable: {
+      name: "hakky_market.so",
+      path: "hakky_market.so",
+      byteLength: binary.byteLength,
+      sha256: sha256(binary),
+    },
+    mainnetActionsAuthorized: false,
+  };
+  assertBuildRecord(record);
+  await writeFile(
+    path.join(plan.outputDirectory, "build-record.json"),
+    serializeBuildRecord(record),
+    { flag: "wx", mode: 0o600 },
+  );
+  return record;
 }
 
 export async function runSbfBuild({
   lane,
+  outputRelativePath,
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   exec = execFileSync,
+  spawn = spawnSync,
 } = {}) {
-  const plan = planSbfBuild({ lane, repositoryRoot });
+  const plan = planSbfBuild({
+    lane,
+    repositoryRoot,
+    outputRelativePath,
+  });
   if (plan.requiresCleanTree) assertCleanTree(plan.repositoryRoot, exec);
-  await assertVendorBundle(plan);
+  const vendorManifest = await assertVendorBundle(plan);
+  if (plan.lane === "candidate-sbf") {
+    return runCandidateSbfBuild({
+      plan,
+      exec,
+      spawn,
+      vendorManifest,
+    });
+  }
   await prepareCargoHome(plan);
   await mkdir(plan.outputDirectory, { recursive: true });
   if (plan.lane === "test-sbf") await prepareTestSbfSource(plan);
@@ -325,16 +665,46 @@ export async function runSbfBuild({
   }
 }
 
-function parseLane(argv) {
-  if (argv.length !== 2 || argv[0] !== "--lane") {
-    throw new Error("Usage: node scripts/build-hakky-sbf.mjs --lane <test-sbf|candidate-sbf>");
+export function parseBuildOptions(argv) {
+  if (Array.isArray(argv) && argv.length === 2 && argv[0] === "--lane") {
+    if (argv[1] !== "test-sbf") {
+      throw new Error(
+        "Usage: node scripts/build-hakky-sbf.mjs --lane test-sbf OR --lane candidate-sbf --output artifacts/build/candidate/<build-id>",
+      );
+    }
+    return { lane: "test-sbf", outputRelativePath: undefined };
   }
-  return argv[1];
+  return parseExactCliOptions(argv, {
+    usage:
+      "Usage: node scripts/build-hakky-sbf.mjs --lane candidate-sbf --output artifacts/build/candidate/<build-id>",
+    definitions: [
+      {
+        flag: "--lane",
+        key: "lane",
+        validate(value) {
+          if (value !== "candidate-sbf") {
+            throw new Error("Build lane must be candidate-sbf");
+          }
+        },
+      },
+      {
+        flag: "--output",
+        key: "outputRelativePath",
+        validate(value) {
+          if (!CANDIDATE_OUTPUT_PATTERN.test(value)) {
+            throw new Error(
+              "Candidate output must be artifacts/build/candidate/<build-id>",
+            );
+          }
+        },
+      },
+    ],
+  });
 }
 
 export async function main({ argv = process.argv.slice(2), stdout = process.stdout, stderr = process.stderr } = {}) {
   try {
-    const receipt = await runSbfBuild({ lane: parseLane(argv) });
+    const receipt = await runSbfBuild(parseBuildOptions(argv));
     stdout.write(`${JSON.stringify(receipt, null, 2)}\n`);
     return 0;
   } catch (error) {
