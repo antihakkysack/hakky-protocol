@@ -25,7 +25,13 @@ Chrome control, GitHub Actions and Pages.
 - Normative design:
   `docs/superpowers/specs/2026-07-24-hakky-immutable-curve-pool-design.md`.
 - The build consumes a clean reviewed commit, exact `Cargo.lock`, exact
-  release configuration, and the pinned container digest above.
+  release configuration, the pinned container digest above, and the validated
+  lock-bound vendor manifest/tree/source-replacement config produced by
+  Program Task 8.
+- Every final candidate build runs the exact image with Docker networking
+  disabled and `cargo-build-sbf --offline --skip-tools-install --tools-version
+  v1.53 --arch v0 -- --locked`; no final build resolves or downloads a
+  dependency.
 - `config/hakky-release-v1.json` is the sole tracked candidate identity leaf;
   identity is committed before candidate build and build tools never rewrite
   it.
@@ -115,9 +121,11 @@ test("requires independent clean directories and byte-identical output", () => {
 
 Add mutations for dirty source, tag-only image, wrong digest, tool/version
 drift, source/lock/config hash drift, non-candidate lane, any test identity or
-test artifact path/hash, reused directory, missing stdout/stderr hash, missing
-UTC time, wrong executable name, asserted rather than derived surface facts,
-local-operator identity/hash drift, and unknown field.
+test artifact path/hash, missing/mutated vendor manifest/tree/config binding,
+network mode other than `none`, missing offline/skip-tools/v1.53/v0/forwarded
+Cargo-locked command fields, reused directory, missing stdout/stderr hash,
+missing UTC time, wrong executable name, asserted rather than derived surface
+facts, local-operator identity/hash drift, and unknown field.
 
 - [ ] **Step 2: Run RED**
 
@@ -143,12 +151,16 @@ lane = candidate-sbf
 source commit/tree hash
 local builder organization/operator and config hash
 Cargo.lock hash
+vendor manifest hash
+vendor complete-tree hash
+vendor source-replacement config hash
 config/hakky-release-v1.json hash
 generated Rust/JavaScript release-view hashes
 registered test-identity exclusion result
 container repository/tag/digest
+Docker network mode = none
 rustc/cargo/solana/cargo-build-sbf versions
-command and environment allowlist
+exact offline/skip-tools/v1.53/v0/forwarded-locked command and environment allowlist
 UTC start/end
 stdout/stderr SHA-256
 executable length/SHA-256
@@ -199,15 +211,18 @@ rtk git commit -m "release: prove reproducible SBF build"
 
 ```powershell
 rtk git status --porcelain
+rtk npm run program:vendor-dependencies
 rtk npm run program:build-candidate -- --output artifacts/build/candidate/local-a
 rtk npm run program:build-candidate -- --output artifacts/build/candidate/local-b
 rtk npm run program:reproduce-candidate -- --left artifacts/build/candidate/local-a --right artifacts/build/candidate/local-b
 rtk git status --porcelain
 ```
 
-Expected: both status reads are empty; both executable byte streams and
-SHA-256 values match; each length is at most 120,000; and the ignored
-reproduction receipt reports `ok:true`.
+Expected: both status reads are empty; both records revalidate the same vendor
+manifest/tree/config and show network mode `none`, offline pinned tools, and
+forwarded Cargo `--locked`; both executable byte streams and SHA-256 values
+match; each length is at most 120,000; and the ignored reproduction receipt
+reports `ok:true`.
 
 ---
 
@@ -407,6 +422,7 @@ rtk git commit -m "ci: gate exact immutable market binary"
 
 ```powershell
 rtk git status --porcelain
+rtk npm run program:vendor-dependencies
 rtk npm run program:build-candidate -- --output artifacts/build/candidate/ci-a
 rtk npm run program:build-candidate -- --output artifacts/build/candidate/ci-b
 rtk npm run program:test-candidate-sbf -- --build artifacts/build/candidate/ci-a
@@ -696,13 +712,19 @@ independent Solana security audit
 independent economic/math review
 finding resolution and final rebuild
 operator handoff
-mainnet deploy approval
-mainnet finalization approval
-mainnet initialization approval
 ```
 
-Any absent/failed/stale gate yields `readyForMainnetApproval:false`. The report
-has no signing, sending, retry, or approval field. Its raw input rejects
+Any absent/failed/stale technical gate yields
+`readyForMainnetApproval:false`. The report always emits
+`mainnetActionsAuthorized:false` and `readyForMainnetEffects:false`; its schema
+rejects either value as `true`. The three exact action-time approvals are
+deliberately outside technical readiness and outside this evaluator. Their
+absence does not make a technically complete package unready to request
+approval, and their presence cannot be supplied to this report to authorize an
+effect.
+
+The report has no signing, sending, retry, or approval-consumption capability
+and accepts no approval or authorization input. Its raw input rejects
 decisive `ok`, `verified`, `ready`, audit-complete, independence, or
 finding-resolved booleans. It revalidates underlying immutable hashes and raw
 evidence; locally authored JSON cannot complete an independent audit or
@@ -772,6 +794,7 @@ rtk git commit -m "release: add immutable launch no-go audit"
 
 ```powershell
 rtk git status --porcelain
+rtk npm run program:vendor-dependencies
 rtk npm run program:build-candidate -- --output artifacts/build/candidate/final-a
 rtk npm run program:build-candidate -- --output artifacts/build/candidate/final-b
 rtk npm run program:test-candidate-sbf -- --build artifacts/build/candidate/final-a

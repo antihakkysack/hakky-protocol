@@ -27,10 +27,10 @@ native `solana-sdk` 2.3.1, isolated current-runtime
 `solana-program-test` 4.1.2, Tokio 1.53.1, proptest 1.11.0,
 cargo-fuzz 0.13.2, Node.js ESM for ceremony and evidence extraction.
 
-**Approval checkpoint:** The repository's existing program manifest remains on
-the pre-amendment mixed dependency graph until this written contract is
-reviewed. Task 2 performs the approved alignment; no implementation file is
-changed during the specification-review gate.
+**Approval record:** The user approved this written contract and the Task 2
+Solana dependency alignment. Task 2 completed the aligned manifest/lock graph;
+later tasks must preserve that graph unless a new written amendment is
+approved.
 
 ## Global Constraints
 
@@ -1101,6 +1101,7 @@ rtk git commit -m "program: add permanent retained-fee pool"
 - Create: `programs/hakky-market-sbf-tests/Cargo.toml`
 - Create: `programs/hakky-market-sbf-tests/tests/candidate_runtime.rs`
 - Create: `scripts/build-hakky-sbf.mjs`
+- Create: `scripts/materialize-hakky-cargo-vendor.mjs`
 - Create: `scripts/inspect-hakky-program.mjs`
 - Create: `scripts/run-hakky-fuzz.mjs`
 - Create: `scripts/test-hakky-native.mjs`
@@ -1108,6 +1109,7 @@ rtk git commit -m "program: add permanent retained-fee pool"
 - Create: `scripts/test-hakky-candidate-sbf.mjs`
 - Create: `test-support/program-surface-fixtures.mjs`
 - Create: `test/build-hakky-sbf.test.mjs`
+- Create: `test/cargo-vendor.test.mjs`
 - Create: `test/program-lanes.test.mjs`
 - Create: `test/run-hakky-fuzz.test.mjs`
 - Create: `test/program-surface.test.mjs`
@@ -1119,8 +1121,9 @@ rtk git commit -m "program: add permanent retained-fee pool"
 **Interfaces:**
 - Consumes: complete reviewed crate.
 - Produces: ignored exact candidate `.so`, lane/config-bound build receipt,
-  raw-evidence size/export/behavior/CPI inspection, isolated current-runtime
-  exact-SBF result, and bounded fuzz receipts.
+  content-hashed vendored dependency bundle, raw-evidence
+  size/export/behavior/CPI inspection, isolated current-runtime exact-SBF
+  result, and bounded fuzz receipts.
 
 - [ ] **Step 1: Write failing surface-policy tests**
 
@@ -1172,8 +1175,13 @@ accepts paths to raw candidate bytes and tool output, never caller-supplied
 In this same RED step, create:
 
 - `test/build-hakky-sbf.test.mjs`, freezing candidate/test lane names, paths,
-  clean-tree refusal, release/config/lock binding, test-identity exclusion,
-  output containment, and no wallet/home mount;
+  clean-tree refusal, release/config/lock/vendor binding, test-identity
+  exclusion, output containment, network-disabled exact-image execution, and
+  no wallet/home mount;
+- `test/cargo-vendor.test.mjs`, freezing `cargo vendor --locked
+  --versioned-dirs` in the pinned Rust 1.95 lane, source-replacement config,
+  complete-tree hashing, Cargo.lock/checksum binding, ignored containment,
+  no secret/home mount, and refusal to reuse a mismatched bundle;
 - `test/program-lanes.test.mjs`, freezing the three wrapper commands,
   test-SBF versus candidate-SBF evidence separation, exact ProgramTest package
   version, `prefer_bpf(true)`, and absence of a native processor fallback; and
@@ -1187,7 +1195,7 @@ exists and asserts that only a caller-supplied exact `.so` path is loaded.
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk node --test test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
+rtk node --test test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/cargo-vendor.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked -p hakky-market-sbf-tests --test candidate_runtime
 ```
 
@@ -1199,9 +1207,31 @@ current-runtime package do not exist.
 `build-hakky-sbf.mjs` has distinct `test-sbf` and `candidate-sbf` modes.
 Candidate mode requires a clean tree, reads the tracked release leaf without
 rewriting it, compiles with no test feature/dev graph, and writes under
-`artifacts/build/candidate/`. Its receipt fixes
-`lane:"candidate-sbf"`, release-config hash, source hash, stdout/stderr hashes,
-Cargo.lock, features, `.so` hash, and test-identity exclusion result.
+`artifacts/build/candidate/`. Before any final candidate build,
+`materialize-hakky-cargo-vendor.mjs` runs `cargo vendor --locked
+--versioned-dirs` only in the pinned Rust 1.95 container, writes the ignored
+dependency bytes under `artifacts/build/dependencies/vendor/`, validates every
+vendored `.cargo-checksum.json`, and writes the source-replacement config and
+canonical manifest as siblings outside that hashed tree. The manifest binds
+the complete sorted vendor tree, `Cargo.lock`, exact source-replacement config
+bytes, materialization image digest, and command without a self-referential
+manifest hash.
+
+The exact SBF image has no Cargo registry cache. Every final candidate build
+therefore mounts the validated vendor bundle read-only, sets Cargo source
+replacement to that exact bundle, runs Docker with `--network none`, and invokes
+`cargo-build-sbf --offline --skip-tools-install --tools-version v1.53 --arch
+v0 -- --locked` with current-directory remapping enabled. The `--locked` flag
+is forwarded to Cargo after `--`; it is not a top-level
+`cargo-build-sbf` option. A networked final build, a
+missing/mutated vendor member, dependency resolution outside the bundle, or
+use of plain host `cargo build` is a hard failure.
+
+The candidate receipt fixes `lane:"candidate-sbf"`, release-config hash,
+source hash, stdout/stderr hashes, Cargo.lock hash, vendor manifest/tree hash,
+exact SBF image ID/repository digest/source revision, Docker client/server
+architecture, host/SBF compiler versions, pinned SBF LLVM/LLD tool hashes,
+features, `.so` hash, and test-identity exclusion result.
 
 The inspector reads the actual `.so`, raw `readelf`/`objdump` outputs, source
 callsite extraction, and a behavior receipt produced by running the exact SBF
@@ -1223,6 +1253,7 @@ Add exact package commands:
 {
   "scripts": {
     "program:test-native": "node scripts/test-hakky-native.mjs",
+    "program:vendor-dependencies": "node scripts/materialize-hakky-cargo-vendor.mjs",
     "program:build-test-sbf": "node scripts/build-hakky-test-sbf.mjs",
     "program:test-test-sbf": "node scripts/test-hakky-test-sbf.mjs",
     "program:build-candidate": "node scripts/build-hakky-sbf.mjs --lane candidate-sbf",
@@ -1265,10 +1296,11 @@ allocation, or missing receipt fails the task.
 
 ```powershell
 rtk npm run program:test-native
+rtk npm run program:vendor-dependencies
 rtk npm run program:build-test-sbf
 rtk npm run program:test-test-sbf
 rtk npm run program:fuzz
-rtk node --test test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
+rtk node --test test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/cargo-vendor.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --workspace --locked
 ```
 
@@ -1279,7 +1311,7 @@ is blocked; do not weaken a pin or lane boundary.
 - [ ] **Step 6: Commit**
 
 ```powershell
-rtk git add .gitignore Cargo.toml Cargo.lock Containerfile.fuzz package.json programs/hakky-market/fuzz programs/hakky-market-sbf-tests scripts/build-hakky-sbf.mjs scripts/inspect-hakky-program.mjs scripts/run-hakky-fuzz.mjs scripts/test-hakky-native.mjs scripts/test-hakky-test-sbf.mjs scripts/test-hakky-candidate-sbf.mjs test-support/program-surface-fixtures.mjs test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
+rtk git add .gitignore Cargo.toml Cargo.lock Containerfile.fuzz package.json programs/hakky-market/fuzz programs/hakky-market-sbf-tests scripts/build-hakky-sbf.mjs scripts/materialize-hakky-cargo-vendor.mjs scripts/inspect-hakky-program.mjs scripts/run-hakky-fuzz.mjs scripts/test-hakky-native.mjs scripts/test-hakky-test-sbf.mjs scripts/test-hakky-candidate-sbf.mjs test-support/program-surface-fixtures.mjs test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/cargo-vendor.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
 rtk git commit -m "program: gate exact SBF surface and size"
 ```
 
@@ -1287,30 +1319,36 @@ rtk git commit -m "program: gate exact SBF surface and size"
 
 ```powershell
 rtk git status --porcelain
+rtk npm run program:vendor-dependencies
 rtk npm run program:build-candidate
 rtk npm run program:test-candidate-sbf
 rtk npm run program:inspect-candidate
 ```
 
-Expected: status is empty before the build; the exact candidate passes
-nonce-free current-runtime checks plus the restricted offline lifecycle when
-the private nonce is available; the binary is at most 120,000 bytes; and
-inspection derives `ok:true` from raw evidence. Candidate receipts are ignored
-artifacts and must leave the tree clean. Missing SBF tools, an unavailable
-private nonce, or an oversized binary blocks completion without weakening the
-pin, privacy boundary, or ceiling.
+Expected: status is empty before dependency materialization; the vendor bundle
+validates against its complete-tree manifest and exact lockfile; the exact
+candidate build runs offline with network disabled and forwarded Cargo
+`--locked`; the candidate passes nonce-free
+current-runtime checks plus the restricted offline lifecycle when the private
+nonce is available; the binary is at most 120,000 bytes; and inspection derives
+`ok:true` from raw evidence. Candidate/vendor receipts and dependency bytes are
+ignored artifacts and must leave the tree clean. Missing SBF tools, an
+unavailable private nonce, a dependency absent from the sealed vendor bundle,
+or an oversized binary blocks completion without weakening the pin, privacy
+boundary, hermeticity, or ceiling.
 
 ## Program Plan Completion Gate
 
 ```powershell
 rtk npm run program:test-native
+rtk npm run program:vendor-dependencies
 rtk npm run program:build-test-sbf
 rtk npm run program:test-test-sbf
 rtk npm run program:build-candidate
 rtk npm run program:test-candidate-sbf
 rtk npm run program:inspect-candidate
 rtk npm run program:fuzz
-rtk node --test test/release-config.test.mjs test/curve-pool-vectors.test.mjs test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
+rtk node --test test/release-config.test.mjs test/curve-pool-vectors.test.mjs test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/cargo-vendor.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo fmt --all --check
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --workspace --locked
@@ -1319,9 +1357,12 @@ rtk git status --short
 ```
 
 Expected: clean source, exact release configuration, all Rust/Node tests pass,
-one closed entrypoint, exact derived tags/CPIs, SBF no larger than 120,000
-bytes, complete bounded fuzz receipts, and no secret, test identity, or binary
-artifact tracked in a candidate/public path. This completes the local program
-implementation only; actual-Metaplex-binary hostile-prefund proof, exact-built
-SBF ProgramTest lifecycle, reproducible builds, audits, devnet, cost, metadata,
-browser, and mainnet gates remain owned by the later plans.
+one closed entrypoint, exact derived tags/CPIs, the candidate build consumes
+the lock-bound vendor tree with Docker networking disabled and Cargo
+`--locked`, SBF is no larger than 120,000 bytes, bounded fuzz receipts are
+complete, and no secret, dependency bundle, test identity, or binary artifact
+is tracked in a candidate/public path. This completes the local program
+implementation only; two-build reproduction, actual-Metaplex-binary
+hostile-prefund proof, exact-built SBF ProgramTest lifecycle, independent
+reproduction/audits, devnet, cost, metadata, browser, and mainnet gates remain
+owned by the later plans.

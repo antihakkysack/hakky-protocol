@@ -1,8 +1,8 @@
 # HAKKY Immutable Curve-to-Pool Design
 
 Date: 2026-07-24
-Status: architecture and Task 2 amendment approved by the user; amended
-controlling written specification pending user review
+Status: architecture and Task 2 amendment approved by the user; controlling
+written specification approved
 
 ## 1. Decision and precedence
 
