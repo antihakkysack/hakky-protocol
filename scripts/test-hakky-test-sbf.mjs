@@ -1,10 +1,13 @@
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { validateVendorBundle } from "./materialize-hakky-cargo-vendor.mjs";
+import {
+  planVendorMaterialization,
+  validateVendorBundle,
+} from "./materialize-hakky-cargo-vendor.mjs";
 import {
   assertBuildRecord,
   serializeBuildRecord,
@@ -16,25 +19,40 @@ const RUST_IMAGE =
 const RUST_HOST_TOOLCHAIN = "1.95.0";
 const VENDOR_RELATIVE = "artifacts/build/dependencies/vendor";
 const CARGO_HOME_RELATIVE = "artifacts/build/dependencies/cargo-home";
+const CANDIDATE_TEST =
+  "exact_candidate_sbf_executes_reviewed_decoder_surface";
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+export function normalizeCandidateBuildDirectory(value) {
+  if (
+    typeof value !== "string" ||
+    !/^artifacts\/build\/candidate\/[a-z0-9][a-z0-9-]*$/u.test(value)
+  ) {
+    throw new Error(
+      "candidate runtime requires --build artifacts/build/candidate/<id>",
+    );
+  }
+  return value;
+}
+
 export async function verifySbfReceipt(
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   lane = "test-sbf",
+  buildDirectory,
 ) {
   if (lane !== "test-sbf" && lane !== "candidate-sbf") {
     throw new Error("runtime lane must be test-sbf or candidate-sbf");
   }
-  const directory = path.join(
+  const normalizedBuildDirectory =
+    lane === "candidate-sbf"
+      ? normalizeCandidateBuildDirectory(buildDirectory)
+      : "artifacts/build/test-sbf";
+  const directory = path.resolve(
     repositoryRoot,
-    "artifacts",
-    "build",
-    ...(lane === "candidate-sbf"
-      ? ["candidate", "local-a"]
-      : ["test-sbf"]),
+    ...normalizedBuildDirectory.split("/"),
   );
   const binaryPath = path.join(directory, "hakky_market.so");
   const receiptPath = path.join(
@@ -49,10 +67,7 @@ export async function verifySbfReceipt(
     if (!Buffer.from(receiptBytes).equals(serializeBuildRecord(receipt))) {
       throw new Error("candidate-SBF build record is not canonical");
     }
-    if (
-      receipt.buildDirectory !==
-      "artifacts/build/candidate/local-a"
-    ) {
+    if (receipt.buildDirectory !== normalizedBuildDirectory) {
       throw new Error("candidate-SBF build record has the wrong directory");
     }
     if (
@@ -67,6 +82,7 @@ export async function verifySbfReceipt(
       binaryPath,
       directory,
       receipt,
+      buildRecordSha256: sha256(receiptBytes),
       binarySha256: receipt.executable.sha256,
     };
   }
@@ -98,14 +114,13 @@ export function planExactSbfRun({
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   lane = "test-sbf",
 } = {}) {
-  if (lane !== "test-sbf" && lane !== "candidate-sbf") {
-    throw new Error("runtime lane must be test-sbf or candidate-sbf");
+  if (lane !== "test-sbf") {
+    throw new Error(
+      "planExactSbfRun is test-SBF only; use planCandidateSbfRun for candidate-SBF",
+    );
   }
   const root = path.resolve(repositoryRoot);
-  const containerBinary =
-    lane === "candidate-sbf"
-      ? "/workspace/artifacts/build/candidate/local-a/hakky_market.so"
-      : "/workspace/artifacts/build/test-sbf/hakky_market.so";
+  const containerBinary = "/workspace/artifacts/build/test-sbf/hakky_market.so";
   const cargoArguments = [
     "cargo",
     "test",
@@ -114,15 +129,11 @@ export function planExactSbfRun({
     "-p",
     "hakky-market",
   ];
-  if (lane === "test-sbf") {
-    cargoArguments.push("--features", "test-release-config");
-  }
+  cargoArguments.push("--features", "test-release-config");
   cargoArguments.push(
     "--test",
     "sbf_runtime",
-    lane === "test-sbf"
-      ? "exact_sbf_binary_executes_reviewed_decoder_and_curve_lifecycle"
-      : "exact_candidate_sbf_executes_reviewed_decoder_surface",
+    "exact_sbf_binary_executes_reviewed_decoder_and_curve_lifecycle",
     "--",
     "--ignored",
     "--exact",
@@ -156,13 +167,255 @@ export function planExactSbfRun({
   ];
 }
 
+export function planCandidateSbfRun({
+  repositoryRoot = DEFAULT_REPOSITORY_ROOT,
+  buildDirectory,
+  sourceCommit,
+  binarySha256,
+  runId,
+} = {}) {
+  const root = path.resolve(repositoryRoot);
+  const normalizedBuildDirectory =
+    normalizeCandidateBuildDirectory(buildDirectory);
+  if (!/^[0-9a-f]{40}$/u.test(sourceCommit || "")) {
+    throw new Error("candidate runtime source commit must be a lowercase Git SHA");
+  }
+  if (!/^[0-9a-f]{64}$/u.test(binarySha256 || "")) {
+    throw new Error("candidate runtime binary hash must be lowercase SHA-256");
+  }
+  if (!/^[a-z0-9][a-z0-9-]{0,31}$/u.test(runId || "")) {
+    throw new Error("candidate runtime run ID is invalid");
+  }
+
+  const absoluteBuildDirectory = path.resolve(
+    root,
+    ...normalizedBuildDirectory.split("/"),
+  );
+  const runtimeDirectory = path.join(absoluteBuildDirectory, "runtime");
+  const sourceArchivePath = path.join(runtimeDirectory, "source.tar");
+  const containerName =
+    `hakky-candidate-${binarySha256.slice(0, 12)}-${runId}`;
+  const cargoArguments = [
+    "cargo",
+    "test",
+    "--offline",
+    "--locked",
+    "-p",
+    "hakky-market",
+    "--test",
+    "sbf_runtime",
+    CANDIDATE_TEST,
+    "--",
+    "--ignored",
+    "--exact",
+    "--nocapture",
+  ];
+
+  return {
+    containerName,
+    runtimeDirectory,
+    sourceArchivePath,
+    archive: [
+      "rtk",
+      "git",
+      "archive",
+      "--format=tar",
+      `--output=${sourceArchivePath}`,
+      sourceCommit,
+      "--",
+      "Cargo.toml",
+      "Cargo.lock",
+      ".cargo",
+      "programs/hakky-market",
+    ],
+    create: [
+      "rtk",
+      "docker",
+      "create",
+      "--name",
+      containerName,
+      "--network",
+      "none",
+      "-e",
+      `RUSTUP_TOOLCHAIN=${RUST_HOST_TOOLCHAIN}`,
+      "-e",
+      "CARGO_HOME=/cargo-home",
+      "-e",
+      "CARGO_TARGET_DIR=/tmp/hakky-host-target",
+      "-e",
+      "HAKKY_SBF_PATH=/candidate/hakky_market.so",
+      "-w",
+      "/workspace",
+      RUST_IMAGE,
+      "sleep",
+      "infinity",
+    ],
+    start: ["rtk", "docker", "start", containerName],
+    prepare: [
+      "rtk",
+      "docker",
+      "exec",
+      containerName,
+      "sh",
+      "-lc",
+      "mkdir -p /workspace /vendor /cargo-home /candidate",
+    ],
+    copy: [
+      [
+        "rtk",
+        "docker",
+        "cp",
+        sourceArchivePath,
+        `${containerName}:/tmp/source.tar`,
+      ],
+      [
+        "rtk",
+        "docker",
+        "cp",
+        `${path.join(root, VENDOR_RELATIVE)}${path.sep}.`,
+        `${containerName}:/vendor`,
+      ],
+      [
+        "rtk",
+        "docker",
+        "cp",
+        `${path.join(root, CARGO_HOME_RELATIVE)}${path.sep}.`,
+        `${containerName}:/cargo-home`,
+      ],
+      [
+        "rtk",
+        "docker",
+        "cp",
+        path.join(absoluteBuildDirectory, "hakky_market.so"),
+        `${containerName}:/candidate/hakky_market.so`,
+      ],
+    ],
+    extract: [
+      "rtk",
+      "docker",
+      "exec",
+      containerName,
+      "tar",
+      "-xf",
+      "/tmp/source.tar",
+      "-C",
+      "/workspace",
+    ],
+    test: ["rtk", "docker", "exec", containerName, ...cargoArguments],
+    remove: ["rtk", "docker", "rm", "--force", containerName],
+  };
+}
+
+function executePlannedCommand(command, { root, exec }) {
+  const [executable, ...args] = command;
+  return exec(executable, args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: "inherit",
+  });
+}
+
+async function assertCandidateVendorBinding(root, buildRecord) {
+  const vendorManifest = await validateVendorBundle(root);
+  const vendorPlan = planVendorMaterialization(root);
+  const manifestBytes = await readFile(vendorPlan.manifestPath);
+  const expected = buildRecord.dependencies;
+  if (
+    expected.cargoLockSha256 !== vendorManifest.cargoLockSha256 ||
+    expected.vendorManifestSha256 !== sha256(manifestBytes) ||
+    expected.vendorTreeSha256 !== vendorManifest.treeSha256 ||
+    expected.vendorSourceConfigSha256 !== vendorManifest.sourceConfigSha256
+  ) {
+    throw new Error("candidate-SBF vendor bundle does not match its build record");
+  }
+}
+
 export async function runExactSbf({
   repositoryRoot = DEFAULT_REPOSITORY_ROOT,
   lane = "test-sbf",
+  buildDirectory,
   exec = execFileSync,
+  now = () => new Date(),
+  runId = randomUUID().slice(0, 8),
 } = {}) {
   const root = path.resolve(repositoryRoot);
-  const { binarySha256, directory } = await verifySbfReceipt(root, lane);
+  const verified = await verifySbfReceipt(
+    root,
+    lane,
+    lane === "candidate-sbf" ? buildDirectory : undefined,
+  );
+  const { binarySha256, directory } = verified;
+  const startedAt = now().toISOString();
+
+  if (lane === "candidate-sbf") {
+    await assertCandidateVendorBinding(root, verified.receipt);
+    const plan = planCandidateSbfRun({
+      repositoryRoot: root,
+      buildDirectory,
+      sourceCommit: verified.receipt.source.commit,
+      binarySha256,
+      runId,
+    });
+    await mkdir(plan.runtimeDirectory, { recursive: true });
+    executePlannedCommand(plan.archive, { root, exec });
+    let containerCreated = false;
+    try {
+      executePlannedCommand(plan.create, { root, exec });
+      containerCreated = true;
+      executePlannedCommand(plan.start, { root, exec });
+      executePlannedCommand(plan.prepare, { root, exec });
+      for (const command of plan.copy) {
+        executePlannedCommand(command, { root, exec });
+      }
+      executePlannedCommand(plan.extract, { root, exec });
+      executePlannedCommand(plan.test, { root, exec });
+    } finally {
+      if (containerCreated) {
+        executePlannedCommand(plan.remove, { root, exec });
+      }
+      await rm(plan.sourceArchivePath, { force: true });
+    }
+
+    const result = {
+      schemaVersion: "hakky-candidate-runtime-receipt-v1",
+      lane,
+      buildDirectory: normalizeCandidateBuildDirectory(buildDirectory),
+      sourceCommit: verified.receipt.source.commit,
+      buildRecordSha256: verified.buildRecordSha256,
+      binary: {
+        byteLength: verified.receipt.executable.byteLength,
+        sha256: binarySha256,
+      },
+      container: {
+        image: RUST_IMAGE,
+        network: "none",
+        repositoryBindMounted: false,
+        vendorBindMounted: false,
+        cargoHomeBindMounted: false,
+      },
+      test: {
+        name: CANDIDATE_TEST,
+        rustToolchain: RUST_HOST_TOOLCHAIN,
+        cargoOffline: true,
+        cargoLocked: true,
+        nativeProcessorFallback: false,
+        preferBpf: true,
+      },
+      acceptedInstructionTags: [0, 1, 2],
+      probedFirstBytes: 256,
+      malformedLengthsRejected: true,
+      startedAt,
+      completedAt: now().toISOString(),
+      mainnetActionsAuthorized: false,
+    };
+    await writeFile(
+      path.join(directory, "runtime-receipt.json"),
+      `${JSON.stringify(result, null, 2)}\n`,
+      "utf8",
+    );
+    return result;
+  }
+
   await validateVendorBundle(root);
   const [executable, ...args] = planExactSbfRun({ repositoryRoot: root, lane });
   exec(executable, args, { cwd: root, stdio: "inherit" });
@@ -175,8 +428,8 @@ export async function runExactSbf({
     acceptedInstructionTags: [0, 1, 2],
     probedFirstBytes: 256,
     malformedLengthsRejected: true,
-    immutableInitializationPassed: lane === "test-sbf",
-    curveBuySellRoundTrip: lane === "test-sbf",
+    immutableInitializationPassed: true,
+    curveBuySellRoundTrip: true,
   };
   await writeFile(
     path.join(directory, "runtime-receipt.json"),
