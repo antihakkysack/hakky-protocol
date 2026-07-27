@@ -18,23 +18,30 @@ publication, or social post.
 - Digest-pinned build image:
   `solanafoundation/solana-verifiable-build:4.0.0@sha256:0b4e3716fad9ca4b4aac3e3f977f43aad93a18c22296c0c0f44fc22e644bdd68`
 - Reproduced clean source commit:
-  `cde1611be0bf5683a923e601f00d32dafe32b3ef`
+  `48af8f0fd09f194672afc707a37e3c7b881977a3`
 - Local build records:
-  `artifacts/build/candidate/local-a/build-record.json` and
-  `artifacts/build/candidate/local-b/build-record.json`
+  `artifacts/build/candidate/final-a/build-record.json` and
+  `artifacts/build/candidate/final-b/build-record.json`
 - Byte-comparison receipt:
   `artifacts/build/candidate/reproduction-v1.json`
+- Exact candidate runtime receipt:
+  `artifacts/build/candidate/final-a/runtime-receipt.json`
+- Machine no-mainnet report:
+  `artifacts/readiness/no-mainnet-v1.json`
 
 The two local builds are byte-identical. They use separate clean directories
 under one local controller identity; they are not an independent third-party
-reproduction. Later repository-only tooling commits do not change the recorded
-program source hash, but a final reviewed build from the final release commit
-is still required.
+reproduction. The selected `final-a` binary passed the exact candidate
+ProgramTest decoder surface in a pinned Rust 1.95.0 container with networking
+disabled, no native processor fallback, and no repository, vendor, or Cargo
+home bind mount. Later repository-only tooling commits do not change the
+recorded program source hash, but a final reviewed build from the final release
+commit is still required.
 
 ## Current creator-cost evidence
 
 The read-only finalized devnet snapshot collected at
-`2026-07-27T12:11:03.580Z` measured:
+`2026-07-27T14:11:19.104Z` measured:
 
 - permanent rent: `767242560` lamports;
 - deployment writes: `120`;
@@ -44,7 +51,7 @@ The read-only finalized devnet snapshot collected at
 
 That receipt was freshness-qualified for fifteen minutes and is now historical.
 Run `npm run cost:verify -- --build-record
-artifacts/build/candidate/local-a/build-record.json --network devnet` again
+artifacts/build/candidate/final-a/build-record.json --network devnet` again
 immediately before any cost review. A fresh result above the cap is a stop
 condition.
 
@@ -59,6 +66,8 @@ condition.
 - [x] Token image and metadata bytes are fixed locally.
 - [x] Native Rust, exact SBF, clippy, formatting, size, surface, and fuzz
   checks have successful local evidence for the recorded candidate hash.
+- [x] The exact `final-a` candidate runtime passed all 256 first-byte decoder
+  probes plus malformed-length rejection with no host bind mounts.
 - [x] Two clean local candidate builds are byte-identical.
 - [x] The one-SOL prefix model covers every deployment-write failure,
   abandoned buffer/program, initialization failure, and success path.
@@ -66,6 +75,8 @@ condition.
   gateways, bounded streamed bytes, and no wallet/payment input.
 - [ ] A final full-suite receipt must pass against the final release commit.
 - [ ] A third authenticated builder must reproduce the final `.so` bytes.
+- [x] Candidate-bound request scopes are prepared for the third reproduction,
+  independent Solana security audit, and independent economic/math review.
 - [ ] The reviewed Metaplex executable must be bound to its deployed program
   and exercised in the exact-SBF prefund lane.
 - [ ] The full immutable deploy/finalize/initialize/curve/pool lifecycle must
@@ -119,6 +130,9 @@ free-devnet rehearsal.
 
 **NO-GO for mainnet effects and public launch.**
 
-Local preparation is materially advanced, but the unchecked technical,
-independent-review, upload/readback, devnet, final-build, publication, and
-action-time approval gates are mandatory.
+The machine report currently passes program binding, exact candidate runtime,
+binary size, two local reproductions, desktop/mobile browser QA, and operator
+handoff. It records the cost snapshot as stale and keeps the final full-suite
+receipt, independent evidence, actual-Metaplex prefund proof, devnet lifecycle,
+IPFS, metadata readback, finding resolution/final rebuild, publication, and
+action-time approvals open. These gates are mandatory.

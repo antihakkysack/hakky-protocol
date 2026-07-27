@@ -52,6 +52,10 @@ Each artifact must use finalized mainnet-beta evidence, exact raw-account and
 transaction hashes, closed schemas, and append-only publication semantics.
 Devnet artifacts are rehearsal evidence only.
 
+The ignored `artifacts/readiness/no-mainnet-v1.json` report is an operator
+audit, not a canonical proof and never authorizes a transaction or
+publication. It must not be copied into this directory.
+
 ## Metadata boundary
 
 The only currently authorized provider upload input is the exact

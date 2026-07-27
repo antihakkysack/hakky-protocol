@@ -68,6 +68,19 @@ Each action remains a separate gate:
 Approval of the website design is not approval to push, deploy, upload
 metadata, connect a wallet, sign, send, initialize, or spend.
 
+## Machine no-mainnet audit
+
+Generate the current ignored readiness report from raw artifacts only:
+
+```powershell
+rtk npm run readiness:no-mainnet -- --build artifacts/build/candidate/final-a --evidence-root artifacts/independent-evidence --output artifacts/readiness/no-mainnet-v1.json
+```
+
+The evaluator accepts no approval, authorization, wallet, transaction, or
+signature input. `readyForMainnetEffects` and `mainnetActionsAuthorized` are
+always false. Even a future technically complete report can only request the
+three separate action-time approvals; it cannot consume them.
+
 ## Stop conditions
 
 Stop before any mainnet action if:

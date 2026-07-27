@@ -44,6 +44,15 @@ HakkyAgent publishes only HAKKY facts that survive deterministic checks and
 canonical readback. It does not audit arbitrary tokens, verify every Solana
 transaction, detect every scam, predict price, or guarantee safety.
 
+The local no-mainnet evaluator derives its result from raw candidate artifacts:
+
+```powershell
+rtk npm run readiness:no-mainnet -- --build artifacts/build/candidate/final-a --evidence-root artifacts/independent-evidence --output artifacts/readiness/no-mainnet-v1.json
+```
+
+That report cannot accept an approval or authorize an effect. Its current
+decision remains `NO-GO`.
+
 ## Project documents
 
 - [Token policy](docs/TOKEN.md)
