@@ -619,16 +619,21 @@ test("legacy contracts and services ignore remnants are not tracked", async () =
 test("active public documents describe only the immutable prelaunch pivot", async () => {
   const files = [
     "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "docs/TOKEN.md",
     "docs/LAUNCH.md",
+    "proof/README.md",
     "web/README.md",
+    "launch/README.md",
+    "launch/content-calendar.md",
     "launch/prelaunch-post.md",
   ];
   const sources = await Promise.all(files.map(file => readFile(file, "utf8")));
   for (const [index, source] of sources.entries()) {
     assert.doesNotMatch(
       source,
-      /LaunchLab|Raydium|Pump\.fun|post-graduation/iu,
+      /LaunchLab|Raydium|Pump\.fun|graduat(?:e|ed|ion)|migration|PlatformConfig|Burn & Earn|LP disposition/iu,
       `${files[index]} retains the retired public launch route`,
     );
   }

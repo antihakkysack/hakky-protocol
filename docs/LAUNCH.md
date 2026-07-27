@@ -32,6 +32,11 @@ Initialization must match all of these values:
 - no creator or protocol fee destination; and
 - creator-funded mainnet debit at or below 1.00 SOL.
 
+At the initial state, a curve buy needs at least 1,334 HAKKY base units to move
+one lamport, an initial pool sell needs 85 base units to return one lamport,
+and fee rounding makes one-unit pool inputs ineffective. These thresholds are
+deterministic rounding disclosures, not price, liquidity, or return promises.
+
 The mint and freeze authorities must be null after initialization. The exact
 program binary must be reproducibly reviewed, deployed, and finalized with a
 null upgrade authority before market initialization.
@@ -54,8 +59,9 @@ Each action remains a separate gate:
    curve, and permanent-pool seed through the reviewed program.
 9. Read back every address, transaction, economic value, authority, vault,
    reserve, and proof artifact at finalized commitment.
-10. Only after canonical verification, obtain separate approval to publish the
-    site, official addresses, and social announcement.
+10. Only after canonical verification, obtain separate approval to publish the site.
+11. After public site readback passes, obtain another separate approval to publish official addresses.
+12. After official-address readback passes, obtain another separate approval for the social announcement.
 
 Approval of the website design is not approval to push, deploy, upload
 metadata, connect a wallet, sign, send, initialize, or spend.
@@ -98,10 +104,31 @@ The proof terminal may leave prelaunch only after finalized evidence binds:
 Unavailable or incomplete evidence must fail closed: no official address,
 wallet action, or trading destination is shown.
 
+## Public lifecycle and schemas
+
+The public lifecycle is `prelaunch -> curve-live -> pool-live`. Proof
+availability is independently `verified` or `unavailable`.
+A stage must never regress.
+Incomplete evidence may produce only the same-stage `unavailable` record with no official address or trading destination.
+
+The only canonical production proof paths are:
+
+- `proof/mainnet-program.json`;
+- `proof/mainnet-market.json`; and
+- `proof/mainnet-pool.json`.
+
+The public launch record uses strict schema version `3`.
+The canonical program, market, and pool artifacts each use strict schema version `1`.
+
 ## Publication boundary
 
-Website source preparation may be completed locally. Pushing the branch,
-merging it, deploying the public site, publishing addresses, and posting social
-copy require explicit approval after the final diff and verification report are
-reviewed. Every Solana mutation requires a separate approval naming the exact
-action and cost cap.
+Website source preparation may be completed locally. Obtain separate
+action-time approval to push an exact reviewed commit, separate action-time
+approval to create or update a pull request, and an approval that expressly
+names both merge and automatic Pages deployment. After deployment, read back
+the exact site at `1440 x 1000` and `390 x 844`.
+
+Publishing addresses and social copy is a later gate. Each X profile save,
+post, or pin needs separate approval; separate approval to post or pin on X is
+never implied by website approval. Every Solana mutation requires its own
+approval naming the exact action, transaction, and maximum debit.

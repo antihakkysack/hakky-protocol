@@ -1,66 +1,59 @@
 # Security
 
-## Scope
+## Current status
 
-Security reports may cover the static website, launch manifest, read-only
-verification scripts, dependency integrity, or impersonation of HAKKY and
-HakkyAgent.
+HAKKY is prelaunch. No official program, mint, market, pool, transaction, or
+trading destination is published.
 
-HAKKY does not deploy a custom smart contract. The token uses the Solana token
-program and Raydium LaunchLab. This repository has not received a third-party
-security audit.
+The project is building a custom immutable Solana curve-to-pool program. Local
+tests and internal reviews are not a third-party security audit. Independent
+qualified Solana security review, independent economic and math review, and a
+third independent byte-identical build remain mandatory before mainnet launch.
 
 ## Reporting
 
-Do not publish an exploitable issue before it can be reviewed. Open a GitHub
-security advisory for code or dependency issues. For an impersonation report,
-include the public URL, account handle, and screenshots in a private repository
-security report.
+Open a private GitHub security advisory for code, dependency, protocol, or
+impersonation issues. Include only public addresses, URLs, transaction
+signatures, screenshots, and reproducible steps.
 
-Never send seed phrases, private keys, wallet files, API tokens, or passwords.
+Never send seed phrases, private keys, wallet files, private release nonces,
+authenticated RPC URLs, API tokens, or passwords.
 
-## Action-time approval boundaries
+## Immutable launch requirements
 
-Evidence is never approval. Legal acceptance, wallet connection, each metadata
-upload, any metadata-payment debit, the initial creation signature, the exact
-maximum creation debit, every recovery signature and spend, every graduation
-signature and spend, a push, pull-request creation or update, a merge and its
-automatic Pages deployment, a GitHub metadata or custom-domain save, and each X
-profile save, post, or pin are separate external effects requiring action-time
-approval.
+The reviewed production design requires:
 
-One creation approval may cover both the signature and maximum debit only when
-it expressly names the exact transaction hash and exact maximum lamports. One
-pre-merge approval may cover both merge and automatic Pages deployment only
-when it separately names both effects for the exact commit. No approval carries
-forward to a changed transaction, SHA, cost, account, destination, or later
-operation.
+- exactly 10,000,000 HAKKY with 8,000,000 HAKKY in the curve,
+  2,000,000 HAKKY in the initial permanent-pool seed, and 0 HAKKY allocated to
+  the creator or team;
+- 0% curve fee and an exact 0.25% pool-retained fee;
+- null mint and freeze authorities after initialization;
+- null upgrade authority before initialization;
+- no LP token, privileged withdrawal, rescue, close, pause, update, fee
+  recipient, or governance route; and
+- every reachable creator-funded mainnet prefix at or below 1.00 SOL.
 
-The ignored mainnet session receipt stores only public evidence. It cannot
-approve, sign, send, retry, or authorize recovery. A wallet or RPC display
-failure after submission remains pending until finalized readback proves the
-outcome.
+Stop if the reviewed binary, program identity, account order, signer, amount,
+expiry, authority, metadata bytes, fixed economics, or finalized readback
+differs. Failed or ambiguous submission is never permission to retry or create
+a replacement token.
 
-## Launch integrity stops
+## Evidence and approval boundaries
 
-The public lifecycle is `prelaunch` -> `curve-live` -> `graduated`. During
-`curve-live`, mint authority must be the exact LaunchLab PDA mint authority;
-after verified graduation it must be null. Creator balance is a finalized,
-time-qualified observation. The 24 SOL configured minimum is not the observed
-graduation balance.
+Evidence is never approval. Devnet rehearsal, simulation, a green readiness
+report, or an approval design does not authorize a mainnet action.
 
-Stop before signing or publication if PlatformConfig remains mutable in a way
-that can alter fees or rights, the exact raw unsigned transaction is absent,
-atomic immutable metadata cannot be proved, or the migration has any
-non-full-lock LP disposition. CPMM Burn & Earn permanent lock is not an SPL
-burn; each migration must use its own source-covered evidence union.
+Program deployment, authority finalization, market initialization, each recovery
+transaction, metadata upload, wallet connection, signature, transaction send,
+SOL debit, branch push, pull-request creation or update, merge, automatic Pages
+deployment, domain change, and each social save, post, or pin require separate
+action-time approval naming the exact effect and cost where applicable.
 
-Keep `@solana/web3.js@1.98.4`, `@solana/spl-token@0.4.15`, and
-`entities@8.0.0` pinned. Do not run `npm audit fix --force`. Recheck the two
-documented upstream exceptions by 2026-08-23.
+No approval carries forward after a transaction, hash, address, destination,
+cost, account set, or commit changes.
 
 ## Official-address rule
 
-Before launch, there is no official HAKKY mint. After launch, treat the mint on
-`https://hakky.xyz` as official only when its Raydium and Solscan proof links
-agree with the on-chain verifier output.
+Before verified publication, there is no official HAKKY address. After launch,
+accept an address only when `https://hakky.xyz` and the canonical finalized
+program, market, and pool proof artifacts agree exactly.

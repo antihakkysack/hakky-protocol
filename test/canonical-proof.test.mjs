@@ -12,6 +12,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   buildCurveLiveRecord,
+  loadCurveProofArtifacts,
   validateCurveProofBinding,
 } from "../src/canonical-proof.mjs";
 import { checkSite } from "../scripts/check-site.mjs";
@@ -42,30 +43,57 @@ async function siteRoot() {
   return root;
 }
 
-test("prelaunch and unavailable states require no canonical artifact reads", async () => {
-  const current = await checkSite({ root: process.cwd() });
-  assert.equal(current.ok, true);
-  assert.deepEqual(current.canonicalProofs, {
-    mintArtifact: null,
-    launchlabArtifact: null,
-    graduationArtifact: null,
-  });
-
+test("immutable prelaunch never reads retired canonical LaunchLab artifacts", async () => {
   const root = await siteRoot();
+  await mkdir(path.join(root, "proof"));
   await writeFile(
-    path.join(root, "web", "data", "launch.json"),
-    bytes(createCurveLiveRecordV2({ availability: "unavailable" })),
+    path.join(root, "proof", "mainnet-mint.json"),
+    bytes(createCanonicalMintProofV2()),
   );
-  const unavailable = await checkSite({ root });
-  assert.equal(unavailable.ok, true);
-  assert.deepEqual(unavailable.canonicalProofs, {
-    mintArtifact: null,
-    launchlabArtifact: null,
-    graduationArtifact: null,
+  await writeFile(
+    path.join(root, "proof", "mainnet-launchlab.json"),
+    bytes(createCanonicalLaunchlabProofV2()),
+  );
+
+  const result = await checkSite({ root });
+
+  assert.deepEqual(result, {
+    ok: true,
+    missing: [],
+    issues: [],
+    safetyIssues: [],
   });
+  assert.equal(Object.hasOwn(result, "canonicalProofs"), false);
+  assert.equal(Object.hasOwn(result, "canonicalIssues"), false);
 });
 
-test("verified curve site is bound to exact canonical artifact bytes", async () => {
+test("retired v2 curve records cannot reactivate the immutable public site", async () => {
+  const root = await siteRoot();
+  await mkdir(path.join(root, "proof"));
+  await writeFile(
+    path.join(root, "web", "data", "launch.json"),
+    bytes(createCurveLiveRecordV2({ availability: "verified" })),
+  );
+  await writeFile(
+    path.join(root, "proof", "mainnet-mint.json"),
+    bytes(createCanonicalMintProofV2()),
+  );
+  await writeFile(
+    path.join(root, "proof", "mainnet-launchlab.json"),
+    bytes(createCanonicalLaunchlabProofV2()),
+  );
+
+  const result = await checkSite({ root });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.issues.some((issue) => (
+    issue.startsWith("web/data/launch.json:")
+  )));
+  assert.equal(Object.hasOwn(result, "canonicalProofs"), false);
+  assert.equal(Object.hasOwn(result, "canonicalIssues"), false);
+});
+
+test("retired curve builder remains exactly artifact-bound until deletion", async () => {
   const root = await siteRoot();
   await mkdir(path.join(root, "proof"));
   const mint = createCanonicalMintProofV2();
@@ -78,22 +106,25 @@ test("verified curve site is bound to exact canonical artifact bytes", async () 
     launchlabArtifact,
     publishedAt: PUBLISHED_AT,
   });
-  await writeFile(path.join(root, "web", "data", "launch.json"), bytes(record));
-  await writeFile(path.join(root, mintArtifact.path), bytes(mint));
-  await writeFile(path.join(root, launchlabArtifact.path), bytes(launchlab));
 
-  const verified = await checkSite({ root });
-  assert.equal(verified.ok, true);
   assert.deepEqual(validateCurveProofBinding({
     record,
-    mintArtifact: verified.canonicalProofs.mintArtifact,
-    launchlabArtifact: verified.canonicalProofs.launchlabArtifact,
+    mintArtifact,
+    launchlabArtifact,
+  }), []);
+
+  await writeFile(path.join(root, mintArtifact.path), bytes(mint));
+  await writeFile(path.join(root, launchlabArtifact.path), bytes(launchlab));
+  const loaded = await loadCurveProofArtifacts({ root });
+  assert.deepEqual(validateCurveProofBinding({
+    record,
+    mintArtifact: loaded.mintArtifact,
+    launchlabArtifact: loaded.launchlabArtifact,
   }), []);
 
   await rm(path.join(root, launchlabArtifact.path));
-  const missing = await checkSite({ root });
-  assert.equal(missing.ok, false);
-  assert.ok(missing.canonicalIssues.some((issue) => (
-    issue === "canonical-artifact-read-failed: proof/mainnet-launchlab.json"
-  )));
+  await assert.rejects(
+    loadCurveProofArtifacts({ root }),
+    /canonical-artifact-read-failed: proof\/mainnet-launchlab\.json/u,
+  );
 });

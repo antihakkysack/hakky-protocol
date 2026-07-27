@@ -155,13 +155,13 @@ test("claim boundary preserves an explicit local negation for every prohibited c
   }
 });
 
-test("prelaunch README identifies policy values as planned commitments", async () => {
+test("prelaunch README identifies policy values as planned fixed rules", async () => {
   const readme = await readFile("README.md", "utf8");
 
-  assert.match(readme, /## Planned fair-launch commitments/);
+  assert.match(readme, /## Planned fixed rules/);
   assert.match(
     readme,
-    /Until canonical proof is published, these policy values are planned commitments:/
+    /These values are requirements, not verified live facts:/
   );
 });
 
