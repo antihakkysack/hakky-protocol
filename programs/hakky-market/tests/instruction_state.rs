@@ -238,6 +238,17 @@ fn state_fixture_hashes_and_phase_rules_are_frozen() {
 }
 
 #[test]
+fn invalid_phase_has_its_frozen_error_before_phase_specific_state_rules() {
+    let mut state = MarketStateV1::initial_fixture();
+    state.phase = 2;
+    assert_eq!(state.validate(), Err(custom(HakkyErrorV1::InvalidPhase)));
+    assert_eq!(
+        MarketStateV1::decode(&state.encode()),
+        Err(custom(HakkyErrorV1::InvalidPhase))
+    );
+}
+
+#[test]
 fn every_state_invariant_branch_returns_invalid_market_state() {
     let curve_initial = MarketStateV1::initial_fixture();
     let mut pool_initial = curve_initial.clone();

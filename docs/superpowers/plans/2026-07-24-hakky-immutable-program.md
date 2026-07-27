@@ -732,7 +732,10 @@ writes canonical one-line JSON plus final LF for endpoints, dust/rounding
 boundaries, overflow boundaries, and 10,000 cases. A detached lowercase
 hex `.sha256` sidecar hashes those exact JSON bytes; the JSON contains no
 self-hash field. Rust and production JavaScript independently verify the
-sidecar and recompute every result.
+sidecar and recompute every result. Fixed vectors and property families must
+exercise both `poolBuy` and `poolSell` in both reachable reserve quadrants:
+`B<L,R>Q` and `B>L,R<Q`; the generator may not constrain sells to only
+`B>=L` or buys to only `B<=L`.
 
 - [ ] **Step 5: Run GREEN**
 
@@ -921,15 +924,39 @@ pub fn process_instruction(
         HakkyInstructionV1::Initialize { instance_nonce } => {
             processor::process_initialize(program_id, accounts, instance_nonce)
         }
-        HakkyInstructionV1::BuyExactHakky { .. } => {
-            processor::process_buy(program_id, accounts, data)
+        HakkyInstructionV1::BuyExactHakky {
+            base_amount,
+            max_quote_in,
+            deadline_slot,
+        } => {
+            processor::process_buy(
+                program_id,
+                accounts,
+                base_amount,
+                max_quote_in,
+                deadline_slot,
+            )
         }
-        HakkyInstructionV1::SellExactHakky { .. } => {
-            processor::process_sell(program_id, accounts, data)
+        HakkyInstructionV1::SellExactHakky {
+            base_amount,
+            min_quote_out,
+            deadline_slot,
+        } => {
+            processor::process_sell(
+                program_id,
+                accounts,
+                base_amount,
+                min_quote_out,
+                deadline_slot,
+            )
         }
     }
 }
 ```
+
+The entrypoint is the sole instruction decoder. Private processor functions
+accept only the already-decoded typed fields and must not receive or reparse
+raw instruction bytes.
 
 - [ ] **Step 4: Implement System-owned zero-data PDA adoption**
 
@@ -944,6 +971,10 @@ PDAs; initialize mint and vaults; mint total supply; create immutable metadata;
 set mint authority to `None`; write initial state; re-read every changed
 account and assert all postconditions. Any error propagates and rolls back the
 transaction.
+
+Freeze the initialization-specific overlapping-invalidity order from the
+design: structure/fixed identities, commitment/PDAs, initializer, raw loader
+finalization, existing-account/prefund semantics, CPIs, then postconditions.
 
 - [ ] **Step 6: Run GREEN**
 
@@ -1002,12 +1033,15 @@ Expected: FAIL because swap branches return an error.
 Read and validate state/accounts, snapshot both vault amounts, compute the exact
 cumulative delta, and before either CPI require both actual token amounts to be
 at least the old accounted reserves. Transfer exact input first and exact
-output second, update sold and accounted reserves, switch to pool only when
-`sold == CURVE_MAX`, encode state, then re-read both token accounts and require
-the exact input/output deltas plus each actual amount at least its new
-accounted reserve. The lifecycle tests assert exact `ActualBelowAccounted`,
-`VaultDeltaMismatch`, and `PostconditionFailed` codes at the frozen precedence
-points, including overlapping-invalidity cases.
+output second, compute the candidate sold and accounted reserves in locals,
+then re-read both token accounts and require the exact input/output deltas plus
+each actual amount at least its candidate accounted reserve. Only after those
+postconditions pass, switch the candidate phase to pool when
+`sold == CURVE_MAX`, encode state, and re-read the exact final state.
+Transaction rollback still protects every prior CPI. The lifecycle tests
+assert exact `ActualBelowAccounted`, `VaultDeltaMismatch`, and
+`PostconditionFailed` codes at the frozen precedence points, including
+overlapping-invalidity cases.
 
 - [ ] **Step 4: Run GREEN**
 
@@ -1064,11 +1098,13 @@ Use Task 3 quote functions. Add the entire gross input to the accounted input
 reserve, subtract only the exact output, enforce positive reserves and
 `base<=TOTAL`, `k_after >= k_before`, and `k_after >= L*Q`. Before either CPI,
 require both actual token amounts to be at least the old accounted reserves.
-Execute both token CPIs, write state, re-read both token accounts, require exact
-actual deltas, and require each actual amount to be at least its new accounted
-reserve. Assert the exact stable error for every pre/post failure and its
-overlapping-invalidity precedence. Do not add a fee field, recipient, LP
-supply, deposit, withdraw, sync, skim, or close path.
+Execute both token CPIs, compute the candidate reserves in locals, re-read both
+token accounts, require exact actual deltas, and require each actual amount to
+be at least its candidate accounted reserve. Only then write and re-read the
+final state; transaction rollback still protects every prior CPI. Assert the
+exact stable error for every pre/post failure and its overlapping-invalidity
+precedence. Do not add a fee field, recipient, LP supply, deposit, withdraw,
+sync, skim, or close path.
 
 - [ ] **Step 4: Run GREEN and the complete host suite**
 
@@ -1172,6 +1208,20 @@ inspection itself runs the pinned tools and candidate SBF probe. Its CLI
 accepts paths to raw candidate bytes and tool output, never caller-supplied
 `instructionTags`, `cpiProgramIds`, `ok`, or `verified` arrays/booleans.
 
+Program-ID allowlisting alone is insufficient. The surface receipt must derive
+and whitelist each exact CPI instruction discriminator, ordered account metas,
+signer derivation, authority, transfer direction, decimals, and amount
+binding. System CPIs are limited to payer-to-PDA rent-deficit transfers plus
+exact PDA allocate/assign operations and can never debit an adopted PDA.
+Classic Token CPIs are limited to the reviewed initialization, exact
+`MintTo`, mint-authority removal, and exact-direction `TransferChecked`
+calls; a callsite for `CloseAccount`, vault authority changes, burn, approve,
+freeze/thaw, sync, or any other opcode is a hard failure. Metaplex is limited
+to the one exact immutable `CreateMetadataAccountV3` call. Fixtures under the
+otherwise allowed System, Token, and Metaplex program IDs must maliciously
+exercise wrong opcodes, metas, directions, decimals, amounts, and signer seeds
+and require rejection.
+
 In this same RED step, create:
 
 - `test/build-hakky-sbf.test.mjs`, freezing candidate/test lane names, paths,
@@ -1190,7 +1240,11 @@ In this same RED step, create:
   fields, timeout behavior, and failure propagation.
 
 The isolated `candidate_runtime.rs` test is also written before its package
-exists and asserts that only a caller-supplied exact `.so` path is loaded.
+exists and asserts that only a caller-supplied exact `.so` path is loaded. It
+is marked ignored in the default workspace suite and reads its candidate
+path/hash only at runtime. `program:test-candidate-sbf` explicitly invokes
+that one ignored test after a bound candidate exists; missing, mismatched, or
+native-fallback input is a hard failure.
 
 - [ ] **Step 2: Run RED**
 
@@ -1238,7 +1292,10 @@ callsite extraction, and a behavior receipt produced by running the exact SBF
 for every first byte `0..255` and malformed/exact data lengths. Only tags
 `0..2` may pass instruction decoding. It derives fixed CPI targets from the
 closed callsites and binary/source binding; it does not accept asserted tag or
-CPI arrays.
+CPI arrays. The same raw evidence derives every CPI opcode, ordered meta,
+signer seed, authority, direction, decimals, and amount-binding verdict
+described in Step 1, so an allowed target with a dangerous instruction cannot
+pass.
 
 `programs/hakky-market-sbf-tests` pins ProgramTest 4.1.2 and matching 4.x SDK
 packages, has no dependency on `hakky-market`, Metaplex, or any 2.x public
@@ -1305,8 +1362,11 @@ rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188e
 ```
 
 Expected: native and test-SBF lanes pass, fuzz run counts complete, and all
-host tests remain green. If the exact test/fuzz pins do not resolve, this task
-is blocked; do not weaken a pin or lane boundary.
+host tests remain green. The default workspace run compiles but does not
+execute the ignored candidate-runtime test. Only
+`program:test-candidate-sbf`, after the exact candidate path and hash are
+bound, executes it explicitly. If the exact test/fuzz pins do not resolve,
+this task is blocked; do not weaken a pin or lane boundary.
 
 - [ ] **Step 6: Commit**
 

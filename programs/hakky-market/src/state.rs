@@ -55,7 +55,6 @@ impl MarketStateV1 {
         if data.len() != MARKET_STATE_LEN
             || &data[MAGIC_RANGE] != MAGIC
             || data[LAYOUT_VERSION_OFFSET] != LAYOUT_VERSION
-            || data[PHASE_OFFSET] > 1
             || data[RESERVED_RANGE].iter().any(|byte| *byte != 0)
         {
             return Err(HakkyErrorV1::InvalidMarketState.into());
@@ -105,10 +104,7 @@ impl MarketStateV1 {
     pub fn validate(&self) -> Result<(), ProgramError> {
         validate_instance_nonce(&self.instance_nonce)
             .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidMarketState))?;
-        if self.instance_commitment != INSTANCE_COMMITMENT
-            || self.initializer != INITIALIZER
-            || self.phase > 1
-        {
+        if self.instance_commitment != INSTANCE_COMMITMENT || self.initializer != INITIALIZER {
             return Err(HakkyErrorV1::InvalidMarketState.into());
         }
         let pdas = MarketPdasV1::derive_canonical(&self.instance_nonce)
@@ -120,6 +116,9 @@ impl MarketStateV1 {
             || self.vault_authority != pdas.vault_authority
         {
             return Err(HakkyErrorV1::InvalidMarketState.into());
+        }
+        if self.phase > 1 {
+            return Err(HakkyErrorV1::InvalidPhase.into());
         }
 
         if self.phase == 0 {

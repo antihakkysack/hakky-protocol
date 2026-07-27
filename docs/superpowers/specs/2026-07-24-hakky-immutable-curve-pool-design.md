@@ -542,6 +542,11 @@ remaining length; a known tag with the wrong total length returns
 `InvalidInstructionLength`; only then are integer fields decoded and zero
 base/limit values rejected as `ZeroAmount`.
 
+For a 384-byte state with valid magic, layout version, reserved bytes,
+commitment, initializer, and stored identities, a phase byte outside `0|1`
+returns `InvalidPhase`. Malformed layout, reserved bytes, commitments, or
+stored identities retain `InvalidMarketState` precedence over the phase check.
+
 Tests asserting one error isolate that condition so an earlier invalidity
 cannot mask it.
 
@@ -567,9 +572,11 @@ economic or metadata parameters.
 
 In one atomic transaction the program:
 
-1. validates its own Program/ProgramData raw state and null authority;
+1. validates account structure and fixed program identities, validates the
+   instance commitment, and derives every exact PDA account;
 2. validates the compiled initializer;
-3. validates the instance commitment and derives the exact PDA accounts;
+3. validates its own Program/ProgramData raw state, link, owners, executable
+   flag, and null authority;
 4. adopts or creates those exact PDA accounts;
 5. initializes the HAKKY mint with six decimals, vault-authority mint authority,
    and no freeze authority;
@@ -583,6 +590,24 @@ In one atomic transaction the program:
 11. re-reads every changed account and validates all postconditions.
 
 Any failure rolls back every step.
+
+Initialization-specific rejection precedence is frozen as:
+
+```text
+compiled program ID and instruction shape
+-> account count, privileges, aliases, and fixed program identities
+-> instance commitment and every derived PDA, including ProgramData
+-> compiled initializer
+-> Program/ProgramData raw loader state, owners, link, executable flag,
+   and null authority
+-> existing-account, duplicate-state, and prefund semantics
+-> exact CPIs
+-> postconditions
+```
+
+Overlapping-invalidity tests mutate one field at each stage and require the
+earliest named HAKKY error. Invoked external-program errors still propagate
+unchanged.
 
 The mint supply is created once at initialization. Curve trades transfer
 already-minted HAKKY; users never receive mint authority and the program never
