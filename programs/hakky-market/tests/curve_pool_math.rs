@@ -410,6 +410,88 @@ proptest! {
             prop_assert!(product(base_after, quote_after) >= product(POOL_SEED, TERMINAL_QUOTE));
         }
     }
+
+    #[test]
+    fn low_base_high_quote_pool_buys_are_accepted_and_preserve_k(
+        base in (POOL_SEED / 2)..POOL_SEED,
+        quote_offset in 0_u64..=1_000_000_000_u64,
+        out in 1_u64..=1_000_000_000_u64,
+    ) {
+        let floor = product(POOL_SEED, TERMINAL_QUOTE);
+        let minimum_quote = ceil_div(floor, base as u128).unwrap() as u64;
+        let quote = minimum_quote + quote_offset;
+        prop_assert!(base < POOL_SEED && quote > TERMINAL_QUOTE);
+        let result = quote_pool_buy_exact_out(base, quote, out);
+        prop_assert!(result.is_ok(), "accepted quadrant returned {result:?}");
+        let gross_quote = result.unwrap();
+        let base_after = base - out;
+        let quote_after = quote + gross_quote;
+        prop_assert!(base_after > 0 && quote_after > 0);
+        prop_assert!(product(base_after, quote_after) >= product(base, quote));
+        prop_assert!(product(base_after, quote_after) >= floor);
+    }
+
+    #[test]
+    fn low_base_high_quote_pool_sells_are_accepted_and_preserve_k(
+        base in (POOL_SEED / 2)..POOL_SEED,
+        quote_offset in 0_u64..=1_000_000_000_u64,
+        gross in 400_u64..=1_000_000_000_u64,
+    ) {
+        let floor = product(POOL_SEED, TERMINAL_QUOTE);
+        let minimum_quote = ceil_div(floor, base as u128).unwrap() as u64;
+        let quote = minimum_quote + quote_offset;
+        prop_assert!(base < POOL_SEED && quote > TERMINAL_QUOTE);
+        let result = quote_pool_sell_exact_in(base, quote, gross);
+        prop_assert!(result.is_ok(), "accepted quadrant returned {result:?}");
+        let quote_out = result.unwrap();
+        let base_after = base + gross;
+        let quote_after = quote - quote_out;
+        prop_assert!(base_after > 0 && quote_after > 0);
+        prop_assert!(product(base_after, quote_after) >= product(base, quote));
+        prop_assert!(product(base_after, quote_after) >= floor);
+    }
+
+    #[test]
+    fn high_base_low_quote_pool_buys_are_accepted_and_preserve_k(
+        base in (POOL_SEED + 85)..TOTAL_SUPPLY,
+        quote_offset in 0_u64..=1_000_000_000_u64,
+        out in 1_u64..=1_000_000_000_u64,
+    ) {
+        let floor = product(POOL_SEED, TERMINAL_QUOTE);
+        let minimum_quote = ceil_div(floor, base as u128).unwrap() as u64;
+        let quote_span = TERMINAL_QUOTE - minimum_quote;
+        let quote = minimum_quote + quote_offset % quote_span;
+        prop_assert!(base > POOL_SEED && quote < TERMINAL_QUOTE);
+        let result = quote_pool_buy_exact_out(base, quote, out);
+        prop_assert!(result.is_ok(), "accepted quadrant returned {result:?}");
+        let gross_quote = result.unwrap();
+        let base_after = base - out;
+        let quote_after = quote + gross_quote;
+        prop_assert!(base_after > 0 && quote_after > 0);
+        prop_assert!(product(base_after, quote_after) >= product(base, quote));
+        prop_assert!(product(base_after, quote_after) >= floor);
+    }
+
+    #[test]
+    fn high_base_low_quote_pool_sells_are_accepted_and_preserve_k(
+        base in (POOL_SEED + 85)..(TOTAL_SUPPLY - 1_000_000_000),
+        quote_offset in 0_u64..=1_000_000_000_u64,
+        gross in 1_000_000_u64..=1_000_000_000_u64,
+    ) {
+        let floor = product(POOL_SEED, TERMINAL_QUOTE);
+        let minimum_quote = ceil_div(floor, base as u128).unwrap() as u64;
+        let quote_span = TERMINAL_QUOTE - minimum_quote;
+        let quote = minimum_quote + quote_offset % quote_span;
+        prop_assert!(base > POOL_SEED && quote < TERMINAL_QUOTE);
+        let result = quote_pool_sell_exact_in(base, quote, gross);
+        prop_assert!(result.is_ok(), "accepted quadrant returned {result:?}");
+        let quote_out = result.unwrap();
+        let base_after = base + gross;
+        let quote_after = quote - quote_out;
+        prop_assert!(base_after > 0 && quote_after > 0);
+        prop_assert!(product(base_after, quote_after) >= product(base, quote));
+        prop_assert!(product(base_after, quote_after) >= floor);
+    }
 }
 
 #[test]

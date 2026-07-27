@@ -246,6 +246,23 @@ function vector(index, kind, a, b, c, outcome) {
   };
 }
 
+function reachablePoolReserves(ordinal, first, second) {
+  if (ordinal % 2 === 0) {
+    const base = MIN_VALID_POOL_BASE + (first % (L - MIN_VALID_POOL_BASE));
+    const minimumQuote = ceilDiv(POOL_FLOOR, base);
+    const headroom = U64_MAX - minimumQuote;
+    const extraRange =
+      (headroom < 1_000_000_000_000n
+        ? headroom
+        : 1_000_000_000_000n) + 1n;
+    return [base, minimumQuote + (second % extraRange)];
+  }
+
+  const base = L + 85n + (first % (TOTAL - L - 85n));
+  const minimumQuote = ceilDiv(POOL_FLOOR, base);
+  return [base, minimumQuote + (second % (Q - minimumQuote))];
+}
+
 function generatedCases() {
   const random = createXoshiro256StarStar();
   const cases = [];
@@ -294,21 +311,7 @@ function generatedCases() {
         break;
       }
       case 3: {
-        let base;
-        let quote;
-        if (ordinal % 2 === 0) {
-          base = MIN_VALID_POOL_BASE + (first % (L - MIN_VALID_POOL_BASE));
-          const minimumQuote = ceilDiv(POOL_FLOOR, base);
-          const headroom = U64_MAX - minimumQuote;
-          const extraRange =
-            (headroom < 1_000_000_000_000n
-              ? headroom
-              : 1_000_000_000_000n) + 1n;
-          quote = minimumQuote + (second % extraRange);
-        } else {
-          base = L + (first % (TOTAL - L + 1n));
-          quote = Q + (second % 1_000_000_000_000n);
-        }
+        let [base, quote] = reachablePoolReserves(ordinal, first, second);
         let amount;
         if (ordinal % 1_000 === 0) {
           amount = 0n;
@@ -324,16 +327,7 @@ function generatedCases() {
         break;
       }
       default: {
-        let base;
-        let quote;
-        if (ordinal % 2 === 0) {
-          base = L + 85n + (first % (TOTAL - L - 85n));
-          const minimumQuote = ceilDiv(POOL_FLOOR, base);
-          quote = minimumQuote + (second % (Q - minimumQuote));
-        } else {
-          base = L + (first % (TOTAL - L));
-          quote = Q + (second % 1_000_000_000_000n);
-        }
+        let [base, quote] = reachablePoolReserves(ordinal, first, second);
         let amount;
         if (ordinal % 1_000 === 0) {
           amount = 0n;

@@ -328,17 +328,27 @@ test("fixed endpoints dust fees overflow and rejection vectors are exact", () =>
   }
 });
 
-test("generated pool vectors cover both sides of the full valid reserve domain", () => {
+test("generated pool vectors cover both operations in both reachable reserve quadrants", () => {
   const { cases } = renderCurvePoolVectors().document;
   const accepted = cases.filter(({ outcome }) => !outcome.startsWith("error:"));
-  assert(accepted.some(({ kind, a, b }) => (
-    kind === "poolBuy" && BigInt(a) < L && BigInt(b) > Q
-  )));
-  assert(accepted.some(({ kind, a, b }) => (
-    kind === "poolSell" && BigInt(a) > L && BigInt(b) < Q
-  )));
+  const quadrantCounts = {
+    poolBuyLowBaseHighQuote: 0,
+    poolSellLowBaseHighQuote: 0,
+    poolBuyHighBaseLowQuote: 0,
+    poolSellHighBaseLowQuote: 0,
+  };
   for (const vector of accepted.filter(({ kind }) => kind.startsWith("pool"))) {
-    assert(validPool(BigInt(vector.a), BigInt(vector.b)), `vector ${vector.index}`);
+    const base = BigInt(vector.a);
+    const quote = BigInt(vector.b);
+    assert(validPool(base, quote), `vector ${vector.index}`);
+    if (base < L && quote > Q) {
+      quadrantCounts[`${vector.kind}LowBaseHighQuote`] += 1;
+    } else if (base > L && quote < Q) {
+      quadrantCounts[`${vector.kind}HighBaseLowQuote`] += 1;
+    }
+  }
+  for (const [family, count] of Object.entries(quadrantCounts)) {
+    assert(count >= 900, `${family} accepted only ${count} vectors`);
   }
 });
 
