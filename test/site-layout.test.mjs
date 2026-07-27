@@ -46,6 +46,13 @@ test("the cyber-tactical palette and accessibility contracts are explicit", () =
   assert.match(css, /min-height:\s*44px/u);
 });
 
+test("every persistent header link has a 44px touch target", () => {
+  assert.match(
+    css,
+    /\.site-header nav a,\s*\.brand,[\s\S]*?\{[^}]*min-height:\s*44px/iu,
+  );
+});
+
 test("the responsive system supports narrow screens and reduced motion", () => {
   assert.match(css, /@media \(max-width:\s*600px\)/u);
   assert.match(css, /@media \(max-width:\s*360px\)/u);

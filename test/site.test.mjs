@@ -110,6 +110,14 @@ test("homepage contains the approved meme-first origin transmission", () => {
   assert.match(html, /1\.00 SOL/u);
 });
 
+test("homepage declares an existing local favicon", async () => {
+  const match = html.match(
+    /<link\s+rel="icon"\s+href="(\.\/assets\/[^"]+)"\s*\/?>/u,
+  );
+  assert.ok(match, "homepage must declare a local favicon");
+  await readFile(path.join("web", match[1].replace(/^\.\//u, "")));
+});
+
 test("homepage is privacy-safe, action-free, and prelaunch-only", () => {
   assert.doesNotMatch(html, /Left-Agency-9292|reddit\.com/iu);
   assert.doesNotMatch(

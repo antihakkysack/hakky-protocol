@@ -188,6 +188,7 @@ body[data-record-state="unavailable"] .prelaunch-strip {
 }
 
 .site-header nav a,
+.brand,
 .hero-actions a,
 footer a {
   display: inline-flex;
