@@ -17,6 +17,7 @@
     "check": "npm run test && npm run check:repo && npm run check:site",
     "check:repo": "node scripts/check-repo.mjs",
     "check:site": "node scripts/check-site.mjs",
+    "cost:verify": "node scripts/build-cost-ledger.mjs",
     "lore:ledger": "node scripts/build-lore-ledger.mjs",
     "lore:collect": "node scripts/collect-reddit-lore.mjs",
     "metadata:finalize": "node scripts/finalize-metadata-manifest.mjs",

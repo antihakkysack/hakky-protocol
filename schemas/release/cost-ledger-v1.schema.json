@@ -1,0 +1,425 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/release/cost-ledger-v1.schema.json",
+  "title": "HAKKY one-SOL cost-prefix ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "snapshot",
+    "evaluatedAt",
+    "freshUntil",
+    "permanentRentLamports",
+    "deploymentWriteTransactionCount",
+    "operationGraph",
+    "paths",
+    "maximumPrefixLamports",
+    "capLamports",
+    "withinCap",
+    "ok",
+    "mainnetActionsAuthorized"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hakky-cost-ledger-v1"
+    },
+    "snapshot": {
+      "$ref": "#/$defs/snapshot"
+    },
+    "evaluatedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "freshUntil": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "permanentRentLamports": {
+      "$ref": "#/$defs/lamports"
+    },
+    "deploymentWriteTransactionCount": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 134
+    },
+    "operationGraph": {
+      "$ref": "#/$defs/graph"
+    },
+    "paths": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 141,
+      "items": {
+        "$ref": "#/$defs/path"
+      }
+    },
+    "maximumPrefixLamports": {
+      "$ref": "#/$defs/lamports"
+    },
+    "capLamports": {
+      "const": "1000000000"
+    },
+    "withinCap": {
+      "type": "boolean"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "mainnetActionsAuthorized": {
+      "const": false
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "lamports": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)$"
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "network",
+        "genesisHash",
+        "commitment",
+        "rpcHost",
+        "collectedAt",
+        "feeProbe",
+        "build",
+        "rent",
+        "fees",
+        "deployment",
+        "policy"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hakky-cost-snapshot-v1"
+        },
+        "network": {
+          "const": "devnet"
+        },
+        "genesisHash": {
+          "const": "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG"
+        },
+        "commitment": {
+          "const": "finalized"
+        },
+        "rpcHost": {
+          "const": "api.devnet.solana.com"
+        },
+        "collectedAt": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "feeProbe": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "latestBlockhash",
+            "latestBlockhashSlot",
+            "lastValidBlockHeight",
+            "feeSlot"
+          ],
+          "properties": {
+            "latestBlockhash": {
+              "type": "string",
+              "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$"
+            },
+            "latestBlockhashSlot": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "lastValidBlockHeight": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "feeSlot": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "build": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "recordPath",
+            "recordSha256",
+            "executablePath",
+            "executableByteLength",
+            "executableSha256"
+          ],
+          "properties": {
+            "recordPath": {
+              "const": "artifacts/build/candidate/local-a/build-record.json"
+            },
+            "recordSha256": {
+              "$ref": "#/$defs/sha256"
+            },
+            "executablePath": {
+              "const": "artifacts/build/candidate/local-a/hakky_market.so"
+            },
+            "executableByteLength": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120000
+            },
+            "executableSha256": {
+              "$ref": "#/$defs/sha256"
+            }
+          }
+        },
+        "rent": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "program36",
+            "programData",
+            "mint82",
+            "state384",
+            "token165",
+            "metadata679"
+          ],
+          "properties": {
+            "program36": {
+              "$ref": "#/$defs/positiveLamports"
+            },
+            "programData": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "byteLength",
+                "lamports"
+              ],
+              "properties": {
+                "byteLength": {
+                  "type": "integer",
+                  "minimum": 46,
+                  "maximum": 120045
+                },
+                "lamports": {
+                  "$ref": "#/$defs/positiveLamports"
+                }
+              }
+            },
+            "mint82": {
+              "$ref": "#/$defs/positiveLamports"
+            },
+            "state384": {
+              "$ref": "#/$defs/positiveLamports"
+            },
+            "token165": {
+              "$ref": "#/$defs/positiveLamports"
+            },
+            "metadata679": {
+              "$ref": "#/$defs/positiveLamports"
+            }
+          }
+        },
+        "fees": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lamportsPerSignature",
+            "priorityMicroLamportsPerComputeUnit",
+            "computeUnitLimits"
+          ],
+          "properties": {
+            "lamportsPerSignature": {
+              "$ref": "#/$defs/positiveLamports"
+            },
+            "priorityMicroLamportsPerComputeUnit": {
+              "const": "100000"
+            },
+            "computeUnitLimits": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "deployCreateBuffer",
+                "deployCreateProgram",
+                "deployWrite",
+                "deployFinalize",
+                "initializeMarket"
+              ],
+              "properties": {
+                "deployCreateBuffer": {
+                  "const": 200000
+                },
+                "deployCreateProgram": {
+                  "const": 200000
+                },
+                "deployWrite": {
+                  "const": 200000
+                },
+                "deployFinalize": {
+                  "const": 200000
+                },
+                "initializeMarket": {
+                  "const": 1400000
+                }
+              }
+            }
+          }
+        },
+        "deployment": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "writeChunkBytes",
+            "writeTransactionCount"
+          ],
+          "properties": {
+            "writeChunkBytes": {
+              "const": 900
+            },
+            "writeTransactionCount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 134
+            }
+          }
+        },
+        "policy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "automaticRetries",
+            "refundsNettedBeforeFinality",
+            "externalBuyerWsolIncluded"
+          ],
+          "properties": {
+            "automaticRetries": {
+              "const": 0
+            },
+            "refundsNettedBeforeFinality": {
+              "const": false
+            },
+            "externalBuyerWsolIncluded": {
+              "const": false
+            }
+          }
+        }
+      }
+    },
+    "positiveLamports": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]*$"
+    },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "rootId",
+        "nodes"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": "hakky-cost-operation-graph-v1"
+        },
+        "rootId": {
+          "const": "ceremony-start"
+        },
+        "nodes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 280,
+          "items": {
+            "$ref": "#/$defs/node"
+          }
+        }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "parentId",
+        "operation",
+        "outcome",
+        "terminal",
+        "debitClass",
+        "debitLamports"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "parentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "operation": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "outcome": {
+          "enum": [
+            "start",
+            "success",
+            "failure",
+            "abandon"
+          ]
+        },
+        "terminal": {
+          "type": "boolean"
+        },
+        "debitClass": {
+          "enum": [
+            "zero",
+            "fee",
+            "rent-and-fee"
+          ]
+        },
+        "debitLamports": {
+          "$ref": "#/$defs/lamports"
+        }
+      }
+    },
+    "path": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "terminalId",
+        "operationIds",
+        "cumulativeDebitLamports",
+        "maximumPrefixLamports",
+        "withinCap"
+      ],
+      "properties": {
+        "terminalId": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "operationIds": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 140,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          }
+        },
+        "cumulativeDebitLamports": {
+          "$ref": "#/$defs/lamports"
+        },
+        "maximumPrefixLamports": {
+          "$ref": "#/$defs/lamports"
+        },
+        "withinCap": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}
