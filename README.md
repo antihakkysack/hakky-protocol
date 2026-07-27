@@ -48,6 +48,7 @@ transaction, detect every scam, predict price, or guarantee safety.
 
 - [Token policy](docs/TOKEN.md)
 - [Launch and verification policy](docs/LAUNCH.md)
+- [Current mainnet no-go checklist](docs/MAINNET-NO-GO-CHECKLIST.md)
 - [Approved immutable market design](docs/superpowers/specs/2026-07-24-hakky-immutable-curve-pool-design.md)
 
 ## Risk
