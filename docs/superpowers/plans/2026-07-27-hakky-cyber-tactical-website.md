@@ -390,7 +390,7 @@ test("public site does not expose the Reddit identity or links", () => {
 
 Add collector unit tests using injected `fetchImpl` to prove pagination stops
 only when `after` is null, de-duplicates by Reddit fullname, marks partial
-collections `complete: false`, enforces a 15-second shared deadline, and writes
+collections `complete: false`, enforces a 60-second shared deadline, and writes
 no cookies or authorization headers.
 
 The successful pagination test uses two pages and a repeated item:
@@ -471,7 +471,7 @@ export async function collectRedditLore({
   fetchImpl = fetch,
   now = () => new Date(),
   maxPagesPerSource = 50,
-  deadlineMs = 15_000,
+  deadlineMs = 60_000,
 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), deadlineMs);
