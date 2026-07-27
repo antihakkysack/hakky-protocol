@@ -1,0 +1,3 @@
+FROM rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3
+RUN rustup toolchain install nightly-2026-07-20 --profile minimal
+RUN cargo +nightly-2026-07-20 install cargo-fuzz --version 0.13.2 --locked

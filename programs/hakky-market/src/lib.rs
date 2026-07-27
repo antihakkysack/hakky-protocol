@@ -15,6 +15,7 @@ pub mod loader;
 pub mod math;
 pub mod metadata;
 pub mod pda;
+pub mod processor;
 pub mod state;
 pub mod token;
 
@@ -24,9 +25,39 @@ mod test_release_config;
 use solana_program::{account_info::AccountInfo, entrypoint::ProgramResult, pubkey::Pubkey};
 
 pub fn process_instruction(
-    _program_id: &Pubkey,
-    _accounts: &[AccountInfo],
-    _data: &[u8],
+    program_id: &Pubkey,
+    accounts: &[AccountInfo],
+    data: &[u8],
 ) -> ProgramResult {
-    Err(solana_program::program_error::ProgramError::InvalidInstructionData)
+    if program_id != &constants::EXPECTED_PROGRAM_ID {
+        return Err(error::HakkyErrorV1::WrongProgramId.into());
+    }
+
+    match instruction::HakkyInstructionV1::decode(data)? {
+        instruction::HakkyInstructionV1::Initialize { instance_nonce } => {
+            processor::process_initialize(program_id, accounts, instance_nonce)
+        }
+        instruction::HakkyInstructionV1::BuyExactHakky {
+            base_amount,
+            max_quote_in,
+            deadline_slot,
+        } => processor::process_buy(
+            program_id,
+            accounts,
+            base_amount,
+            max_quote_in,
+            deadline_slot,
+        ),
+        instruction::HakkyInstructionV1::SellExactHakky {
+            base_amount,
+            min_quote_out,
+            deadline_slot,
+        } => processor::process_sell(
+            program_id,
+            accounts,
+            base_amount,
+            min_quote_out,
+            deadline_slot,
+        ),
+    }
 }

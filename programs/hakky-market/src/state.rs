@@ -52,6 +52,12 @@ pub struct MarketStateV1 {
 
 impl MarketStateV1 {
     pub fn decode(data: &[u8]) -> Result<Self, ProgramError> {
+        let state = Self::decode_identities(data)?;
+        state.validate_phase_and_economics()?;
+        Ok(state)
+    }
+
+    pub(crate) fn decode_identities(data: &[u8]) -> Result<Self, ProgramError> {
         if data.len() != MARKET_STATE_LEN
             || &data[MAGIC_RANGE] != MAGIC
             || data[LAYOUT_VERSION_OFFSET] != LAYOUT_VERSION
@@ -77,7 +83,7 @@ impl MarketStateV1 {
             wsol_vault: Pubkey::new_from_array(read_array_32(data, WSOL_VAULT_RANGE)),
             vault_authority: Pubkey::new_from_array(read_array_32(data, VAULT_AUTHORITY_RANGE)),
         };
-        state.validate()?;
+        state.validate_identities()?;
         Ok(state)
     }
 
@@ -102,6 +108,11 @@ impl MarketStateV1 {
     }
 
     pub fn validate(&self) -> Result<(), ProgramError> {
+        self.validate_identities()?;
+        self.validate_phase_and_economics()
+    }
+
+    fn validate_identities(&self) -> Result<(), ProgramError> {
         validate_instance_nonce(&self.instance_nonce)
             .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidMarketState))?;
         if self.instance_commitment != INSTANCE_COMMITMENT || self.initializer != INITIALIZER {
@@ -117,6 +128,10 @@ impl MarketStateV1 {
         {
             return Err(HakkyErrorV1::InvalidMarketState.into());
         }
+        Ok(())
+    }
+
+    pub(crate) fn validate_phase_and_economics(&self) -> Result<(), ProgramError> {
         if self.phase > 1 {
             return Err(HakkyErrorV1::InvalidPhase.into());
         }

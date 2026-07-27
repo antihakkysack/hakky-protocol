@@ -1,0 +1,72 @@
+import assert from "node:assert/strict";
+import path from "node:path";
+import test from "node:test";
+
+import {
+  SBF_IMAGE,
+  SBF_IMAGE_DIGEST,
+  planSbfBuild,
+} from "../scripts/build-hakky-sbf.mjs";
+
+test("pins the exact SBF image and hermetic cargo-build-sbf invocation", () => {
+  assert.equal(
+    SBF_IMAGE,
+    "solanafoundation/solana-verifiable-build:4.0.0@sha256:0b4e3716fad9ca4b4aac3e3f977f43aad93a18c22296c0c0f44fc22e644bdd68",
+  );
+  assert.equal(
+    SBF_IMAGE_DIGEST,
+    "sha256:0b4e3716fad9ca4b4aac3e3f977f43aad93a18c22296c0c0f44fc22e644bdd68",
+  );
+
+  const plan = planSbfBuild({
+    lane: "test-sbf",
+    repositoryRoot: path.resolve("C:/repo"),
+  });
+  assert.equal(plan.outputDirectory, path.resolve("C:/repo/artifacts/build/test-sbf"));
+  assert.equal(
+    plan.testSourceDirectory,
+    path.resolve("C:/repo/artifacts/build/test-sbf/source"),
+  );
+  assert.equal(
+    plan.sourceBinary,
+    path.resolve("C:/repo/artifacts/build/test-sbf/source/target/deploy/hakky_market.so"),
+  );
+  assert.deepEqual(plan.command.slice(0, 6), [
+    "rtk",
+    "docker",
+    "run",
+    "--rm",
+    "--network",
+    "none",
+  ]);
+  assert(plan.command.includes("cargo-build-sbf"));
+  assert(plan.command.includes("--offline"));
+  assert(plan.command.includes("--skip-tools-install"));
+  assert(plan.command.includes("--tools-version"));
+  assert(plan.command.includes("v1.53"));
+  assert(plan.command.includes("--arch"));
+  assert(plan.command.includes("v0"));
+  assert(plan.command.includes("--locked"));
+  assert(plan.command.some((argument) => argument.endsWith(":/vendor:ro")));
+  assert.deepEqual(
+    plan.command.slice(plan.command.indexOf("-w"), plan.command.indexOf("-w") + 2),
+    ["-w", "/workspace/artifacts/build/test-sbf/source"],
+  );
+  assert.equal(plan.command.some((argument) => /wallet|keypair|\.config\/solana/i.test(argument)), false);
+});
+
+test("candidate lane is clean-tree gated and no unknown lane is accepted", () => {
+  const root = path.resolve("C:/repo");
+  const plan = planSbfBuild({ lane: "candidate-sbf", repositoryRoot: root });
+  assert.equal(plan.requiresCleanTree, true);
+  assert.equal(plan.testSourceDirectory, null);
+  assert.equal(plan.sourceBinary, path.resolve("C:/repo/target/deploy/hakky_market.so"));
+  assert.deepEqual(
+    plan.command.slice(plan.command.indexOf("-w"), plan.command.indexOf("-w") + 2),
+    ["-w", "/workspace"],
+  );
+  assert.throws(
+    () => planSbfBuild({ lane: "other", repositoryRoot: root }),
+    /lane/i,
+  );
+});

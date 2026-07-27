@@ -56,7 +56,9 @@ Each action remains a separate gate:
 7. Obtain a new action-time approval for the exact market initialization
    transaction and remaining SOL debit.
 8. Initialize the immutable metadata, fixed supply, allocations, authorities,
-   curve, and permanent-pool seed through the reviewed program.
+   curve, and permanent-pool seed through the reviewed program. The
+   initialization transaction must include an explicit 1,400,000-unit compute
+   budget request; the exact-SBF acceptance lane enforces this requirement.
 9. Read back every address, transaction, economic value, authority, vault,
    reserve, and proof artifact at finalized commitment.
 10. Only after canonical verification, obtain separate approval to publish the site.

@@ -6,13 +6,13 @@ use crate::{
 };
 
 pub const INSTANCE_DOMAIN: &[u8] = b"HAKKY_INSTANCE_V1";
-const VERSION_SEED: &[u8] = b"v1";
-const MINT_SEED: &[u8] = b"hakky-mint";
-const MARKET_SEED: &[u8] = b"hakky-market";
-const VAULT_AUTHORITY_SEED: &[u8] = b"hakky-vault-authority";
-const HAKKY_VAULT_SEED: &[u8] = b"hakky-base-vault";
-const WSOL_VAULT_SEED: &[u8] = b"hakky-quote-vault";
-const METADATA_SINK_SEED: &[u8] = b"hakky-metadata-sink";
+pub(crate) const VERSION_SEED: &[u8] = b"v1";
+pub(crate) const MINT_SEED: &[u8] = b"hakky-mint";
+pub(crate) const MARKET_SEED: &[u8] = b"hakky-market";
+pub(crate) const VAULT_AUTHORITY_SEED: &[u8] = b"hakky-vault-authority";
+pub(crate) const HAKKY_VAULT_SEED: &[u8] = b"hakky-base-vault";
+pub(crate) const WSOL_VAULT_SEED: &[u8] = b"hakky-quote-vault";
+pub(crate) const METADATA_SINK_SEED: &[u8] = b"hakky-metadata-sink";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MarketPdasV1 {

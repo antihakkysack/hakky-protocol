@@ -456,6 +456,35 @@ fn swap_rederives_state_pdas_and_validates_all_account_owners() {
         SwapAccountsV1::parse(&corrupt_state).unwrap_err(),
         custom(HakkyErrorV1::InvalidMarketState)
     );
+
+    let mut invalid_phase_and_pda = canonical_swap_accounts();
+    invalid_phase_and_pda[STATE_INDEX]
+        .try_borrow_mut_data()
+        .unwrap()[9] = 2;
+    invalid_phase_and_pda[STATE_INDEX].key =
+        Box::leak(Box::new(Pubkey::new_from_array([71_u8; 32])));
+    assert_eq!(
+        SwapAccountsV1::parse(&invalid_phase_and_pda).unwrap_err(),
+        custom(HakkyErrorV1::InvalidPda),
+    );
+
+    let mut invalid_phase_and_owner = canonical_swap_accounts();
+    invalid_phase_and_owner[STATE_INDEX]
+        .try_borrow_mut_data()
+        .unwrap()[9] = 2;
+    invalid_phase_and_owner[STATE_INDEX].owner =
+        Box::leak(Box::new(Pubkey::new_from_array([72_u8; 32])));
+    assert_eq!(
+        SwapAccountsV1::parse(&invalid_phase_and_owner).unwrap_err(),
+        custom(HakkyErrorV1::InvalidAccountOwner),
+    );
+
+    let invalid_phase = canonical_swap_accounts();
+    invalid_phase[STATE_INDEX].try_borrow_mut_data().unwrap()[9] = 2;
+    assert_eq!(
+        SwapAccountsV1::parse(&invalid_phase).unwrap_err(),
+        custom(HakkyErrorV1::InvalidPhase),
+    );
 }
 
 #[test]

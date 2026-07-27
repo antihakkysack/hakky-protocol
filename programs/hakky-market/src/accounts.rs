@@ -1,8 +1,4 @@
-use solana_program::{
-    account_info::AccountInfo, program_error::ProgramError, program_option::COption,
-    program_pack::Pack, pubkey::Pubkey,
-};
-use spl_token_interface::state::{Account as TokenAccount, AccountState, Mint};
+use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
 
 use crate::{
     constants::{
@@ -13,6 +9,7 @@ use crate::{
     loader::assert_finalized_self,
     pda::MarketPdasV1,
     state::MarketStateV1,
+    token::{decode_mint, decode_token_account, TOKEN_STATE_INITIALIZED},
 };
 
 const INITIALIZE_ACCOUNT_COUNT: usize = 16;
@@ -164,7 +161,7 @@ impl<'a, 'info> SwapAccountsV1<'a, 'info> {
         let state_data = accounts[1]
             .try_borrow_data()
             .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidMarketState))?;
-        let state = MarketStateV1::decode(&state_data)?;
+        let state = MarketStateV1::decode_identities(&state_data)?;
         drop(state_data);
         let pdas = MarketPdasV1::derive_canonical(&state.instance_nonce)
             .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidMarketState))?;
@@ -175,6 +172,7 @@ impl<'a, 'info> SwapAccountsV1<'a, 'info> {
         require_pda(&accounts[5], &pdas.vault_authority)?;
 
         require_owner(&accounts[1], &EXPECTED_PROGRAM_ID)?;
+        state.validate_phase_and_economics()?;
         for account in [
             &accounts[2],
             &accounts[3],
@@ -255,12 +253,12 @@ fn validate_mint(account: &AccountInfo<'_>) -> Result<(), ProgramError> {
         .try_borrow_data()
         .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidTokenAccount))?;
     let mint =
-        Mint::unpack(&data).map_err(|_| ProgramError::from(HakkyErrorV1::InvalidTokenAccount))?;
-    if mint.mint_authority != COption::None
+        decode_mint(&data).map_err(|_| ProgramError::from(HakkyErrorV1::InvalidTokenAccount))?;
+    if mint.mint_authority.is_some()
         || mint.supply != TOTAL_SUPPLY
         || mint.decimals != TOKEN_DECIMALS
         || !mint.is_initialized
-        || mint.freeze_authority != COption::None
+        || mint.freeze_authority.is_some()
     {
         return Err(HakkyErrorV1::InvalidTokenAccount.into());
     }
@@ -276,18 +274,15 @@ fn validate_token_account(
     let data = account
         .try_borrow_data()
         .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidTokenAccount))?;
-    let token_account = TokenAccount::unpack(&data)
+    let token_account = decode_token_account(&data)
         .map_err(|_| ProgramError::from(HakkyErrorV1::InvalidTokenAccount))?;
-    let native_matches = matches!(
-        (expect_native, token_account.is_native),
-        (true, COption::Some(_)) | (false, COption::None)
-    );
+    let native_matches = expect_native == token_account.is_native.is_some();
     if token_account.mint != *expected_mint
         || token_account.owner != *expected_owner
-        || token_account.delegate != COption::None
+        || token_account.delegate.is_some()
         || token_account.delegated_amount != 0
-        || token_account.state != AccountState::Initialized
-        || token_account.close_authority != COption::None
+        || token_account.state != TOKEN_STATE_INITIALIZED
+        || token_account.close_authority.is_some()
         || !native_matches
     {
         return Err(HakkyErrorV1::InvalidTokenAccount.into());
