@@ -68,7 +68,7 @@ fn packed_native_mint() -> Vec<u8> {
 }
 
 fn packed_token(mint: Pubkey, owner: Pubkey, amount: u64, native_reserve: Option<u64>) -> Vec<u8> {
-    let token = TokenAccount {
+    let token_account_state = TokenAccount {
         mint,
         owner,
         amount,
@@ -79,7 +79,7 @@ fn packed_token(mint: Pubkey, owner: Pubkey, amount: u64, native_reserve: Option
         close_authority: COption::None,
     };
     let mut data = vec![0_u8; TokenAccount::LEN];
-    TokenAccount::pack(token, &mut data).unwrap();
+    TokenAccount::pack(token_account_state, &mut data).unwrap();
     data
 }
 

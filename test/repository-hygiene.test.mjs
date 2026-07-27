@@ -528,6 +528,10 @@ test("detects credential assignments embedded in ordinary single-line code witho
   const violations = await scanFixture({
     "inline-safe.mjs": `const config = { monkey: "${opaqueLiteral}", apiUrl: "https://example.test" };\n`,
     "inline-sensitive.mjs": `const config = { ${credentialProperty}: "${opaqueLiteral}" };\n`,
+    "rust-safe.rs": [
+      "use crate::{token::{decode_mint, decode_token_account}};",
+      "let _ = decode_mint(input);",
+    ].join("\n"),
   });
 
   assert.deepEqual(violations, [

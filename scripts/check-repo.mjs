@@ -89,6 +89,8 @@ const KNOWN_NON_CREDENTIAL_ASSIGNMENT_LINES = new Set([
   "package.json\0\"verify:token\": \"node scripts/verify-token.mjs\"",
   "package-lock.json\0\"registry-auth-token\": \"3.3.2\",",
   "scripts/build-live-record.mjs\0token: exactObject(prelaunchRecord.token, TOKEN_FIELDS, { mint: observed?.mint }),",
+  "scripts/inspect-hakky-program.mjs\0token: Object.freeze([",
+  "scripts/inspect-hakky-program.mjs\0const token = tokenFunctions.map((name) => tokenNames[name]).sort();",
   "docs/superpowers/plans/2026-07-22-hakky-pivot-build.md\0\"verify:token\": \"node scripts/verify-token.mjs\"",
   "docs/superpowers/plans/2026-07-22-hakky-pivot-build.md\0id-token: write",
 ]);
@@ -230,6 +232,7 @@ function isCredentialName(name) {
   ].some((marker) => key.includes(marker))) return true;
   if (parts.includes("secret")) return true;
   const tokenIndex = parts.indexOf("token");
+  if (tokenIndex < 0) return false;
   return parts.length === 1 && tokenIndex === 0
     || tokenIndex === parts.length - 1
     || tokenIndex >= 0 && ["pattern", "regex", "rule", "allowlist", "field", "marker"].includes(parts[tokenIndex + 1]);
@@ -344,6 +347,7 @@ function assignmentsForLine(line, { yaml = false } = {}) {
     }
     if (character === "/" && line[index + 1] === "/") break;
     if (![":", "="].includes(character)) continue;
+    if (character === ":" && (line[index - 1] === ":" || line[index + 1] === ":")) continue;
     if (character === "=" && ["=", ">"].includes(line[index + 1])) continue;
     if (character === "=" && ["!", "<", ">", "="].includes(line[index - 1])) continue;
 
