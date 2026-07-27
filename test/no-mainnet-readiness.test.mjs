@@ -11,6 +11,11 @@ import {
   serializeBuildRecord,
   serializeReproductionReceipt,
 } from "../src/release-manifest.mjs";
+import {
+  FINAL_SUITE_COMMANDS,
+  buildFinalSuiteReceiptV1,
+  serializeFinalSuiteReceiptV1,
+} from "../src/final-suite-receipt.mjs";
 
 const CANDIDATE = Buffer.from("exact-candidate-sbf", "utf8");
 const SOURCE_COMMIT = "1".repeat(40);
@@ -218,6 +223,25 @@ function gate(report, id) {
   return report.gates.find((entry) => entry.id === id);
 }
 
+function fullSuiteBytes(sourceCommit = SOURCE_COMMIT) {
+  return serializeFinalSuiteReceiptV1(
+    buildFinalSuiteReceiptV1({
+      sourceCommit,
+      startedAt: "2026-07-27T01:30:00.000Z",
+      completedAt: "2026-07-27T01:40:00.000Z",
+      results: FINAL_SUITE_COMMANDS.map(({ id, argv }, index) => ({
+        id,
+        argv: [...argv],
+        startedAt: `2026-07-27T01:3${index}:00.000Z`,
+        completedAt: `2026-07-27T01:3${index}:30.000Z`,
+        exitCode: 0,
+        stdoutSha256: "d".repeat(64),
+        stderrSha256: "e".repeat(64),
+      })),
+    }),
+  );
+}
+
 test("derives a truthful no-go report from raw candidate evidence", async () => {
   const readiness = await import("../src/no-mainnet-readiness.mjs").catch(
     () => ({}),
@@ -249,6 +273,36 @@ test("derives a truthful no-go report from raw candidate evidence", async () => 
       "market-initialization",
     ],
   });
+});
+
+test("passes the full-suite gate only for the exact candidate source commit", async () => {
+  const readiness = await import("../src/no-mainnet-readiness.mjs").catch(
+    () => ({}),
+  );
+  const input = rawInput();
+  input.optionalEvidenceBytes.fullSuite = fullSuiteBytes();
+  const report = readiness.buildNoMainnetReadinessV1(input);
+  assert.equal(gate(report, "all-rust-node-sbf-tests").status, "pass");
+
+  const drifted = rawInput();
+  drifted.optionalEvidenceBytes.fullSuite = fullSuiteBytes("f".repeat(40));
+  assert.equal(
+    gate(
+      readiness.buildNoMainnetReadinessV1(drifted),
+      "all-rust-node-sbf-tests",
+    ).status,
+    "fail",
+  );
+
+  const claimed = rawInput();
+  claimed.optionalEvidenceBytes.fullSuite = Buffer.from('{"ok":true}\n');
+  assert.equal(
+    gate(
+      readiness.buildNoMainnetReadinessV1(claimed),
+      "all-rust-node-sbf-tests",
+    ).status,
+    "fail",
+  );
 });
 
 test("recomputes reproduction from bytes and rejects caller verdicts", async () => {

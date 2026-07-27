@@ -46,6 +46,7 @@
     "verify:raydium-origin": "node scripts/verify-raydium-origin.mjs",
     "verify:graduation": "node scripts/verify-graduation.mjs",
     "verify:wallet-readiness": "node scripts/verify-wallet-readiness.mjs",
+    "verify:final-suite": "node scripts/run-final-suite.mjs",
     "verify:token": "node scripts/verify-token.mjs"
   },
   "dependencies": {

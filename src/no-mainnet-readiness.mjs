@@ -19,6 +19,10 @@ import {
   assertMetadataManifestV1,
   assertMetadataReadbackV1,
 } from "./metadata-integrity.mjs";
+import {
+  assertFinalSuiteReceiptV1,
+  serializeFinalSuiteReceiptV1,
+} from "./final-suite-receipt.mjs";
 
 export const NO_MAINNET_READINESS_SCHEMA_VERSION =
   "hakky-no-mainnet-readiness-v1";
@@ -259,6 +263,41 @@ function evaluateRuntimeReceipt(input, candidate) {
       ? "The selected candidate passed the offline exact-SBF decoder surface."
       : "The exact candidate runtime receipt is invalid or does not bind the selected bytes.",
     [evidence(`${input.buildDirectory}/runtime-receipt.json`, bytes)],
+  );
+}
+
+function evaluateFinalSuite(input, candidate) {
+  const bytes = input.optionalEvidenceBytes.fullSuite;
+  if (bytes === null) {
+    return gate(
+      "all-rust-node-sbf-tests",
+      "missing",
+      "A final source-commit-bound full-suite receipt is absent.",
+    );
+  }
+  const exact = exactBuffer(bytes, "optionalEvidenceBytes.fullSuite");
+  let receipt;
+  try {
+    receipt = JSON.parse(exact.toString("utf8"));
+    assertFinalSuiteReceiptV1(receipt);
+  } catch {
+    return gate(
+      "all-rust-node-sbf-tests",
+      "fail",
+      "The final-suite receipt is malformed or violates the closed command contract.",
+      [evidence("artifacts/verify/final-suite-v1.json", exact)],
+    );
+  }
+  const valid =
+    exact.equals(serializeFinalSuiteReceiptV1(receipt)) &&
+    receipt.sourceCommit === candidate.buildRecord.source.commit;
+  return gate(
+    "all-rust-node-sbf-tests",
+    valid ? "pass" : "fail",
+    valid
+      ? "The exact source commit passed the closed Node, schema, Rust, SBF, and bounded-fuzz suite."
+      : "The final-suite receipt is not canonical or does not bind the selected candidate source commit.",
+    [evidence("artifacts/verify/final-suite-v1.json", exact)],
   );
 }
 
@@ -628,21 +667,7 @@ export function buildNoMainnetReadinessV1(input) {
         : "The selected executable does not match its canonical build record.",
       primaryEvidence,
     ),
-    gate(
-      "all-rust-node-sbf-tests",
-      input.optionalEvidenceBytes.fullSuite === null ? "missing" : "fail",
-      input.optionalEvidenceBytes.fullSuite === null
-        ? "A final source-commit-bound full-suite receipt is absent."
-        : "A raw claimed suite result is not sufficient without the closed final-suite contract.",
-      input.optionalEvidenceBytes.fullSuite === null
-        ? []
-        : [
-            evidence(
-              "artifacts/verify/final-suite-v1.json",
-              input.optionalEvidenceBytes.fullSuite,
-            ),
-          ],
-    ),
+    evaluateFinalSuite(input, candidate),
     runtimeGate,
     gate(
       "binary-size",
