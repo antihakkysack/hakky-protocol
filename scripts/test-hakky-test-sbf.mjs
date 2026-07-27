@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { validateVendorBundle } from "./materialize-hakky-cargo-vendor.mjs";
+import {
+  assertBuildRecord,
+  serializeBuildRecord,
+} from "../src/release-manifest.mjs";
 
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
 const RUST_IMAGE =
@@ -28,11 +32,44 @@ export async function verifySbfReceipt(
     repositoryRoot,
     "artifacts",
     "build",
-    lane === "candidate-sbf" ? "candidate" : "test-sbf",
+    ...(lane === "candidate-sbf"
+      ? ["candidate", "local-a"]
+      : ["test-sbf"]),
   );
   const binaryPath = path.join(directory, "hakky_market.so");
-  const receipt = JSON.parse(await readFile(path.join(directory, "build-receipt.json"), "utf8"));
+  const receiptPath = path.join(
+    directory,
+    lane === "candidate-sbf" ? "build-record.json" : "build-receipt.json",
+  );
+  const receiptBytes = await readFile(receiptPath);
+  const receipt = JSON.parse(receiptBytes.toString("utf8"));
   const binary = await readFile(binaryPath);
+  if (lane === "candidate-sbf") {
+    assertBuildRecord(receipt);
+    if (!Buffer.from(receiptBytes).equals(serializeBuildRecord(receipt))) {
+      throw new Error("candidate-SBF build record is not canonical");
+    }
+    if (
+      receipt.buildDirectory !==
+      "artifacts/build/candidate/local-a"
+    ) {
+      throw new Error("candidate-SBF build record has the wrong directory");
+    }
+    if (
+      receipt.executable.byteLength !== binary.byteLength ||
+      receipt.executable.sha256 !== sha256(binary)
+    ) {
+      throw new Error(
+        "candidate-SBF binary hash does not match its build record",
+      );
+    }
+    return {
+      binaryPath,
+      directory,
+      receipt,
+      binarySha256: receipt.executable.sha256,
+    };
+  }
   if (receipt.lane !== lane) throw new Error(`${lane} receipt has the wrong lane`);
   if (receipt.testFeatureEnabled !== false) {
     throw new Error("test-SBF release binary must not contain the native test feature");
@@ -49,7 +86,12 @@ export async function verifySbfReceipt(
   if (receipt.binarySha256 !== sha256(binary)) {
     throw new Error("test-SBF binary hash does not match its build receipt");
   }
-  return { binaryPath, directory, receipt };
+  return {
+    binaryPath,
+    directory,
+    receipt,
+    binarySha256: receipt.binarySha256,
+  };
 }
 
 export function planExactSbfRun({
@@ -62,7 +104,7 @@ export function planExactSbfRun({
   const root = path.resolve(repositoryRoot);
   const containerBinary =
     lane === "candidate-sbf"
-      ? "/workspace/artifacts/build/candidate/hakky_market.so"
+      ? "/workspace/artifacts/build/candidate/local-a/hakky_market.so"
       : "/workspace/artifacts/build/test-sbf/hakky_market.so";
   const cargoArguments = [
     "cargo",
@@ -120,14 +162,14 @@ export async function runExactSbf({
   exec = execFileSync,
 } = {}) {
   const root = path.resolve(repositoryRoot);
-  const { directory, receipt } = await verifySbfReceipt(root, lane);
+  const { binarySha256, directory } = await verifySbfReceipt(root, lane);
   await validateVendorBundle(root);
   const [executable, ...args] = planExactSbfRun({ repositoryRoot: root, lane });
   exec(executable, args, { cwd: root, stdio: "inherit" });
   const result = {
     schemaVersion: "hakky-sbf-decoder-probe-v1",
     lane,
-    binarySha256: receipt.binarySha256,
+    binarySha256,
     nativeProcessorFallback: false,
     preferBpf: true,
     acceptedInstructionTags: [0, 1, 2],

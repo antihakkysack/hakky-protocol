@@ -51,6 +51,11 @@ test("exact-SBF runtime lane has no native processor fallback", async () => {
   assert(
     candidateCommand.includes("exact_candidate_sbf_executes_reviewed_decoder_surface"),
   );
+  assert(
+    candidateCommand.includes(
+      "HAKKY_SBF_PATH=/workspace/artifacts/build/candidate/local-a/hakky_market.so",
+    ),
+  );
 });
 
 test("package scripts keep native, test-SBF, and candidate-SBF lanes separate", async () => {
