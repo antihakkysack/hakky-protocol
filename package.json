@@ -18,6 +18,7 @@
     "check:repo": "node scripts/check-repo.mjs",
     "check:site": "node scripts/check-site.mjs",
     "cost:verify": "node scripts/build-cost-ledger.mjs",
+    "evidence:scope": "node scripts/build-independent-scope.mjs",
     "lore:ledger": "node scripts/build-lore-ledger.mjs",
     "lore:collect": "node scripts/collect-reddit-lore.mjs",
     "metadata:finalize": "node scripts/finalize-metadata-manifest.mjs",
