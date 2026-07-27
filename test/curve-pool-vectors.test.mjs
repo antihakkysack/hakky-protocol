@@ -23,6 +23,15 @@ const L = 2_000_000_000_000n;
 const Q = 24_000_000_000n;
 const D = 1_000_000n;
 const F = 997_500n;
+const U64_MAX = 0xffff_ffff_ffff_ffffn;
+const MASK_64 = U64_MAX;
+const EXPECTED_KINDS = [
+  "curveReserve",
+  "curveBuy",
+  "curveSell",
+  "poolBuy",
+  "poolSell",
+];
 
 const errors = Object.freeze({
   ZeroAmount: "error:484b0004",
@@ -36,6 +45,40 @@ const errors = Object.freeze({
 function ceilDiv(numerator, denominator) {
   assert(denominator > 0n);
   return numerator / denominator + (numerator % denominator === 0n ? 0n : 1n);
+}
+
+function rotateLeft64(value, bits) {
+  return (((value << bits) & MASK_64) | (value >> (64n - bits))) & MASK_64;
+}
+
+function independentXoshiroKnownAnswer(seedHex, outputCount) {
+  const high = BigInt(`0x${seedHex.slice(0, 16)}`);
+  const low = BigInt(`0x${seedHex.slice(16)}`);
+  let seed = (high ^ rotateLeft64(low, 17n)) & MASK_64;
+  const state = [];
+  for (let index = 0; index < 4; index += 1) {
+    seed = (seed + 0x9e37_79b9_7f4a_7c15n) & MASK_64;
+    let mixed = seed;
+    mixed = ((mixed ^ (mixed >> 30n)) * 0xbf58_476d_1ce4_e5b9n) & MASK_64;
+    mixed = ((mixed ^ (mixed >> 27n)) * 0x94d0_49bb_1331_11ebn) & MASK_64;
+    state.push((mixed ^ (mixed >> 31n)) & MASK_64);
+  }
+  const initialState = state.map(String);
+  const outputs = [];
+  for (let index = 0; index < outputCount; index += 1) {
+    outputs.push(
+      ((rotateLeft64((state[1] * 5n) & MASK_64, 7n) * 9n) & MASK_64)
+        .toString(),
+    );
+    const temporary = (state[1] << 17n) & MASK_64;
+    state[2] ^= state[0];
+    state[3] ^= state[1];
+    state[1] ^= state[2];
+    state[0] ^= state[3];
+    state[2] ^= temporary;
+    state[3] = rotateLeft64(state[3], 45n);
+  }
+  return { initialState, outputs };
 }
 
 function curveReserve(sold) {
@@ -145,10 +188,34 @@ test("generator identity seed schema order and case count are frozen", async () 
     "identity",
     "seedHex",
     "caseCount",
+    "initialState",
+    "initialOutputs",
   ]);
+  const knownAnswer = independentXoshiroKnownAnswer(SEED_HEX, 8);
+  assert.deepEqual(knownAnswer.initialState, [
+    "14708535579442662089",
+    "849665406132499741",
+    "17436620374991249288",
+    "9832929837502808094",
+  ]);
+  assert.deepEqual(knownAnswer.outputs, [
+    "5685559790167330181",
+    "2368613918768109119",
+    "11219219450210543372",
+    "9918755936004139257",
+    "7945129480861828247",
+    "12761725465152772007",
+    "10315898470543476408",
+    "1706352161077581083",
+  ]);
+  assert.deepEqual(rendered.document.generator.initialState, knownAnswer.initialState);
+  assert.deepEqual(rendered.document.generator.initialOutputs, knownAnswer.outputs);
   assert.equal(rendered.document.cases.length, CASE_COUNT);
+  const kindCounts = Object.fromEntries(EXPECTED_KINDS.map((kind) => [kind, 0]));
   for (const [index, vector] of rendered.document.cases.entries()) {
     assert.equal(vector.index, String(index));
+    assert.equal(vector.kind, EXPECTED_KINDS[index % EXPECTED_KINDS.length]);
+    kindCounts[vector.kind] += 1;
     assert.deepEqual(Object.keys(vector), [
       "index",
       "kind",
@@ -158,6 +225,13 @@ test("generator identity seed schema order and case count are frozen", async () 
       "outcome",
     ]);
   }
+  assert.deepEqual(kindCounts, {
+    curveReserve: 2_000,
+    curveBuy: 2_000,
+    curveSell: 2_000,
+    poolBuy: 2_000,
+    poolSell: 2_000,
+  });
 });
 
 test("detached lowercase SHA-256 authenticates exact canonical bytes", async () => {
@@ -188,9 +262,21 @@ test("fixed endpoints dust fees overflow and rejection vectors are exact", () =>
     ["7999999999999", "23999999999"],
     ["8000000000000", "24000000000"],
   ]);
+  assert.deepEqual(fixed.fees, [
+    ["1", "1", "0"],
+    ["399", "1", "398"],
+    ["400", "1", "399"],
+    ["401", "2", "399"],
+    ["799", "2", "797"],
+    ["800", "2", "798"],
+  ]);
   assert.deepEqual(fixed.pool, [
-    ["buy", "2000000000000", "24000000000", "1", "2"],
-    ["sell", "2000000000000", "24000000000", "85", "1"],
+    ["buy", "2000000000000", "24000000000", "1", "1", "2", "1999999999999", "24000000002", "48000000003975999999998"],
+    ["sell", "2000000000000", "24000000000", "85", "84", "1", "2000000000085", "23999999999", "48000000000039999999915"],
+  ]);
+  assert.deepEqual(fixed.fit, [
+    ["1999999997391", "18443963468419611698"],
+    ["1999999997392", errors.ArithmeticOverflow],
   ]);
   assert.deepEqual(fixed.rejections, [
     ["curveBuy", "0", "1", "0", errors.ZeroQuote],
@@ -198,7 +284,62 @@ test("fixed endpoints dust fees overflow and rejection vectors are exact", () =>
     ["poolBuy", "2000000000000", "18446744073709551615", "1", errors.ArithmeticOverflow],
     ["poolSell", "2000000000000", "24000000000", "1", errors.ZeroQuote],
     ["poolBuy", "2000000000000", "24000000000", "2000000000000", errors.InsufficientCurveLiquidity],
+    ["poolBuy", "2000000000000", "23999999999", "1", errors.ReserveInvariant],
   ]);
+
+  for (const [sold, expected] of fixed.curve) {
+    assert.equal(curveReserve(BigInt(sold)).toString(), expected);
+  }
+  for (const [gross, expectedFee, expectedEffective] of fixed.fees) {
+    const grossValue = BigInt(gross);
+    const fee = ceilDiv(grossValue * (D - F), D);
+    assert.equal(fee.toString(), expectedFee);
+    assert.equal((grossValue - fee).toString(), expectedEffective);
+  }
+  for (const [kind, base, quote, amount, effective, outcome, baseAfter, quoteAfter, kAfter] of fixed.pool) {
+    const baseValue = BigInt(base);
+    const quoteValue = BigInt(quote);
+    const amountValue = BigInt(amount);
+    const actual = kind === "buy"
+      ? poolBuy(baseValue, quoteValue, amountValue)
+      : poolSell(baseValue, quoteValue, amountValue);
+    assert.equal(actual.toString(), outcome);
+    const effectiveValue = kind === "buy"
+      ? ceilDiv(quoteValue * amountValue, baseValue - amountValue)
+      : (amountValue * F) / D;
+    assert.equal(effectiveValue.toString(), effective);
+    const actualBaseAfter = kind === "buy"
+      ? baseValue - amountValue
+      : baseValue + amountValue;
+    const actualQuoteAfter = kind === "buy"
+      ? quoteValue + BigInt(outcome)
+      : quoteValue - BigInt(outcome);
+    assert.equal(actualBaseAfter.toString(), baseAfter);
+    assert.equal(actualQuoteAfter.toString(), quoteAfter);
+    assert.equal((actualBaseAfter * actualQuoteAfter).toString(), kAfter);
+  }
+  for (const [baseOut, expected] of fixed.fit) {
+    const actual = poolBuy(L, Q, BigInt(baseOut));
+    assert.equal(typeof actual === "bigint" ? actual.toString() : actual, expected);
+  }
+  for (const [kind, a, b, c, expected] of fixed.rejections) {
+    const actual = recompute({ kind, a, b, c });
+    assert.equal(typeof actual === "bigint" ? actual.toString() : actual, expected);
+  }
+});
+
+test("generated pool vectors cover both sides of the full valid reserve domain", () => {
+  const { cases } = renderCurvePoolVectors().document;
+  const accepted = cases.filter(({ outcome }) => !outcome.startsWith("error:"));
+  assert(accepted.some(({ kind, a, b }) => (
+    kind === "poolBuy" && BigInt(a) < L && BigInt(b) > Q
+  )));
+  assert(accepted.some(({ kind, a, b }) => (
+    kind === "poolSell" && BigInt(a) > L && BigInt(b) < Q
+  )));
+  for (const vector of accepted.filter(({ kind }) => kind.startsWith("pool"))) {
+    assert(validPool(BigInt(vector.a), BigInt(vector.b)), `vector ${vector.index}`);
+  }
 });
 
 test("independent BigInt arithmetic recomputes every generated result", () => {

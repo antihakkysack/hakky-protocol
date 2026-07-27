@@ -16,6 +16,8 @@ const F = 997_500n;
 const U64_MAX = (1n << 64n) - 1n;
 const U128_MAX = (1n << 128n) - 1n;
 const MASK_64 = U64_MAX;
+const POOL_FLOOR = L * Q;
+const MIN_VALID_POOL_BASE = (POOL_FLOOR + U64_MAX - 1n) / U64_MAX;
 
 const errors = Object.freeze({
   zeroAmount: "error:484b0004",
@@ -189,7 +191,7 @@ function splitMix64(value) {
   return [next, (mixed ^ (mixed >> 31n)) & MASK_64];
 }
 
-function createXoshiro256StarStar() {
+function initialXoshiroState() {
   const high = BigInt(`0x${SEED_HEX.slice(0, 16)}`);
   const low = BigInt(`0x${SEED_HEX.slice(16)}`);
   let seed = (high ^ rotateLeft64(low, 17n)) & MASK_64;
@@ -199,18 +201,34 @@ function createXoshiro256StarStar() {
     seed = nextSeed;
     state.push(output);
   }
+  return state;
+}
 
-  return () => {
-    const result = (rotateLeft64((state[1] * 5n) & MASK_64, 7n) * 9n) & MASK_64;
-    const temporary = (state[1] << 17n) & MASK_64;
-    state[2] ^= state[0];
-    state[3] ^= state[1];
-    state[1] ^= state[2];
-    state[0] ^= state[3];
-    state[2] ^= temporary;
-    state[3] = rotateLeft64(state[3], 45n);
-    return result;
-  };
+function nextXoshiro256StarStar(state) {
+  const result = (rotateLeft64((state[1] * 5n) & MASK_64, 7n) * 9n) & MASK_64;
+  const temporary = (state[1] << 17n) & MASK_64;
+  state[2] ^= state[0];
+  state[3] ^= state[1];
+  state[1] ^= state[2];
+  state[0] ^= state[3];
+  state[2] ^= temporary;
+  state[3] = rotateLeft64(state[3], 45n);
+  return result;
+}
+
+function createXoshiro256StarStar() {
+  const state = initialXoshiroState();
+  return () => nextXoshiro256StarStar(state);
+}
+
+function xoshiroKnownAnswer() {
+  const state = initialXoshiroState();
+  const initialState = state.map(String);
+  const initialOutputs = [];
+  for (let index = 0; index < 8; index += 1) {
+    initialOutputs.push(nextXoshiro256StarStar(state).toString());
+  }
+  return { initialState, initialOutputs };
 }
 
 function asOutcome(value) {
@@ -276,8 +294,21 @@ function generatedCases() {
         break;
       }
       case 3: {
-        const base = L + (first % (TOTAL - L + 1n));
-        let quote = Q + (second % 1_000_000_000_000n);
+        let base;
+        let quote;
+        if (ordinal % 2 === 0) {
+          base = MIN_VALID_POOL_BASE + (first % (L - MIN_VALID_POOL_BASE));
+          const minimumQuote = ceilDiv(POOL_FLOOR, base);
+          const headroom = U64_MAX - minimumQuote;
+          const extraRange =
+            (headroom < 1_000_000_000_000n
+              ? headroom
+              : 1_000_000_000_000n) + 1n;
+          quote = minimumQuote + (second % extraRange);
+        } else {
+          base = L + (first % (TOTAL - L + 1n));
+          quote = Q + (second % 1_000_000_000_000n);
+        }
         let amount;
         if (ordinal % 1_000 === 0) {
           amount = 0n;
@@ -293,13 +324,22 @@ function generatedCases() {
         break;
       }
       default: {
-        let base = L + (first % (TOTAL - L));
-        const quote = Q + (second % 1_000_000_000_000n);
+        let base;
+        let quote;
+        if (ordinal % 2 === 0) {
+          base = L + 85n + (first % (TOTAL - L - 85n));
+          const minimumQuote = ceilDiv(POOL_FLOOR, base);
+          quote = minimumQuote + (second % (Q - minimumQuote));
+        } else {
+          base = L + (first % (TOTAL - L));
+          quote = Q + (second % 1_000_000_000_000n);
+        }
         let amount;
         if (ordinal % 1_000 === 0) {
           amount = 0n;
         } else if (ordinal % 1_000 === 1) {
           base = L;
+          quote = Q;
           amount = U64_MAX;
         } else if (ordinal % 1_000 === 2) {
           amount = 1n;
@@ -317,12 +357,15 @@ function generatedCases() {
 }
 
 export function renderCurvePoolVectors() {
+  const knownAnswer = xoshiroKnownAnswer();
   const document = {
     schemaVersion: SCHEMA_VERSION,
     generator: {
       identity: GENERATOR_IDENTITY,
       seedHex: SEED_HEX,
       caseCount: String(CASE_COUNT),
+      initialState: knownAnswer.initialState,
+      initialOutputs: knownAnswer.initialOutputs,
     },
     constants: {
       total: TOTAL.toString(),
@@ -343,9 +386,41 @@ export function renderCurvePoolVectors() {
         ["7999999999999", "23999999999"],
         ["8000000000000", "24000000000"],
       ],
+      fees: [
+        ["1", "1", "0"],
+        ["399", "1", "398"],
+        ["400", "1", "399"],
+        ["401", "2", "399"],
+        ["799", "2", "797"],
+        ["800", "2", "798"],
+      ],
       pool: [
-        ["buy", "2000000000000", "24000000000", "1", "2"],
-        ["sell", "2000000000000", "24000000000", "85", "1"],
+        [
+          "buy",
+          "2000000000000",
+          "24000000000",
+          "1",
+          "1",
+          "2",
+          "1999999999999",
+          "24000000002",
+          "48000000003975999999998",
+        ],
+        [
+          "sell",
+          "2000000000000",
+          "24000000000",
+          "85",
+          "84",
+          "1",
+          "2000000000085",
+          "23999999999",
+          "48000000000039999999915",
+        ],
+      ],
+      fit: [
+        ["1999999997391", "18443963468419611698"],
+        ["1999999997392", errors.arithmeticOverflow],
       ],
       rejections: [
         ["curveBuy", "0", "1", "0", errors.zeroQuote],
@@ -353,6 +428,7 @@ export function renderCurvePoolVectors() {
         ["poolBuy", "2000000000000", U64_MAX.toString(), "1", errors.arithmeticOverflow],
         ["poolSell", "2000000000000", "24000000000", "1", errors.zeroQuote],
         ["poolBuy", "2000000000000", "24000000000", "2000000000000", errors.insufficientCurveLiquidity],
+        ["poolBuy", "2000000000000", "23999999999", "1", errors.reserveInvariant],
       ],
     },
     cases: generatedCases(),
