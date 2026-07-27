@@ -65,6 +65,9 @@ changed during the specification-review gate.
   create or rewrite identity.
 - Native, test-SBF, and candidate-SBF receipts never satisfy one another's
   gates, and test identities are forbidden from candidate/public artifacts.
+- Native integration tests that require the hermetic release identity run with
+  `--features test-release-config`; pure math tests run under default features,
+  and every test-SBF/candidate-SBF build runs without that feature.
 - No mainnet signer, transaction, spend, deploy, finalization, initialization,
   or publication is authorized by this plan.
 
@@ -450,7 +453,7 @@ silently change the public error contract.
 
 ```powershell
 rtk node --test test/release-config.test.mjs
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test instruction_state
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test instruction_state
 ```
 
 Expected: FAIL because the tracked leaf/generated JavaScript and Rust modules
@@ -593,8 +596,8 @@ compile_error!("test release identities must never compile to SBF");
 
 ```powershell
 rtk node --test test/release-config.test.mjs
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test instruction_state
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --locked -- -D warnings
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test instruction_state
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo tree -p hakky-market --locked -d
 ```
 
@@ -781,7 +784,7 @@ close authority. Assert the exact stable `HakkyErrorV1` code for each mutation.
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test adversarial_accounts
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test adversarial_accounts
 ```
 
 Expected: FAIL because account parsers do not exist.
@@ -834,8 +837,8 @@ No helper accepts a destination program ID.
 - [ ] **Step 6: Run GREEN**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test adversarial_accounts
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --locked -- -D warnings
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test adversarial_accounts
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 Expected: all adversarial mutations fail with their named code and canonical
@@ -896,7 +899,7 @@ appears.
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test initialization_prefund
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test initialization_prefund
 rtk node --test test/test-sbf-lane.test.mjs
 ```
 
@@ -945,10 +948,10 @@ transaction.
 - [ ] **Step 6: Run GREEN**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test initialization_prefund
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test initialization_prefund
 rtk node scripts/build-hakky-test-sbf.mjs
 rtk node --test test/test-sbf-lane.test.mjs
-rtk docker run --rm -e SBF_OUT_DIR=/workspace/artifacts/test-sbf/current -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test initialization_prefund
+rtk docker run --rm -e SBF_OUT_DIR=/workspace/artifacts/test-sbf/current -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test initialization_prefund
 ```
 
 Expected: every prefund boundary passes, every hostile/duplicate/partial case
@@ -989,7 +992,7 @@ without oversell or double transition.
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test curve_lifecycle
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test curve_lifecycle
 ```
 
 Expected: FAIL because swap branches return an error.
@@ -1009,7 +1012,7 @@ points, including overlapping-invalidity cases.
 - [ ] **Step 4: Run GREEN**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test curve_lifecycle
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test curve_lifecycle
 ```
 
 Expected: all curve, slippage, deadline, donation, rollback, and terminal
@@ -1050,7 +1053,7 @@ slippage, balance, and deadline while preserving every invariant.
 - [ ] **Step 2: Run RED**
 
 ```powershell
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --test pool_lifecycle --test rollback_concurrency
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --locked --features test-release-config --test pool_lifecycle --test rollback_concurrency
 ```
 
 Expected: FAIL because pool-phase branches are missing.
@@ -1072,7 +1075,7 @@ supply, deposit, withdraw, sync, skim, or close path.
 ```powershell
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --workspace --locked
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo fmt --all --check
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --locked -- -D warnings
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 ```
 
 Expected: all Rust tests pass, formatting is clean, and clippy has no warning.
@@ -1309,7 +1312,7 @@ rtk npm run program:inspect-candidate
 rtk npm run program:fuzz
 rtk node --test test/release-config.test.mjs test/curve-pool-vectors.test.mjs test/program-surface.test.mjs test/build-hakky-sbf.test.mjs test/program-lanes.test.mjs test/run-hakky-fuzz.test.mjs
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo fmt --all --check
-rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --locked -- -D warnings
+rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 rtk docker run --rm -v "${PWD}:/workspace" -w /workspace rust@sha256:f49565f188ee00bc2a18dd418183f2c5f23ef7d6e691890517ed341a598f67c3 cargo test --workspace --locked
 rtk git diff --check
 rtk git status --short
