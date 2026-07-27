@@ -6,11 +6,10 @@ use hakky_market::{
     instruction::HakkyInstructionV1,
     pda::MarketPdasV1,
     state::{
-        MarketStateV1, ACCOUNTED_HAKKY_RANGE, ACCOUNTED_WSOL_RANGE, BUMPS_RANGE,
-        CURVE_SOLD_RANGE, INITIALIZATION_SLOT_RANGE, INITIALIZER_RANGE,
-        INSTANCE_COMMITMENT_RANGE, INSTANCE_NONCE_RANGE, LAYOUT_VERSION_OFFSET,
-        MAGIC_RANGE, MARKET_STATE_LEN, MINT_RANGE, PHASE_OFFSET, RESERVED_RANGE,
-        VAULT_AUTHORITY_RANGE, HAKKY_VAULT_RANGE, WSOL_VAULT_RANGE,
+        MarketStateV1, ACCOUNTED_HAKKY_RANGE, ACCOUNTED_WSOL_RANGE, BUMPS_RANGE, CURVE_SOLD_RANGE,
+        HAKKY_VAULT_RANGE, INITIALIZATION_SLOT_RANGE, INITIALIZER_RANGE, INSTANCE_COMMITMENT_RANGE,
+        INSTANCE_NONCE_RANGE, LAYOUT_VERSION_OFFSET, MAGIC_RANGE, MARKET_STATE_LEN, MINT_RANGE,
+        PHASE_OFFSET, RESERVED_RANGE, VAULT_AUTHORITY_RANGE, WSOL_VAULT_RANGE,
     },
 };
 use solana_program::{hash::hash, program_error::ProgramError};
@@ -98,16 +97,14 @@ fn instruction_shape_precedence_is_frozen() {
 
 #[test]
 fn canonical_instruction_vectors_decode_exactly() {
-    let initialize =
-        bytes("000707070707070707070707070707070707070707070707070707070707070707");
+    let initialize = bytes("000707070707070707070707070707070707070707070707070707070707070707");
     assert_eq!(
         HakkyInstructionV1::decode(&initialize).unwrap(),
         HakkyInstructionV1::Initialize {
             instance_nonce: [7_u8; 32]
         }
     );
-    let buy =
-        bytes("01080706050403020118171615141312112827262524232221");
+    let buy = bytes("01080706050403020118171615141312112827262524232221");
     assert_eq!(
         HakkyInstructionV1::decode(&buy).unwrap(),
         HakkyInstructionV1::BuyExactHakky {
@@ -116,8 +113,7 @@ fn canonical_instruction_vectors_decode_exactly() {
             deadline_slot: 0x2122232425262728,
         }
     );
-    let sell =
-        bytes("02383736353433323148474645444342415857565554535251");
+    let sell = bytes("02383736353433323148474645444342415857565554535251");
     assert_eq!(
         HakkyInstructionV1::decode(&sell).unwrap(),
         HakkyInstructionV1::SellExactHakky {

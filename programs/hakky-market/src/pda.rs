@@ -38,8 +38,7 @@ impl MarketPdasV1 {
             derive_one(VAULT_AUTHORITY_SEED, instance_nonce)?;
         let (hakky_vault, hakky_vault_bump) = derive_one(HAKKY_VAULT_SEED, instance_nonce)?;
         let (wsol_vault, wsol_vault_bump) = derive_one(WSOL_VAULT_SEED, instance_nonce)?;
-        let (metadata_sink, metadata_sink_bump) =
-            derive_one(METADATA_SINK_SEED, instance_nonce)?;
+        let (metadata_sink, metadata_sink_bump) = derive_one(METADATA_SINK_SEED, instance_nonce)?;
 
         let result = Self {
             mint,
@@ -94,8 +93,7 @@ pub fn validate_instance_nonce(instance_nonce: &[u8; 32]) -> Result<(), ProgramE
 
 fn derive_one(role: &[u8], instance_nonce: &[u8; 32]) -> Result<(Pubkey, u8), ProgramError> {
     let seeds: &[&[u8]] = &[role, VERSION_SEED, instance_nonce];
-    let Some((canonical, bump)) =
-        Pubkey::try_find_program_address(seeds, &EXPECTED_PROGRAM_ID)
+    let Some((canonical, bump)) = Pubkey::try_find_program_address(seeds, &EXPECTED_PROGRAM_ID)
     else {
         return Err(HakkyErrorV1::InvalidPda.into());
     };

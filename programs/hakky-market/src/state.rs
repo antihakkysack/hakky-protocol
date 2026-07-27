@@ -76,10 +76,7 @@ impl MarketStateV1 {
             mint: Pubkey::new_from_array(read_array_32(data, MINT_RANGE)),
             hakky_vault: Pubkey::new_from_array(read_array_32(data, HAKKY_VAULT_RANGE)),
             wsol_vault: Pubkey::new_from_array(read_array_32(data, WSOL_VAULT_RANGE)),
-            vault_authority: Pubkey::new_from_array(read_array_32(
-                data,
-                VAULT_AUTHORITY_RANGE,
-            )),
+            vault_authority: Pubkey::new_from_array(read_array_32(data, VAULT_AUTHORITY_RANGE)),
         };
         state.validate()?;
         Ok(state)
@@ -144,8 +141,7 @@ impl MarketStateV1 {
             else {
                 return Err(HakkyErrorV1::InvalidMarketState.into());
             };
-            let Some(minimum) =
-                u128::from(POOL_SEED).checked_mul(u128::from(TERMINAL_QUOTE))
+            let Some(minimum) = u128::from(POOL_SEED).checked_mul(u128::from(TERMINAL_QUOTE))
             else {
                 return Err(HakkyErrorV1::InvalidMarketState.into());
             };
@@ -193,7 +189,9 @@ fn curve_reserve(sold: u64) -> Option<u64> {
     let sold = u128::from(sold);
     let curve_max = u128::from(CURVE_MAX);
     let numerator = u128::from(TERMINAL_QUOTE).checked_mul(sold)?;
-    let denominator = curve_max.checked_mul(4)?.checked_sub(sold.checked_mul(3)?)?;
+    let denominator = curve_max
+        .checked_mul(4)?
+        .checked_sub(sold.checked_mul(3)?)?;
     u64::try_from(numerator.checked_div(denominator)?).ok()
 }
 

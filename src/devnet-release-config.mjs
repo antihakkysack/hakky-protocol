@@ -1613,7 +1613,20 @@ export function instanceCommitment(instanceNonce) {
 }
 
 function rustArray(bytes) {
-  return `[${[...bytes].join(", ")}]`;
+  const lines = [];
+  let current = "    ";
+  for (const byte of bytes) {
+    const item = `${byte},`;
+    const candidate = current === "    " ? `${current}${item}` : `${current} ${item}`;
+    if (candidate.length > 99) {
+      lines.push(current);
+      current = `    ${item}`;
+    } else {
+      current = candidate;
+    }
+  }
+  lines.push(current);
+  return `[\n${lines.join("\n")}\n]`;
 }
 
 function releaseIdentityBytes(releaseConfig) {
