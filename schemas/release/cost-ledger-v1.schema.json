@@ -156,13 +156,15 @@
           ],
           "properties": {
             "recordPath": {
-              "const": "artifacts/build/candidate/local-a/build-record.json"
+              "type": "string",
+              "pattern": "^artifacts/build/candidate/[a-z0-9][a-z0-9-]*/build-record\\.json$"
             },
             "recordSha256": {
               "$ref": "#/$defs/sha256"
             },
             "executablePath": {
-              "const": "artifacts/build/candidate/local-a/hakky_market.so"
+              "type": "string",
+              "pattern": "^artifacts/build/candidate/[a-z0-9][a-z0-9-]*/hakky_market\\.so$"
             },
             "executableByteLength": {
               "type": "integer",

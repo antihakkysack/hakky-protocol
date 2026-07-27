@@ -26,15 +26,13 @@ import { createBoundedPublicRpcClient } from "../src/solana-rpc.mjs";
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(
   new URL("../", import.meta.url),
 );
-const BUILD_RECORD_PATH =
-  "artifacts/build/candidate/local-a/build-record.json";
-const EXECUTABLE_PATH =
-  "artifacts/build/candidate/local-a/hakky_market.so";
+const BUILD_RECORD_PATTERN =
+  /^artifacts\/build\/candidate\/[a-z0-9][a-z0-9-]*\/build-record\.json$/u;
 const DEVNET_RPC_URL = "https://api.devnet.solana.com/";
 export const COST_LEDGER_PATH =
   "artifacts/cost/cost-ledger-v1.json";
 const USAGE =
-  "Usage: node scripts/build-cost-ledger.mjs --build-record artifacts/build/candidate/local-a/build-record.json --network devnet";
+  "Usage: node scripts/build-cost-ledger.mjs --build-record artifacts/build/candidate/<id>/build-record.json --network devnet";
 
 function sha256Hex(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -48,8 +46,10 @@ export function parseCostLedgerOptions(argv) {
         flag: "--build-record",
         key: "buildRecordPath",
         validate(value) {
-          if (value !== BUILD_RECORD_PATH) {
-            throw new Error("Cost build record must be the exact local-a path");
+          if (!BUILD_RECORD_PATTERN.test(value)) {
+            throw new Error(
+              "Cost build record must be one canonical candidate path",
+            );
           }
         },
       },
@@ -91,13 +91,19 @@ function contextValue(value, name) {
 }
 
 async function readBoundBuild(repositoryRoot, relativePath) {
+  if (!BUILD_RECORD_PATTERN.test(relativePath)) {
+    throw new Error("cost-build-binding-invalid");
+  }
+  const buildDirectory = path.posix.dirname(relativePath);
+  const executableRelativePath =
+    `${buildDirectory}/hakky_market.so`;
   const recordPath = await resolveRepositoryPath(
     repositoryRoot,
     relativePath,
   );
   const executablePath = await resolveRepositoryPath(
     repositoryRoot,
-    EXECUTABLE_PATH,
+    executableRelativePath,
   );
   const [recordBytes, executable] = await Promise.all([
     readFile(recordPath),
@@ -117,14 +123,19 @@ async function readBoundBuild(repositoryRoot, relativePath) {
   }
   if (
     !Buffer.from(recordBytes).equals(canonicalRecord) ||
-    record.buildDirectory !== "artifacts/build/candidate/local-a" ||
+    record.buildDirectory !== buildDirectory ||
     record.executable.path !== "hakky_market.so" ||
     record.executable.byteLength !== executable.byteLength ||
     record.executable.sha256 !== sha256Hex(executable)
   ) {
     throw new Error("cost-build-binding-invalid");
   }
-  return { record, recordBytes, executable };
+  return {
+    record,
+    recordBytes,
+    executable,
+    executableRelativePath,
+  };
 }
 
 async function collectRent(rpcClient, byteLength) {
@@ -233,7 +244,7 @@ async function collectSnapshot({
     build: {
       recordPath: buildRecordPath,
       recordSha256: sha256Hex(build.recordBytes),
-      executablePath: EXECUTABLE_PATH,
+      executablePath: build.executableRelativePath,
       executableByteLength: build.executable.byteLength,
       executableSha256: sha256Hex(build.executable),
     },

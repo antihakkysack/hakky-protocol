@@ -29,9 +29,9 @@ export function costSnapshot(overrides = {}) {
       feeSlot: 124,
     },
     build: {
-      recordPath: "artifacts/build/candidate/local-a/build-record.json",
+      recordPath: "artifacts/build/candidate/final-a/build-record.json",
       recordSha256: "1".repeat(64),
-      executablePath: "artifacts/build/candidate/local-a/hakky_market.so",
+      executablePath: "artifacts/build/candidate/final-a/hakky_market.so",
       executableByteLength: 120_000,
       executableSha256: "2".repeat(64),
     },

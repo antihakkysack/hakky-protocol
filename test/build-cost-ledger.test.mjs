@@ -31,7 +31,7 @@ const EXECUTABLE = Buffer.from("hakky-cost-ledger-fixture", "utf8");
 const EXECUTABLE_SHA256 = createHash("sha256")
   .update(EXECUTABLE)
   .digest("hex");
-const BUILD_DIRECTORY = "artifacts/build/candidate/local-a";
+const BUILD_DIRECTORY = "artifacts/build/candidate/final-a";
 const BUILD_RECORD_PATH = `${BUILD_DIRECTORY}/build-record.json`;
 
 function buildRecord() {
@@ -120,7 +120,7 @@ function buildRecord() {
   };
 }
 
-test("cost CLI accepts only the exact local-a build and devnet", () => {
+test("cost CLI accepts one canonical candidate build and devnet", () => {
   assert.deepEqual(
     parseCostLedgerOptions([
       "--build-record",
@@ -138,7 +138,19 @@ test("cost CLI accepts only the exact local-a build and devnet", () => {
     ["--build-record", BUILD_RECORD_PATH, "--network", "mainnet-beta"],
     [
       "--build-record",
-      "artifacts/build/candidate/local-b/build-record.json",
+      "artifacts/build/candidate/Final-A/build-record.json",
+      "--network",
+      "devnet",
+    ],
+    [
+      "--build-record",
+      "artifacts/build/candidate/final-a/hakky_market.so",
+      "--network",
+      "devnet",
+    ],
+    [
+      "--build-record",
+      "artifacts/build/candidate/final-a/../final-b/build-record.json",
       "--network",
       "devnet",
     ],
@@ -151,7 +163,7 @@ test("cost CLI accepts only the exact local-a build and devnet", () => {
       "yes",
     ],
   ]) {
-    assert.throws(() => parseCostLedgerOptions(argv), /Usage|devnet|local-a/u);
+    assert.throws(() => parseCostLedgerOptions(argv), /Usage|devnet|candidate/u);
   }
 });
 

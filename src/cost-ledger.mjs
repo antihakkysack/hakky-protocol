@@ -11,10 +11,10 @@ export const COST_FRESHNESS_MS = 15 * 60 * 1000;
 export const DEPLOYMENT_WRITE_CHUNK_BYTES = 900;
 export const PRIORITY_MICRO_LAMPORTS_PER_COMPUTE_UNIT = 100_000n;
 
-const BUILD_RECORD_PATH =
-  "artifacts/build/candidate/local-a/build-record.json";
-const EXECUTABLE_PATH =
-  "artifacts/build/candidate/local-a/hakky_market.so";
+const BUILD_RECORD_PATTERN =
+  /^artifacts\/build\/candidate\/([a-z0-9][a-z0-9-]*)\/build-record\.json$/u;
+const EXECUTABLE_PATTERN =
+  /^artifacts\/build\/candidate\/([a-z0-9][a-z0-9-]*)\/hakky_market\.so$/u;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const UTC_MILLISECOND_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -137,8 +137,10 @@ function assertSnapshot(snapshot) {
       "executableByteLength",
       "executableSha256",
     ]) ||
-    snapshot.build.recordPath !== BUILD_RECORD_PATH ||
-    snapshot.build.executablePath !== EXECUTABLE_PATH ||
+    !BUILD_RECORD_PATTERN.test(snapshot.build.recordPath) ||
+    !EXECUTABLE_PATTERN.test(snapshot.build.executablePath) ||
+    BUILD_RECORD_PATTERN.exec(snapshot.build.recordPath)?.[1] !==
+      EXECUTABLE_PATTERN.exec(snapshot.build.executablePath)?.[1] ||
     !SHA256_PATTERN.test(snapshot.build.recordSha256) ||
     !SHA256_PATTERN.test(snapshot.build.executableSha256) ||
     !Number.isSafeInteger(snapshot.build.executableByteLength) ||
