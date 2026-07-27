@@ -142,7 +142,7 @@ test("pins the exact verifiable image, local operator, and binary ceiling", () =
   );
 });
 
-test("build records fail closed on provenance, invocation, and surface drift", () => {
+test("build records fail closed on source, invocation, and surface drift", () => {
   const mutations = [
     (value) => {
       value.source.clean = false;

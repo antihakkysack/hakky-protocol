@@ -321,34 +321,41 @@ function parseToolchainProbe(stdout) {
   return Object.fromEntries(values);
 }
 
-function probeToolchain(plan, spawn) {
+export function planToolchainProbe(plan) {
+  const platformToolsRoot =
+    `/root/.cache/solana/${SBF_TOOLS_VERSION}/platform-tools/rust/bin`;
   const script = [
     "set -eu",
-    "printf 'rustc='; rustc --version",
-    "printf 'cargo='; cargo --version",
+    `printf 'rustc='; ${platformToolsRoot}/rustc --version`,
+    `printf 'cargo='; ${platformToolsRoot}/cargo --version`,
     "printf 'solana='; solana --version",
-    "printf 'cargoBuildSbf='; cargo-build-sbf --version",
+    "cargo-build-sbf --version > /tmp/cargo-build-sbf-version",
+    "printf 'cargoBuildSbf='; sed -n '1p' /tmp/cargo-build-sbf-version",
   ].join("; ");
+  return [
+    "rtk",
+    "docker",
+    "run",
+    "--rm",
+    "--network",
+    "none",
+    "-e",
+    `RUSTUP_TOOLCHAIN=${SBF_HOST_TOOLCHAIN}`,
+    "-e",
+    "CARGO_HOME=/cargo-home",
+    "-v",
+    volume(plan.cargoHome, "/cargo-home", "rw"),
+    SBF_IMAGE,
+    "sh",
+    "-lc",
+    script,
+  ];
+}
+
+function probeToolchain(plan, spawn) {
   const result = runCaptured(
     spawn,
-    [
-      "rtk",
-      "docker",
-      "run",
-      "--rm",
-      "--network",
-      "none",
-      "-e",
-      `RUSTUP_TOOLCHAIN=${SBF_HOST_TOOLCHAIN}`,
-      "-e",
-      "CARGO_HOME=/cargo-home",
-      "-v",
-      volume(plan.cargoHome, "/cargo-home", "rw"),
-      SBF_IMAGE,
-      "sh",
-      "-lc",
-      script,
-    ],
+    planToolchainProbe(plan),
     plan.repositoryRoot,
   );
   if (result.status !== 0 || result.signal !== null) {

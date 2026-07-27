@@ -8,6 +8,7 @@ import {
   isCleanRtkGitStatus,
   parseBuildOptions,
   planSbfBuild,
+  planToolchainProbe,
 } from "../scripts/build-hakky-sbf.mjs";
 
 test("pins the exact SBF image and hermetic cargo-build-sbf invocation", () => {
@@ -130,4 +131,32 @@ test("candidate clean-tree gate accepts RTK's empty-status sentinel only", () =>
   assert.equal(isCleanRtkGitStatus("ok\r\n"), true);
   assert.equal(isCleanRtkGitStatus(" M package.json\r\n"), false);
   assert.equal(isCleanRtkGitStatus("?? new-file\r\n"), false);
+});
+
+test("toolchain probe uses the pinned platform-tools binaries present in the image", () => {
+  const plan = planSbfBuild({
+    lane: "candidate-sbf",
+    repositoryRoot: path.resolve("C:/repo"),
+    outputRelativePath: "artifacts/build/candidate/local-a",
+  });
+  const command = planToolchainProbe(plan);
+  assert.deepEqual(command.slice(0, 6), [
+    "rtk",
+    "docker",
+    "run",
+    "--rm",
+    "--network",
+    "none",
+  ]);
+  const script = command.at(-1);
+  assert.match(
+    script,
+    /\/root\/\.cache\/solana\/v1\.53\/platform-tools\/rust\/bin\/rustc --version/u,
+  );
+  assert.match(
+    script,
+    /\/root\/\.cache\/solana\/v1\.53\/platform-tools\/rust\/bin\/cargo --version/u,
+  );
+  assert.doesNotMatch(script, /printf 'rustc='; rustc --version/u);
+  assert.doesNotMatch(script, /printf 'cargo='; cargo --version/u);
 });
