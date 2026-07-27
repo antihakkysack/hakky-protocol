@@ -18,7 +18,7 @@ import {
   createCurveLiveRecordV2,
   createPrelaunchRecordV2,
 } from "../test-support/launch-fixtures.mjs";
-import { validateLaunchRecord } from "../web/lib/launch-policy.js";
+import { validateLaunchRecord } from "../src/legacy-launch-v2-policy.mjs";
 
 const MINT = "11111111111111111111111111111111";
 const LAUNCH_ID = "SysvarRent111111111111111111111111111111111";

@@ -1,18 +1,14 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { validateLaunchRecord } from "../web/lib/launch-policy.js";
+import { validateLaunchRecord } from "../src/legacy-launch-v2-policy.mjs";
 import {
   createCurveLiveRecordV2,
   createGraduatedRecordV2,
   createPrelaunchRecordV2,
 } from "../test-support/launch-fixtures.mjs";
 
-const committed = JSON.parse(await readFile(new URL("../web/data/launch.json", import.meta.url), "utf8"));
-
-test("committed launch record is the canonical v2 prelaunch record", () => {
-  assert.deepEqual(committed, createPrelaunchRecordV2());
-  assert.deepEqual(validateLaunchRecord(committed), []);
+test("canonical v2 prelaunch fixture remains valid in the compatibility module", () => {
+  assert.deepEqual(validateLaunchRecord(createPrelaunchRecordV2()), []);
 });
 
 test("semantic policy accepts every lifecycle and availability branch", () => {

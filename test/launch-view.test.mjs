@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildLaunchView } from "../web/lib/launch-view.js";
+import { buildLaunchView } from "../src/legacy-launch-v2-view.mjs";
 import {
   createPrelaunchRecordV2,
   createCurveLiveRecordV2,

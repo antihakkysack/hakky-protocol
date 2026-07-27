@@ -3,7 +3,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
 const schemaUrl = new URL("../schemas/web/launch-v2.schema.json", import.meta.url);
-const outputUrl = new URL("../web/lib/launch-schema.generated.js", import.meta.url);
+const outputUrl = new URL("../src/launch-schema-v2.generated.mjs", import.meta.url);
 const WRAPPER = "\nexport const validateLaunchShape = launchV2;\n";
 const AJV_EQUAL_RUNTIME = "const func0 = require(\"ajv/dist/runtime/equal\").default;";
 const INLINE_EQUAL_RUNTIME = `const func0 = (left, right) => {

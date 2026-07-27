@@ -10,7 +10,7 @@ import {
   isOfficialSolscanMintUrl,
   isOfficialSolscanTransactionUrl,
   validateLaunchRecord,
-} from "../web/lib/launch-policy.js";
+} from "./legacy-launch-v2-policy.mjs";
 
 export const MINT_PROOF_SCHEMA_VERSION = 1;
 export const LAUNCHLAB_PROOF_SCHEMA_VERSION = 1;

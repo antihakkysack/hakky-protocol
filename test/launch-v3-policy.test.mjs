@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateSchema } from "../src/schema-validation.mjs";
 
-const policyModule = await import("../web/lib/prelaunch-policy.js").catch(() => ({
+const policyModule = await import("../web/lib/launch-policy.js").catch(() => ({
   EXPECTED_PRELAUNCH_RECORD: null,
   validateLaunchRecord: () => ["prelaunch policy module is missing"],
 }));
-const viewModule = await import("../web/lib/prelaunch-view.js").catch(() => ({
+const viewModule = await import("../web/lib/launch-view.js").catch(() => ({
   buildLaunchView: () => {
     throw new Error("prelaunch view module is missing");
   },

@@ -5,22 +5,32 @@ import test from "node:test";
 const html = await readFile("web/index.html", "utf8");
 const css = await readFile("web/styles.css", "utf8");
 
-test("prelaunch warning is the hero's first element child with exact copy", () => {
+test("the exact warning is the first visible page message", () => {
   assert.match(
     html,
-    /<section id="top"[^>]*>\s*<p class="status" data-launch-status role="alert">PRE-LAUNCH: No official mint address exists yet - ignore impostors\.<\/p>/,
+    /<body data-record-state="loading">\s*<a class="skip-link"[^>]*>Skip to content<\/a>\s*<p class="prelaunch-strip" data-launch-status role="alert">PRELAUNCH: No official HAKKY program or mint is published\. Ignore addresses from replies, ads, or DMs\.<\/p>/u,
   );
 });
 
-test("mobile warning enters flow before hero content while desktop strip remains absolute", () => {
-  assert.match(css, /\.status\s*{[^}]*position:\s*absolute;/s);
+test("the semantic sections and primary navigation follow the approved order", () => {
   assert.match(
-    css,
-    /@media \(max-width: 440px\)[\s\S]*?\.status\s*{[^}]*position:\s*static;[^}]*grid-row:\s*1;[^}]*text-align:\s*left;/,
+    html,
+    /<header class="site-header">[\s\S]*?<nav aria-label="Primary">[\s\S]*?href="#origin-log"[\s\S]*?href="#market-route"[\s\S]*?href="#planned-facts"[\s\S]*?href="#proof-terminal"[\s\S]*?<\/nav>/u,
+  );
+  assert.match(
+    html,
+    /<main id="main-content">[\s\S]*?id="top"[\s\S]*?id="origin-log"[\s\S]*?id="doctrine"[\s\S]*?id="market-route"[\s\S]*?id="planned-facts"[\s\S]*?id="proof-terminal"[\s\S]*?id="straight-answers"[\s\S]*?<\/main>/u,
   );
 });
 
-test("the page forbids horizontal overflow and has no static trading href", () => {
-  assert.match(css, /body\s*{[^}]*overflow-x:\s*hidden;/s);
-  assert.doesNotMatch(html, /data-(?:solscan|raydium|pool-link)[^>]*\shref=/i);
+test("all essential content is server-visible and locally styled", () => {
+  assert.match(html, /<link rel="stylesheet" href="\.\/styles\.css">/u);
+  assert.match(html, /<script type="module" src="\.\/app\.js"><\/script>/u);
+  assert.doesNotMatch(html, /<(?:script|link)[^>]+(?:src|href)="https?:/iu);
+  assert.match(css, /body\s*\{[^}]*overflow-x:\s*hidden;/su);
+});
+
+test("the page has no form controls or static trading destination", () => {
+  assert.doesNotMatch(html, /<(?:form|input|button|select|textarea)\b/iu);
+  assert.doesNotMatch(html, /href="[^"]*(?:swap|trade|launchpad|raydium|jupiter)/iu);
 });

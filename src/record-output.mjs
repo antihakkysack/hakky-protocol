@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import { validateUnavailablePublication } from "./canonical-proof.mjs";
-import { validateLaunchRecord } from "../web/lib/launch-policy.js";
+import { validateLaunchRecord } from "./legacy-launch-v2-policy.mjs";
 
 function canonicalLaunchBytes(record) {
   return Buffer.from(`${JSON.stringify(record, null, 2)}\n`, "utf8");

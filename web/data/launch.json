@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "status": "prelaunch",
   "network": "mainnet-beta",
   "project": {
@@ -9,22 +9,18 @@
     "website": "https://hakky.xyz",
     "x": "https://x.com/antihakkysack"
   },
-  "token": {
-    "mint": null,
+  "policy": {
+    "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
     "supplyBaseUnits": "10000000000000",
     "uiSupply": "10000000",
     "decimals": 6,
-    "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-  },
-  "launch": {
-    "venue": "Raydium LaunchLab",
-    "quoteSymbol": "SOL",
-    "publicCurveBps": 8000,
-    "liquidityBps": 2000,
-    "teamBps": 0,
-    "creatorFirstBuyLamports": "0",
-    "vestingBaseUnits": "0",
+    "curveAllocationBaseUnits": "8000000000000",
+    "poolSeedBaseUnits": "2000000000000",
+    "teamAllocationBaseUnits": "0",
+    "curveFeeBps": 0,
+    "poolRetainedFeeBps": 25,
     "creatorDebitCapLamports": "1000000000"
   },
+  "addresses": null,
   "proof": null
 }

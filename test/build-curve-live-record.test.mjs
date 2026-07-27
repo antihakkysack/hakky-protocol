@@ -24,7 +24,7 @@ import {
   createCurveLiveRecordV2,
   createPrelaunchRecordV2,
 } from "../test-support/launch-fixtures.mjs";
-import { validateLaunchRecord } from "../web/lib/launch-policy.js";
+import { validateLaunchRecord } from "../src/legacy-launch-v2-policy.mjs";
 
 const PUBLISHED_AT = "2026-07-23T00:03:00.000Z";
 
