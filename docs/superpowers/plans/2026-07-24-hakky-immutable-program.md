@@ -966,11 +966,12 @@ already allocated or initialized account. Never transfer excess lamports out.
 
 - [ ] **Step 5: Implement the exact atomic initialization sequence**
 
-Validate finalized self and all accounts; validate commitment; adopt/create
-PDAs; initialize mint and vaults; mint total supply; create immutable metadata;
-set mint authority to `None`; write initial state; re-read every changed
-account and assert all postconditions. Any error propagates and rolls back the
-transaction.
+Validate structure and fixed identities, commitment/PDAs, initializer, and raw
+loader finalization in that order; validate existing-account/prefund
+semantics; adopt/create PDAs; initialize mint and vaults; mint total supply;
+create immutable metadata; set mint authority to `None`; write initial state;
+re-read every changed account and assert all postconditions. Any error
+propagates and rolls back the transaction.
 
 Freeze the initialization-specific overlapping-invalidity order from the
 design: structure/fixed identities, commitment/PDAs, initializer, raw loader

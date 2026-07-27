@@ -246,6 +246,13 @@ fn invalid_phase_has_its_frozen_error_before_phase_specific_state_rules() {
         MarketStateV1::decode(&state.encode()),
         Err(custom(HakkyErrorV1::InvalidPhase))
     );
+
+    let mut invalid_identity_and_phase = state.encode();
+    invalid_identity_and_phase[MINT_RANGE.start] ^= 1;
+    assert_eq!(
+        MarketStateV1::decode(&invalid_identity_and_phase),
+        Err(custom(HakkyErrorV1::InvalidMarketState))
+    );
 }
 
 #[test]
