@@ -914,7 +914,7 @@ pub fn process_instruction(
     accounts: &[AccountInfo],
     data: &[u8],
 ) -> ProgramResult {
-    if program_id != &release_config::EXPECTED_PROGRAM_ID {
+    if program_id != &constants::EXPECTED_PROGRAM_ID {
         return Err(HakkyErrorV1::WrongProgramId.into());
     }
     match HakkyInstructionV1::decode(data)? {
