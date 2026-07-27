@@ -1,57 +1,57 @@
 # HAKKY
 
-**Rugs hate this little guy.**
+> We are not anonymous.
+> We are HAKKY.
+> And the whole wide world
+> just. got. sacked.
 
-HAKKY is a personal, transparent Solana fair-launch meme coin whose launch facts
-are checked by HakkyAgent.
+HAKKY is a personal, fixed-supply Solana meme project building a custom,
+immutable, permissionless curve-to-pool market. HakkyAgent is its fictional
+proof character: it checks only canonical HAKKY evidence and never makes a meme
+coin safe.
 
-**HakkyAgent verifies the facts. You decide the risk.**
+## Current state
 
-## Planned fair-launch commitments
+HAKKY is prelaunch. No official program, mint, market, curve, pool, or launch
+transaction is published. Ignore addresses from replies, ads, and DMs.
 
-Until canonical proof is published, these policy values are planned commitments:
+The website and protocol remain separate release gates. Publishing the site,
+deploying a Solana program, initializing the market, signing a transaction, or
+spending SOL each requires its own action-time approval and exact readback.
 
-- 10,000,000 HAKKY fixed supply
-- six decimals
-- 100% public distribution: 80% bonding curve, 20% post-graduation liquidity
-- 0% team allocation
-- no presale, vesting, treasury, or creator first-buy
-- exact LaunchLab PDA mint authority while the curve is live; null after verified graduation
-- freeze authority absent
-- creator fees disabled
-- CPMM Burn & Earn permanent lock of the full irreversible share, not an SPL burn
-- 24 SOL configured minimum; the observed graduation balance is reported separately
-- creator-funded launch cost capped at 1.00 SOL
+## Planned fixed rules
 
-## Verify, don't trust
+These values are requirements, not verified live facts:
 
-Before launch, no official mint address exists. Ignore addresses in replies and
-DMs. The public lifecycle is `prelaunch`, `curve-live`, then `graduated`.
-`hakky.xyz` publishes a mint only from canonical evidence. A creator token
-balance is always a finalized, time-qualified observation rather than a
-permanent claim.
+- 10,000,000 HAKKY display supply and 10,000,000,000,000 base units;
+- six decimals under the Classic SPL Token program;
+- 8,000,000 HAKKY for the permissionless curve;
+- 2,000,000 HAKKY for the initial permanent-pool seed;
+- 0 HAKKY team or creator allocation, with no presale or vesting;
+- 0% curve fee;
+- 0.25% pool-retained fee, rounded upward by at most one input base unit;
+- no creator or protocol fee destination;
+- null mint and freeze authorities after initialization;
+- a finalized program with null upgrade authority before market initialization;
+- no more than 1.00 SOL of creator-funded mainnet debit.
 
-## HakkyAgent
+Permanent initial liquidity means no privileged withdrawal path for the initial
+seed. It does not mean pool reserves never change through valid swaps.
 
-HakkyAgent checks the HAKKY mint, supply, authorities, creator balance, and the
-canonical LaunchLab proof bundle. It does not verify every Solana transaction,
-provide a safety guarantee, or guarantee scam detection.
+## Evidence boundary
 
-Launch stops on a mutable PlatformConfig, unavailable raw unsigned transaction,
-non-atomic immutable metadata, or any non-full-lock LP disposition. See the
-reviewed branch -> PR quality -> separately approved merge -> main Pages order
-in the launch policy.
-
-Runtime Solana dependencies remain pinned at `@solana/web3.js@1.98.4` and
-`@solana/spl-token@0.4.15`. Do not run `npm audit fix --force`; recheck the two
-documented upstream exceptions by 2026-08-23.
+HakkyAgent publishes only HAKKY facts that survive deterministic checks and
+canonical readback. It does not audit arbitrary tokens, verify every Solana
+transaction, detect every scam, predict price, or guarantee safety.
 
 ## Project documents
 
 - [Token policy](docs/TOKEN.md)
 - [Launch and verification policy](docs/LAUNCH.md)
+- [Approved immutable market design](docs/superpowers/specs/2026-07-24-hakky-immutable-curve-pool-design.md)
 
 ## Risk
 
-HAKKY is a high-risk meme coin with no promised utility or returns. Nothing in
-this repository is financial, legal, or tax advice.
+HAKKY is a high-risk meme coin. There is no promised utility, price, yield,
+floor, return, buyback, or recovery mechanism. Nothing in this repository is
+financial, legal, medical, religious, or tax advice.

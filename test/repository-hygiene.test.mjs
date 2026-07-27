@@ -584,6 +584,25 @@ test("repository scan is deterministic and ignores untracked files", async () =>
   assert.deepEqual(violations, []);
 });
 
+test("generated one-line validators scan in bounded time without weakening token checks", {
+  timeout: 1_000,
+}, async () => {
+  const schema = Object.fromEntries(
+    Array.from({ length: 3_000 }, (_, index) => [`field${index}`, { type: "string" }]),
+  );
+  const generated = `export const schema = ${JSON.stringify(schema)};\n`;
+  const serviceFixture = `ghp_${"a".repeat(36)}`;
+  const violations = await scanFixture({
+    "safe-large.json": JSON.stringify(schema),
+    "src/safe.generated.mjs": generated,
+    "src/token.generated.mjs": `export const fixture = ${JSON.stringify(serviceFixture)};\n`,
+  });
+
+  assert.deepEqual(violations, [
+    { file: "src/token.generated.mjs", rule: "secret-service-token" },
+  ]);
+});
+
 test("Pages deployment has no manual dispatch and still depends on reusable quality", async () => {
   const workflow = await readFile(".github/workflows/pages.yml", "utf8");
   assert.doesNotMatch(workflow, /workflow_dispatch/);
@@ -594,6 +613,38 @@ test("Pages deployment has no manual dispatch and still depends on reusable qual
 test("legacy contracts and services ignore remnants are not tracked", async () => {
   for (const file of ["contracts/.gitignore", "services/.gitignore", "services/.dockerignore"]) {
     await assert.rejects(access(file), { code: "ENOENT" });
+  }
+});
+
+test("active public documents describe only the immutable prelaunch pivot", async () => {
+  const files = [
+    "README.md",
+    "docs/TOKEN.md",
+    "docs/LAUNCH.md",
+    "web/README.md",
+    "launch/prelaunch-post.md",
+  ];
+  const sources = await Promise.all(files.map(file => readFile(file, "utf8")));
+  for (const [index, source] of sources.entries()) {
+    assert.doesNotMatch(
+      source,
+      /LaunchLab|Raydium|Pump\.fun|post-graduation/iu,
+      `${files[index]} retains the retired public launch route`,
+    );
+  }
+
+  const combined = sources.join("\n");
+  for (const required of [
+    "10,000,000",
+    "10,000,000,000,000",
+    "8,000,000",
+    "2,000,000",
+    "0.25%",
+    "1.00 SOL",
+    "null upgrade authority",
+    "separate action-time approval",
+  ]) {
+    assert.match(combined, new RegExp(required.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   }
 });
 

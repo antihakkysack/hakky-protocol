@@ -395,6 +395,55 @@ function hasWalletKeyArray(content) {
   return false;
 }
 
+function inspectJsonCredentialAssignments(content, relative) {
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    return { parsed: false, hasViolation: false };
+  }
+
+  let hasViolation = false;
+  const visit = (value) => {
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item);
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+
+    for (const [name, nested] of Object.entries(value)) {
+      const knownPackageField = (relative === "package.json" || relative === "package-lock.json")
+        && name === "@solana/spl-token"
+        && nested === "0.4.15"
+        || relative === "package-lock.json"
+        && name === "registry-auth-token"
+        && nested === "3.3.2"
+        || relative === "package.json"
+        && name === "verify:token"
+        && nested === "node scripts/verify-token.mjs";
+      const knownPublicTokenAddress = relative.startsWith("test-support/fixtures/launchlab/")
+        && name === "poolLpToken"
+        && typeof nested === "string"
+        && /^[1-9A-HJ-NP-Za-km-z]{32,44}$/u.test(nested);
+      if (
+        isCredentialName(name)
+        && !knownPackageField
+        && !knownPublicTokenAddress
+        && (nested === null || typeof nested !== "object")
+      ) {
+        const rawValue = typeof nested === "string" ? JSON.stringify(nested) : String(nested);
+        const valueText = nested === null ? "null" : String(nested).trim();
+        if (!isAllowedSecretAssignment(rawValue, valueText, new Set())) {
+          hasViolation = true;
+        }
+      }
+      visit(nested);
+    }
+  };
+  visit(parsed);
+  return { parsed: true, hasViolation };
+}
+
 function indentationWidth(line) {
   return line.match(/^[ \t]*/)?.[0].replaceAll("\t", "  ").length ?? 0;
 }
@@ -445,6 +494,9 @@ function secretRulesForContent(content, relative) {
   const rules = new Set();
   const environmentBindings = new Set();
   const isYaml = [".yaml", ".yml"].includes(path.extname(relative).toLowerCase());
+  const jsonInspection = path.extname(relative).toLowerCase() === ".json"
+    ? inspectJsonCredentialAssignments(content, relative)
+    : { parsed: false, hasViolation: false };
   const yamlInspection = isYaml
     ? inspectMultilineYamlCredentialAssignments(content)
     : { handledHeaderLines: new Set(), hasViolation: false };
@@ -459,6 +511,17 @@ function secretRulesForContent(content, relative) {
   }
   if (yamlInspection.hasViolation) {
     rules.add("secret-credential-assignment");
+  }
+  if (jsonInspection.hasViolation) {
+    rules.add("secret-credential-assignment");
+  }
+
+  // Generated validators can contain thousands of object-property separators on
+  // one line. The assignment parser is intentionally reserved for authored
+  // source; whole-file private-key, authenticated-URL, wallet-array, and
+  // service-token checks above still apply to generated JavaScript.
+  if (jsonInspection.parsed || /\.generated\.[cm]?js$/u.test(relative)) {
+    return stableSort(rules);
   }
 
   for (const [lineIndex, line] of content.split(/\r?\n/).entries()) {

@@ -1,29 +1,27 @@
 # HAKKY website
 
-Static personal-project site for `hakky.xyz`. Serve it locally with `npm run preview`.
-
-`data/launch.json` controls the fail-closed public state:
-
-- `prelaunch`: no mint address or trading link is rendered;
-- `curve-live` or `graduated` with `availability: "unavailable"`: the known
-  lifecycle stage is shown, but no mint, evidence, or destination is rendered;
-- `curve-live` with `availability: "verified"`: the exact nested v2 proof facts
-  and canonical destinations are rendered only after both canonical artifacts
-  match. LP irreversibility remains explicitly pending until graduation proof.
-
-The HTML ships with a prominent prelaunch warning and hidden live actions. If JavaScript or launch-record loading fails, the warning remains and the live actions stay hidden.
-
-Promote the record only through the deterministic proof-bound builder after
-both canonical artifacts pass readback:
+Static personal-project site for `hakky.xyz`. Serve it locally with:
 
 ```powershell
-rtk npm run build:curve-live-record -- --published-at <exact-ISO-8601-UTC-timestamp>
+rtk npm run preview
 ```
 
-The command requires an operator-supplied publication time after both artifact
-observations, copies all variable public evidence from the two canonical
-artifacts, rejects extra or failed fields, and leaves the source record
-untouched when validation or atomic replacement fails. Do not hand-assemble
-the verified proof object.
+The public runtime is intentionally prelaunch-only:
 
-Run `npm run check` before deployment. The site has no wallet connector, tracking script, backend dependency, or Hetzner dependency.
+- `data/launch.json` must match the exact schema-v3 planned record;
+- `addresses` and `proof` remain `null`;
+- the browser adapter writes only six safe proof-terminal strings;
+- failed loading, JSON, validation, or DOM state restores the exact
+  `PROOF UNAVAILABLE` warning;
+- no wallet, trading control, market link, remote script, remote font, or
+  third-party embed is present; and
+- the public tree contains no official program, mint, transaction, or user
+  address.
+
+Planned economics are 10,000,000 HAKKY total, split
+8,000,000 / 2,000,000 / 0 between curve, initial permanent-pool seed, and
+team/creator allocation. The planned curve fee is 0%; the pool-retained fee is
+0.25%; creator-funded mainnet debit is capped at 1.00 SOL.
+
+Run `rtk npm run check:site` before any publication handoff. Pushing,
+deploying, and every Solana mutation require separate action-time approval.

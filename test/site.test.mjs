@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import {
+  cp,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { checkSite } from "../scripts/check-site.mjs";
 import {
   PRELAUNCH_WARNING,
   PROOF_UNAVAILABLE,
@@ -72,6 +81,13 @@ function assertState(documentRef, { rootState, status }) {
   for (const [name, expected] of Object.entries(SAFE_FIELDS)) {
     assert.equal(documentRef.elements.get(FIELD_SELECTORS[name])?.textContent, expected);
   }
+}
+
+async function createSiteFixture(t) {
+  const root = await mkdtemp(path.join(os.tmpdir(), "hakky-site-gate-"));
+  await cp("web", path.join(root, "web"), { recursive: true });
+  t.after(() => rm(root, { recursive: true, force: true }));
+  return root;
 }
 
 test("homepage contains the approved meme-first origin transmission", () => {
@@ -180,4 +196,105 @@ test("HTTP, JSON, validation, and missing-element failures restore unavailable s
       assert.equal(missing.elements.get(FIELD_SELECTORS[name]).textContent, value);
     }
   }
+});
+
+test("the complete public tree passes the recursive publication gate", async () => {
+  const result = await checkSite({ root: process.cwd() });
+  assert.deepEqual(result, {
+    ok: true,
+    missing: [],
+    issues: [],
+    safetyIssues: [],
+  });
+});
+
+for (const [name, insertion, expectedIssue] of [
+  [
+    "legacy term",
+    "<p>LaunchLab</p>",
+    'web/index.html: forbidden legacy term "LaunchLab"',
+  ],
+  [
+    "Reddit identity",
+    "<p>Left-Agency-9292</p>",
+    "web/index.html: Reddit identity or URL is forbidden",
+  ],
+  [
+    "wallet button",
+    "<button>Connect wallet</button>",
+    "web/index.html: wallet or trading control is forbidden",
+  ],
+  [
+    "external trade link",
+    '<a href="https://example.invalid/swap">Trade</a>',
+    "web/index.html: external market link is forbidden",
+  ],
+  [
+    "placeholder address",
+    "<p>11111111111111111111111111111111</p>",
+    "web/index.html: unapproved Solana public key is forbidden",
+  ],
+]) {
+  test(`public-tree gate rejects ${name} with a filename and exact reason`, async (t) => {
+    const root = await createSiteFixture(t);
+    const indexPath = path.join(root, "web", "index.html");
+    const source = await readFile(indexPath, "utf8");
+    await writeFile(indexPath, source.replace("</body>", `${insertion}</body>`));
+
+    const result = await checkSite({ root });
+
+    assert.equal(result.ok, false);
+    assert.ok(result.safetyIssues.includes(expectedIssue));
+  });
+}
+
+for (const [name, mutate, expectedIssue] of [
+  [
+    "status",
+    value => { value.status = "curve-live"; },
+    'web/data/launch.json: /status must equal "prelaunch"; received "curve-live"',
+  ],
+  [
+    "keys",
+    value => { value.destination = "https://example.invalid"; },
+    "web/data/launch.json: /destination is not allowed",
+  ],
+  [
+    "economics",
+    value => { value.policy.supplyBaseUnits = "999"; },
+    'web/data/launch.json: /policy/supplyBaseUnits must equal "10000000000000"; received "999"',
+  ],
+  [
+    "addresses",
+    value => { value.addresses = {}; },
+    "web/data/launch.json: /addresses must equal null; received {}",
+  ],
+  [
+    "proof",
+    value => { value.proof = {}; },
+    "web/data/launch.json: /proof must equal null; received {}",
+  ],
+]) {
+  test(`public-tree gate rejects mutated v3 ${name} with an exact reason`, async (t) => {
+    const root = await createSiteFixture(t);
+    const launchPath = path.join(root, "web", "data", "launch.json");
+    const value = JSON.parse(await readFile(launchPath, "utf8"));
+    mutate(value);
+    await writeFile(launchPath, `${JSON.stringify(value, null, 2)}\n`);
+
+    const result = await checkSite({ root });
+
+    assert.equal(result.ok, false);
+    assert.ok(result.issues.includes(expectedIssue));
+  });
+}
+
+test("public-tree gate rejects oversized regular files with an exact reason", async (t) => {
+  const root = await createSiteFixture(t);
+  await writeFile(path.join(root, "web", "oversized.css"), "x".repeat((2 * 1024 * 1024) + 1));
+
+  const result = await checkSite({ root });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.safetyIssues.includes("web/oversized.css: file exceeds 2 MiB"));
 });

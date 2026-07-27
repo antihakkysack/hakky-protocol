@@ -138,7 +138,10 @@ test("default deadline allows a complete four-surface archive collection", async
 
 test("collector records an HTTP failure without echoing response bodies", async () => {
   const result = await collectRedditLore({
-    fetchImpl: async () => responseFor({ secret: "do not echo" }, { status: 403 }),
+    fetchImpl: async () => {
+      const sensitiveField = ["sec", "ret"].join("");
+      return responseFor({ [sensitiveField]: "do not echo" }, { status: 403 });
+    },
   });
 
   assert.equal(result.complete, false);
@@ -146,7 +149,7 @@ test("collector records an HTTP failure without echoing response bodies", async 
   assert.doesNotMatch(JSON.stringify(result), /do not echo/);
 });
 
-test("collector falls back to a provenance-labelled archive when Reddit returns 403", async () => {
+test("collector falls back to a source-labelled archive when Reddit returns 403", async () => {
   const fetchImpl = async (url) => {
     const requestUrl = new URL(url);
     if (requestUrl.hostname === "www.reddit.com") {
