@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   SBF_IMAGE,
   SBF_IMAGE_DIGEST,
+  isCleanRtkGitStatus,
   planSbfBuild,
 } from "../scripts/build-hakky-sbf.mjs";
 
@@ -69,4 +70,11 @@ test("candidate lane is clean-tree gated and no unknown lane is accepted", () =>
     () => planSbfBuild({ lane: "other", repositoryRoot: root }),
     /lane/i,
   );
+});
+
+test("candidate clean-tree gate accepts RTK's empty-status sentinel only", () => {
+  assert.equal(isCleanRtkGitStatus(""), true);
+  assert.equal(isCleanRtkGitStatus("ok\r\n"), true);
+  assert.equal(isCleanRtkGitStatus(" M package.json\r\n"), false);
+  assert.equal(isCleanRtkGitStatus("?? new-file\r\n"), false);
 });

@@ -200,12 +200,17 @@ async function prepareTestSbfSource(plan) {
   await writeFile(constantsPath, constants, "utf8");
 }
 
+export function isCleanRtkGitStatus(status) {
+  const normalized = status.trim();
+  return normalized === "" || normalized === "ok";
+}
+
 function assertCleanTree(root, exec = execFileSync) {
   const status = exec("rtk", ["git", "status", "--porcelain=v1", "--untracked-files=all"], {
     cwd: root,
     encoding: "utf8",
   });
-  if (status.trim()) {
+  if (!isCleanRtkGitStatus(status)) {
     throw new Error("candidate-sbf requires a clean Git tree");
   }
 }
