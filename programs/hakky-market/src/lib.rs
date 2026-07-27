@@ -7,12 +7,16 @@ compile_error!("test release identities must never compile to SBF");
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
+pub mod accounts;
 pub mod constants;
 pub mod error;
 pub mod instruction;
+pub mod loader;
 pub mod math;
+pub mod metadata;
 pub mod pda;
 pub mod state;
+pub mod token;
 
 #[cfg(feature = "test-release-config")]
 mod test_release_config;
