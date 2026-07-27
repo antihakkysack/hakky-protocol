@@ -24,10 +24,14 @@ test("derives the reviewed CPI surface from the production source", async () => 
   );
 });
 
-test("accepts one entrypoint, tags 0..2, and the exact fixed CPI surface", () => {
+const STANDARD_SOLANA_EXPORTS =
+  "1: 00000000 0 FUNC GLOBAL DEFAULT 1 custom_panic\n" +
+  "2: 00000000 0 FUNC GLOBAL DEFAULT 1 entrypoint\n";
+
+test("accepts the standard Solana exports, tags 0..2, and exact fixed CPI surface", () => {
   const result = evaluateProgramSurface({
     binaryBytes: Buffer.alloc(119_999),
-    readelfText: "1: 00000000 0 FUNC GLOBAL DEFAULT 1 entrypoint\n",
+    readelfText: STANDARD_SOLANA_EXPORTS,
     tagProbe: exactTagProbeReceipt(),
     invokeCallsites: fixedInvokeCallsiteReceipt(),
   });
@@ -38,7 +42,7 @@ test("accepts one entrypoint, tags 0..2, and the exact fixed CPI surface", () =>
 test("rejects an excess byte, extra tag, extra export, or dangerous CPI", () => {
   const baseline = {
     binaryBytes: Buffer.alloc(1),
-    readelfText: "1: 00000000 0 FUNC GLOBAL DEFAULT 1 entrypoint\n",
+    readelfText: STANDARD_SOLANA_EXPORTS,
     tagProbe: exactTagProbeReceipt(),
     invokeCallsites: fixedInvokeCallsiteReceipt(),
   };
@@ -60,7 +64,7 @@ test("rejects an excess byte, extra tag, extra export, or dangerous CPI", () => 
     evaluateProgramSurface({
       ...baseline,
       readelfText:
-        "1: 00000000 0 FUNC GLOBAL DEFAULT 1 entrypoint\n2: 0 0 FUNC GLOBAL DEFAULT 1 withdraw\n",
+        `${STANDARD_SOLANA_EXPORTS}3: 0 0 FUNC GLOBAL DEFAULT 1 withdraw\n`,
     }).ok,
     false,
   );
@@ -86,7 +90,7 @@ test("rejects weakened signer, authority, direction, decimals, or amount binding
   ]) {
     const result = evaluateProgramSurface({
       binaryBytes: Buffer.alloc(1),
-      readelfText: "1: 00000000 0 FUNC GLOBAL DEFAULT 1 entrypoint\n",
+      readelfText: STANDARD_SOLANA_EXPORTS,
       tagProbe: exactTagProbeReceipt(),
       invokeCallsites: fixedInvokeCallsiteReceipt({ [field]: false }),
     });

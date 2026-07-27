@@ -9,6 +9,7 @@ import { SBF_IMAGE } from "./build-hakky-sbf.mjs";
 export const MAX_PROGRAM_BYTES = 120_000;
 
 const DEFAULT_REPOSITORY_ROOT = fileURLToPath(new URL("../", import.meta.url));
+const EXPECTED_EXPORTS = Object.freeze(["custom_panic", "entrypoint"]);
 const EXPECTED_TAGS = Object.freeze([0, 1, 2]);
 const EXPECTED_CALLS = Object.freeze({
   system: Object.freeze(["allocate", "assign", "transfer"]),
@@ -47,9 +48,7 @@ export function evaluateProgramSurface({
 }) {
   const checks = {
     size: binaryBytes.length <= MAX_PROGRAM_BYTES,
-    exports:
-      exportedFunctions(readelfText).length === 1 &&
-      exportedFunctions(readelfText)[0] === "entrypoint",
+    exports: sameSet(exportedFunctions(readelfText), EXPECTED_EXPORTS),
     tags:
       tagProbe?.nativeProcessorFallback === false &&
       tagProbe?.preferBpf === true &&
