@@ -59,14 +59,7 @@ pub fn assert_finalized_self(
         return Err(HakkyErrorV1::InvalidLoaderState.into());
     }
     match programdata_bytes[12] {
-        0 => {
-            if programdata_bytes[13..PROGRAMDATA_HEADER_LEN]
-                .iter()
-                .any(|byte| *byte != 0)
-            {
-                return Err(HakkyErrorV1::InvalidLoaderState.into());
-            }
-        }
+        0 => {}
         1 => return Err(HakkyErrorV1::ProgramNotImmutable.into()),
         _ => return Err(HakkyErrorV1::InvalidLoaderState.into()),
     }

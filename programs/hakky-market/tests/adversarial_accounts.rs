@@ -558,22 +558,28 @@ fn loader_v3_parsing_is_exact_and_treats_payload_as_opaque() {
         custom(HakkyErrorV1::InvalidLoaderState)
     );
 
-    let dirty_none_padding = account(
+    let finalized_with_authority_residue = account(
         programdata_address(),
         LOADER_PROGRAM,
         {
             let mut data = finalized_programdata_data(&[]);
-            data[44] = 1;
+            let prior_authority = Pubkey::new_from_array([104_u8; 32]);
+            data[12] = 1;
+            data[13..45].copy_from_slice(prior_authority.as_ref());
+
+            let mut serialized_none = Vec::with_capacity(13);
+            serialized_none.extend_from_slice(&3_u32.to_le_bytes());
+            serialized_none.extend_from_slice(&77_u64.to_le_bytes());
+            serialized_none.push(0);
+            assert_eq!(serialized_none.len(), 13);
+            data[..serialized_none.len()].copy_from_slice(&serialized_none);
             data
         },
         false,
         false,
         false,
     );
-    assert_eq!(
-        assert_finalized_self(&canonical[PROGRAM_INDEX], &dirty_none_padding).unwrap_err(),
-        custom(HakkyErrorV1::InvalidLoaderState)
-    );
+    assert_finalized_self(&canonical[PROGRAM_INDEX], &finalized_with_authority_residue).unwrap();
 
     let authority_present = account(
         programdata_address(),
