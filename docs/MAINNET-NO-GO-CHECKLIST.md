@@ -1,6 +1,6 @@
 # HAKKY mainnet no-go checklist
 
-Snapshot date: 2026-07-27 (Asia/Bangkok)
+Snapshot date: 2026-07-28 (Asia/Bangkok)
 
 HAKKY remains prelaunch. This checklist records preparation; it does not
 authorize a wallet connection, signature, transaction, payment, upload,
@@ -17,8 +17,9 @@ publication, or social post.
   `a4c0be6ed7c7bb131aae255e421d978b9726e1254a704dcc8f7adbf19f35d3aa`
 - Digest-pinned build image:
   `solanafoundation/solana-verifiable-build:4.0.0@sha256:0b4e3716fad9ca4b4aac3e3f977f43aad93a18c22296c0c0f44fc22e644bdd68`
-- Reproduced clean source commit:
-  `48af8f0fd09f194672afc707a37e3c7b881977a3`
+- Reproduced clean source commit: read `sourceCommit` from the selected
+  `final-a` build record and require the same value in the final-suite,
+  runtime, scope, browser-QA, and readiness receipts.
 - Local build records:
   `artifacts/build/candidate/final-a/build-record.json` and
   `artifacts/build/candidate/final-b/build-record.json`
@@ -34,14 +35,14 @@ under one local controller identity; they are not an independent third-party
 reproduction. The selected `final-a` binary passed the exact candidate
 ProgramTest decoder surface in a pinned Rust 1.95.0 container with networking
 disabled, no native processor fallback, and no repository, vendor, or Cargo
-home bind mount. Later repository-only tooling commits do not change the
-recorded program source hash, but a final reviewed build from the final release
-commit is still required.
+home bind mount. The final reviewed build, full-suite receipt, browser-QA
+receipt, independent-review scopes, and readiness report must all name the
+same final source commit.
 
 ## Current creator-cost evidence
 
-The read-only finalized devnet snapshot collected at
-`2026-07-27T14:11:19.104Z` measured:
+The latest read-only finalized devnet snapshot collected at
+`2026-07-27T17:37:30.366Z` measured:
 
 - permanent rent: `767242560` lamports;
 - deployment writes: `120`;
@@ -49,8 +50,9 @@ The read-only finalized devnet snapshot collected at
 - cap: `1000000000` lamports; and
 - headroom: `229522440` lamports.
 
-That receipt was freshness-qualified for fifteen minutes and is now historical.
-Run `npm run cost:verify -- --build-record
+That receipt was fresh when the machine readiness report was generated. Cost
+receipts are freshness-qualified for fifteen minutes and become historical
+afterward. Run `npm run cost:verify -- --build-record
 artifacts/build/candidate/final-a/build-record.json --network devnet` again
 immediately before any cost review. A fresh result above the cap is a stop
 condition.
@@ -73,15 +75,20 @@ condition.
   abandoned buffer/program, initialization failure, and success path.
 - [x] The image-only IPFS verifier is closed to one CID file, two fixed
   gateways, bounded streamed bytes, and no wallet/payment input.
-- [ ] A final full-suite receipt must pass against the final release commit.
+- [x] A final full-suite receipt passes against the selected candidate source
+  commit and is machine-validated by the no-mainnet readiness evaluator.
 - [ ] A third authenticated builder must reproduce the final `.so` bytes.
 - [x] Candidate-bound request scopes are prepared for the third reproduction,
   independent Solana security audit, and independent economic/math review.
+- [x] The reviewer handoff defines exact inputs, hash checks, signed-result
+  requirements, and fail-closed return paths for all three reviews.
 - [ ] The reviewed Metaplex executable must be bound to its deployed program
   and exercised in the exact-SBF prefund lane.
 - [ ] The full immutable deploy/finalize/initialize/curve/pool lifecycle must
   pass on free devnet SOL with finalized readback and zero automatic retry.
-- [ ] The final creator-cost receipt must be fresh and at or below one SOL.
+- [x] The creator-cost receipt was fresh when the current readiness report was
+  generated and measured below one SOL; refresh it immediately before any
+  later cost review.
 - [ ] An independent Solana security reviewer must sign the exact final
   source/config/binary scope and close all findings.
 - [ ] An independent economic/math reviewer must sign the exact final
@@ -130,9 +137,9 @@ free-devnet rehearsal.
 
 **NO-GO for mainnet effects and public launch.**
 
-The machine report currently passes program binding, exact candidate runtime,
-binary size, two local reproductions, desktop/mobile browser QA, and operator
-handoff. It records the cost snapshot as stale and keeps the final full-suite
-receipt, independent evidence, actual-Metaplex prefund proof, devnet lifecycle,
-IPFS, metadata readback, finding resolution/final rebuild, publication, and
-action-time approvals open. These gates are mandatory.
+The machine report currently passes program binding, the complete source-bound
+test suite, exact candidate runtime, binary size, two local reproductions,
+creator-cost cap at report time, desktop/mobile browser QA, and operator
+handoff. It keeps the third-party reviews, actual-Metaplex prefund proof,
+devnet lifecycle, IPFS, metadata readback, finding resolution/final rebuild,
+publication, and action-time approvals open. These gates are mandatory.
