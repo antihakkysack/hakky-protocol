@@ -12,6 +12,7 @@ import {
   MAX_CANDIDATE_BYTES,
   evaluateBuildRecord,
   evaluateReproduction,
+  normalizeBuildLog,
 } from "../src/release-manifest.mjs";
 
 const EXECUTABLE = Buffer.from("hakky-sbf-candidate", "utf8");
@@ -78,6 +79,7 @@ export function validBuild(overrides = {}) {
       },
     },
     logs: {
+      normalization: "ansi-stripped-elapsed-redacted-sorted-lines-v1",
       stdoutSha256: "b".repeat(64),
       stderrSha256: "c".repeat(64),
     },
@@ -178,6 +180,9 @@ test("build records fail closed on source, invocation, and surface drift", () =>
       value.logs.stdoutSha256 = "";
     },
     (value) => {
+      value.logs.normalization = "raw-v1";
+    },
+    (value) => {
       value.startedAt = "2026-07-27";
     },
     (value) => {
@@ -217,6 +222,37 @@ test("build records fail closed on source, invocation, and surface drift", () =>
       JSON.stringify(candidate),
     );
   }
+});
+
+test("build log hashing removes only nondeterministic order, ANSI, and elapsed time", () => {
+  const left = Buffer.from(
+    [
+      "\u001b[32m   Compiling\u001b[0m quote v1.0.47",
+      "   Compiling unicode-ident v1.0.24",
+      "    Finished `release` profile [optimized] target(s) in 5m 00s",
+      "",
+    ].join("\n"),
+    "utf8",
+  );
+  const right = Buffer.from(
+    [
+      "   Compiling unicode-ident v1.0.24",
+      "   Compiling quote v1.0.47",
+      "    Finished `release` profile [optimized] target(s) in 3m 59s",
+      "",
+    ].join("\r\n"),
+    "utf8",
+  );
+  assert.deepEqual(normalizeBuildLog(left), normalizeBuildLog(right));
+  assert.notDeepEqual(
+    normalizeBuildLog(left),
+    normalizeBuildLog(
+      Buffer.from(
+        "Compiling quote v1.0.48\nFinished target(s) in 5m 00s\n",
+        "utf8",
+      ),
+    ),
+  );
 });
 
 test("reproduction requires distinct clean directories and actual identical bytes", () => {

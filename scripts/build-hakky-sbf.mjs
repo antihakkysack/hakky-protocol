@@ -18,6 +18,7 @@ import { PublicKey } from "@solana/web3.js";
 import { parseExactCliOptions } from "../src/exact-cli-options.mjs";
 import {
   BUILD_IMAGE,
+  BUILD_LOG_NORMALIZATION,
   CANDIDATE_COMMAND,
   CANDIDATE_ENVIRONMENT,
   LOCAL_BUILD_OPERATOR_BYTES,
@@ -27,6 +28,7 @@ import {
   RELEASE_PROGRAM_ID,
   TEST_PROGRAM_ID,
   assertBuildRecord,
+  normalizeBuildLog,
   serializeBuildRecord,
 } from "../src/release-manifest.mjs";
 import { validateVendorBundle } from "./materialize-hakky-cargo-vendor.mjs";
@@ -545,8 +547,9 @@ async function runCandidateSbfBuild({
       environment: { ...CANDIDATE_ENVIRONMENT },
     },
     logs: {
-      stdoutSha256: sha256(result.stdout),
-      stderrSha256: sha256(result.stderr),
+      normalization: BUILD_LOG_NORMALIZATION,
+      stdoutSha256: sha256(normalizeBuildLog(result.stdout)),
+      stderrSha256: sha256(normalizeBuildLog(result.stderr)),
     },
     surface: await deriveCandidateSurface(binary, plan.sourceDirectory),
     executable: {

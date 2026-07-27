@@ -88,6 +88,7 @@ function record(buildDirectory, startedAt, completedAt) {
       },
     },
     logs: {
+      normalization: "ansi-stripped-elapsed-redacted-sorted-lines-v1",
       stdoutSha256: "b".repeat(64),
       stderrSha256: "c".repeat(64),
     },

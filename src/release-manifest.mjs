@@ -34,6 +34,8 @@ export const CANDIDATE_ENVIRONMENT = Object.freeze({
   CARGO_HOME: "/cargo-home",
   RUSTUP_TOOLCHAIN: "1.93.1",
 });
+export const BUILD_LOG_NORMALIZATION =
+  "ansi-stripped-elapsed-redacted-sorted-lines-v1";
 
 const UTC_MILLISECOND_PATTERN =
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
@@ -97,6 +99,27 @@ function shortText(value) {
     value.length <= 512 &&
     !/[\r\n\0]/u.test(value)
   );
+}
+
+export function normalizeBuildLog(bytes) {
+  const text = Buffer.from(bytes).toString("utf8");
+  if (text.includes("\uFFFD") || text.includes("\0")) {
+    throw new Error("sbf-build-log-invalid");
+  }
+  const lines = text
+    .replaceAll(/\u001B\[[0-9;]*m/gu, "")
+    .split(/\r?\n/u)
+    .map((line) =>
+      line
+        .trim()
+        .replace(
+          /\btarget\(s\) in (?:[0-9]+m )?[0-9]+(?:\.[0-9]+)?s$/u,
+          "target(s) in <elapsed>",
+        ),
+    )
+    .filter((line) => line.length > 0)
+    .sort((left, right) => left.localeCompare(right));
+  return Buffer.from(lines.length === 0 ? "" : `${lines.join("\n")}\n`, "utf8");
 }
 
 function addFailure(failures, condition, name) {
@@ -305,10 +328,19 @@ export function evaluateBuildRecord(value) {
 
   addFailure(
     failures,
-    exactKeys(value.logs, ["stdoutSha256", "stderrSha256"]),
+    exactKeys(value.logs, [
+      "normalization",
+      "stdoutSha256",
+      "stderrSha256",
+    ]),
     "logs-shape",
   );
   if (isPlainObject(value.logs)) {
+    addFailure(
+      failures,
+      value.logs.normalization === BUILD_LOG_NORMALIZATION,
+      "logs-normalization",
+    );
     addFailure(
       failures,
       SHA256_PATTERN.test(value.logs.stdoutSha256),
