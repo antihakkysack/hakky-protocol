@@ -1,19 +1,17 @@
 # Dependencies
 node_modules/
 **/node_modules/
+target/
 
-# Hardhat / Solidity build output
-contracts/artifacts/
-contracts/cache/
-contracts/deployments/localhost.json
-contracts/coverage/
-contracts/coverage.json
-contracts/typechain-types/
-
-# Env & secrets
+# Local environment and secrets
 .env
 .env.*
 !.env.example
+
+# Generated and transient evidence
+artifacts/
+.superpowers/
+.worktrees/
 
 # Logs
 *.log

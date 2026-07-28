@@ -1,40 +1,39 @@
-# Contributing to Hakky Protocol
+# Contributing
 
-Thanks for your interest in keeping crypto clean. Contributions are welcome.
+HAKKY is a personal project. Small, evidence-backed improvements are welcome
+through focused pull requests.
 
-## Ground rules
+Every change must preserve these non-negotiable rules:
 
-- **Read [`docs/SPEC.md`](docs/SPEC.md) first.** It is the single source of truth
-  for naming, mechanism, and parameters. Contracts, site, and docs must all stay
-  consistent with it.
-- **Hakky is not a mixer.** We do not accept contributions that add mixing,
-  tumbling, anonymization, or any feature designed to obscure fund provenance.
-  Hakky screens *for* cleanliness and stays transparent.
-- Be honest in copy and docs — no invented figures, partners, tickers, or
-  price/return promises.
+- exactly 10,000,000 HAKKY with six decimals;
+- 8,000,000 HAKKY for the permissionless curve;
+- 2,000,000 HAKKY for the initial permanent-pool seed;
+- 0 HAKKY team or creator allocation, with no presale or vesting;
+- 0% curve fee and an exact 0.25% pool-retained fee;
+- null mint and freeze authorities after initialization;
+- a finalized program with null upgrade authority before initialization;
+- no LP token, privileged withdrawal, rescue, close, pause, update, or
+  governance route; and
+- creator-funded mainnet debit at or below 1.00 SOL.
 
-## Development
+Run these approval-neutral checks before opening a pull request:
 
-```bash
-cd contracts
-npm install
-npm run build     # compile
-npm test          # must stay green (currently 15/15)
+```powershell
+npm ci
+npm run schemas
+npm run assets
+npm run check
+git diff --check
 ```
 
-- Solidity `0.8.24`, OpenZeppelin v5, Hardhat.
-- Add tests for any new behavior; keep the suite passing.
-- Match the existing NatSpec and code style. Custom errors over revert strings.
+Keep wallet secrets, private nonces, credentials, authenticated URLs, and
+ignored ceremony artifacts out of issues, commits, logs, and fixtures. Never
+replace pinned dependencies or run a forced audit rewrite without a separate
+source and compatibility review.
 
-## Pull requests
+A feature branch does not deploy Pages. Push, pull-request creation or update,
+merge, automatic Pages deployment, metadata upload, wallet connection, signing,
+transaction submission, SOL spending, and social publication each require
+their own separate action-time approval.
 
-1. Fork and branch from `main` (`feat/…`, `fix/…`, `docs/…`).
-2. Keep PRs focused and describe the change and its rationale.
-3. Ensure `npm test` passes and the site still renders without console errors.
-4. For anything security-sensitive, see [SECURITY.md](SECURITY.md) — do **not**
-   file a public issue for vulnerabilities.
-
-## Reporting issues
-
-Use GitHub Issues for bugs and feature ideas. For security vulnerabilities, use
-private reporting per [SECURITY.md](SECURITY.md).
+Report security problems through the private process in `SECURITY.md`.

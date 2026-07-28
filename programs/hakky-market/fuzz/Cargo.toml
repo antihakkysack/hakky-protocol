@@ -1,0 +1,44 @@
+[package]
+name = "hakky-market-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+hakky-market = { path = "..", features = ["test-release-config"] }
+libfuzzer-sys = "=0.4.10"
+solana-program = "=2.3.0"
+
+[[bin]]
+name = "instruction"
+path = "fuzz_targets/instruction.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "state"
+path = "fuzz_targets/state.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "accounts"
+path = "fuzz_targets/accounts.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "math"
+path = "fuzz_targets/math.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

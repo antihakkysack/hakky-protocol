@@ -1,0 +1,242 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/release/no-mainnet-readiness-v1.schema.json",
+  "title": "HAKKY no-mainnet readiness report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "generatedAt",
+    "candidate",
+    "authorityRegistry",
+    "gates",
+    "blockers",
+    "readyForMainnetApproval",
+    "readyForMainnetEffects",
+    "mainnetActionsAuthorized",
+    "actionTimeApprovals",
+    "decision"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hakky-no-mainnet-readiness-v1"
+    },
+    "generatedAt": {
+      "$ref": "#/$defs/timestamp"
+    },
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "buildDirectory",
+        "sourceCommit",
+        "buildRecordSha256",
+        "executableSha256",
+        "executableByteLength"
+      ],
+      "properties": {
+        "buildDirectory": {
+          "type": "string",
+          "pattern": "^artifacts/build/candidate/[a-z0-9][a-z0-9-]*$"
+        },
+        "sourceCommit": {
+          "$ref": "#/$defs/gitCommit"
+        },
+        "buildRecordSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "executableSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "executableByteLength": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000
+        }
+      }
+    },
+    "authorityRegistry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "authorityCount"
+      ],
+      "properties": {
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "authorityCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 16,
+      "maxItems": 16,
+      "items": {
+        "$ref": "#/$defs/gate"
+      }
+    },
+    "blockers": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/gateId"
+      }
+    },
+    "readyForMainnetApproval": {
+      "type": "boolean"
+    },
+    "readyForMainnetEffects": {
+      "const": false
+    },
+    "mainnetActionsAuthorized": {
+      "const": false
+    },
+    "actionTimeApprovals": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acceptedByEvaluator",
+        "requiredLater"
+      ],
+      "properties": {
+        "acceptedByEvaluator": {
+          "const": false
+        },
+        "requiredLater": {
+          "const": [
+            "program-deployment",
+            "program-finalization",
+            "market-initialization"
+          ]
+        }
+      }
+    },
+    "decision": {
+      "enum": [
+        "NO-GO",
+        "TECHNICALLY-READY-FOR-SEPARATE-ACTION-APPROVAL"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "readyForMainnetApproval": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "decision": {
+            "const": "TECHNICALLY-READY-FOR-SEPARATE-ACTION-APPROVAL"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "decision": {
+            "const": "NO-GO"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitCommit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$"
+    },
+    "gateId": {
+      "enum": [
+        "program-implementation",
+        "all-rust-node-sbf-tests",
+        "exact-candidate-runtime",
+        "binary-size",
+        "two-local-reproductions",
+        "third-independent-reproduction",
+        "creator-cost-cap",
+        "actual-metaplex-prefund-proof",
+        "devnet-immutable-lifecycle",
+        "image-ipfs",
+        "metadata-https-readback",
+        "desktop-mobile-browser-qa",
+        "independent-solana-security-audit",
+        "independent-economic-math-review",
+        "finding-resolution-final-rebuild",
+        "operator-handoff"
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "byteLength",
+        "sha256"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.(?:/|$)).+$"
+        },
+        "byteLength": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "status",
+        "detail",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/gateId"
+        },
+        "status": {
+          "enum": [
+            "pass",
+            "fail",
+            "missing",
+            "stale",
+            "external-required"
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 1
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    }
+  }
+}

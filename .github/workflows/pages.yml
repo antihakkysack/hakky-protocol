@@ -1,40 +1,43 @@
 name: pages
 
-# Publishes the static landing site in web/ to GitHub Pages.
-# Enable under Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
-
 on:
   push:
     branches: [main]
     paths:
       - "web/**"
+      - "launch/assets/**"
+      - ".github/workflows/quality.yml"
       - ".github/workflows/pages.yml"
-  workflow_dispatch:
-
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
+  quality:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/quality.yml
+
   deploy:
+    needs: quality
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - name: Configure Pages (self-enables via GITHUB_TOKEN pages:write)
-        uses: actions/configure-pages@v5
+      - uses: actions/checkout@v7
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
-      - name: Upload web/ as Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: web
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

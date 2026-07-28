@@ -1,49 +1,59 @@
-# Security Policy
+# Security
 
-## Status
+## Current status
 
-⚠️ **The Hakky Protocol contracts have not yet been audited.** They are provided
-for review and development. **Do not deploy them with real funds** until a formal
-third-party audit has been completed and published.
+HAKKY is prelaunch. No official program, mint, market, pool, transaction, or
+trading destination is published.
 
-## Reporting a vulnerability
+The project is building a custom immutable Solana curve-to-pool program. Local
+tests and internal reviews are not a third-party security audit. Independent
+qualified Solana security review, independent economic and math review, and a
+third independent byte-identical build remain mandatory before mainnet launch.
 
-Please **do not** open a public GitHub issue for security vulnerabilities.
+## Reporting
 
-Instead, report privately via one of:
+Open a private GitHub security advisory for code, dependency, protocol, or
+impersonation issues. Include only public addresses, URLs, transaction
+signatures, screenshots, and reproducible steps.
 
-- GitHub's **[private vulnerability reporting](https://github.com/antihakkysack/hakky-protocol/security/advisories/new)** (Security → Report a vulnerability), or
-- a direct message to the maintainers on X: **[@antihakkysack](https://x.com/antihakkysack)**.
+Never send seed phrases, private keys, wallet files, private release nonces,
+authenticated RPC URLs, API tokens, or passwords.
 
-Please include:
+## Immutable launch requirements
 
-- a description of the issue and its impact,
-- affected contract(s) and function(s),
-- a proof-of-concept or reproduction steps if possible,
-- any suggested remediation.
+The reviewed production design requires:
 
-We aim to acknowledge reports within **72 hours** and to provide a remediation
-timeline after triage. Responsible disclosure is appreciated; please give us a
-reasonable window to fix issues before any public disclosure.
+- exactly 10,000,000 HAKKY with 8,000,000 HAKKY in the curve,
+  2,000,000 HAKKY in the initial permanent-pool seed, and 0 HAKKY allocated to
+  the creator or team;
+- 0% curve fee and an exact 0.25% pool-retained fee;
+- null mint and freeze authorities after initialization;
+- null upgrade authority before initialization;
+- no LP token, privileged withdrawal, rescue, close, pause, update, fee
+  recipient, or governance route; and
+- every reachable creator-funded mainnet prefix at or below 1.00 SOL.
 
-## Scope
+Stop if the reviewed binary, program identity, account order, signer, amount,
+expiry, authority, metadata bytes, fixed economics, or finalized readback
+differs. Failed or ambiguous submission is never permission to retry or create
+a replacement token.
 
-In scope:
+## Evidence and approval boundaries
 
-- Contracts under [`contracts/contracts/`](contracts/contracts/)
-- The mint/redeem, attestation, proof-of-reserves, and compliance-policy logic
+Evidence is never approval. Devnet rehearsal, simulation, a green readiness
+report, or an approval design does not authorize a mainnet action.
 
-Out of scope:
+Program deployment, authority finalization, market initialization, each recovery
+transaction, metadata upload, wallet connection, signature, transaction send,
+SOL debit, branch push, pull-request creation or update, merge, automatic Pages
+deployment, domain change, and each social save, post, or pin require separate
+action-time approval naming the exact effect and cost where applicable.
 
-- The static marketing site under `web/`
-- Third-party dependencies (report those upstream)
-- Theoretical issues without a practical exploit path
+No approval carries forward after a transaction, hash, address, destination,
+cost, account set, or commit changes.
 
-## Known trust assumptions (by design, not bugs)
+## Official-address rule
 
-- **v1 custody is federated / qualified-custodian.** Reserves and the
-  reserve-oracle updater are trusted roles held by a multisig. This is
-  documented and intentional for v1 — see the whitepaper's trust-model section.
-- Privileged roles (`MINTER_ROLE`, `BURNER_ROLE`, `VERIFIER_ROLE`,
-  `RESERVE_UPDATER_ROLE`, `ATTESTOR_ROLE`, `POLICY_ADMIN_ROLE`) are powerful by
-  design and should be assigned to multisigs / accredited parties in production.
+Before verified publication, there is no official HAKKY address. After launch,
+accept an address only when `https://hakky.xyz` and the canonical finalized
+program, market, and pool proof artifacts agree exactly.

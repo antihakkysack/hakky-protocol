@@ -1,0 +1,243 @@
+{
+  "sourceRepository": "https://github.com/raydium-io/raydium-sdk-V2",
+  "sourceCommit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c",
+  "sourcePath": "src/raydium/cpmm/layout.ts;src/raydium/liquidity/layout.ts",
+  "sourceLineRange": "20-59;9-70",
+  "sourceReferences": [
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/common/programId.ts", "lineRange": "14-38", "purpose": "Raydium OpenBook, AMM-v4, CPMM, CPMM lock, LaunchLab, and fixed authority identities" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/common/pubKey.ts", "lineRange": "64-68", "purpose": "Rent, Metadata, and System program identities" },
+    { "repository": "https://github.com/solana-program/token-2022", "commit": "27c359d1c7d38afdec293720dba4b768aa61aeb7", "path": "clients/js-legacy/src/constants.ts", "lineRange": "4-10", "purpose": "classic SPL Token, Token-2022, and Associated Token program identities" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/launchpad/pda.ts", "lineRange": "3-35,52-54", "purpose": "LaunchLab authority, pool, vault, event-authority, and platform PDA derivations" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/clmm/libraries/pda.ts", "lineRange": "8-9", "purpose": "literal pool and pool-vault seeds imported by the LaunchLab PDA helpers" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/launchpad/layout.ts", "lineRange": "34-71,83-128", "purpose": "LaunchpadPool and PlatformConfig raw layouts including nested curve parameters" },
+    { "repository": "https://github.com/raydium-io/raydium-idl", "commit": "e7e0c96fe77bcf6a020b84a44c47a722aac8e359", "path": "raydium_launchpad/raydium_launchpad.json", "lineRange": "4497-4508,4523-4534,5190-5345,5677-5914", "purpose": "PlatformConfig and PoolState discriminators and complete account type layouts" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/cpmm/layout.ts", "lineRange": "20-59", "purpose": "CPMM PoolState raw byte layout" },
+    { "repository": "https://github.com/raydium-io/raydium-idl", "commit": "e7e0c96fe77bcf6a020b84a44c47a722aac8e359", "path": "raydium_cpmm/raydium_cp_swap.json", "lineRange": "2395-2408,2817-3011", "purpose": "CPMM PoolState discriminator, field meanings, creator-fee flag, and padding" },
+    { "repository": "https://github.com/raydium-io/raydium-sdk-V2", "commit": "fb2d829a559f9b6ca95922e4e6c69e3b5bddc95c", "path": "src/raydium/liquidity/layout.ts", "lineRange": "9-70", "purpose": "AMM-v4 liquidityStateV4 raw byte layout" }
+  ],
+  "discriminatorBytes": [
+    247,
+    237,
+    227,
+    245,
+    215,
+    195,
+    222,
+    70
+  ],
+  "fixedProgramIdentities": {
+    "launchlab": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+    "launchlabAuthority": "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh",
+    "cpmm": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+    "lock": "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE",
+    "lockAuthority": "3f7GcQFG397GAaEnv51zR6tsTVihYRydnydDD1cXekxH",
+    "ammV4": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+    "openbook": "srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX",
+    "classicTokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+    "token2022Program": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+    "associatedTokenProgram": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL",
+    "metadata": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s",
+    "system": "11111111111111111111111111111111",
+    "rent": "SysvarRent111111111111111111111111111111111"
+  },
+  "cpmm": {
+    "accounts": {
+      "launch": {
+        "address": "DNmernBmsQpXJo5L8XvwBS4wVBpeA4m3kC3QuMDF1suw",
+        "owner": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+        "dataBase64": "9+3j9dfD3kYBAAAAAAAAAPwCBgkBABCl1OgAAAAAQLdDugAAAAAQpdToAAAAAPCClgUAAAAAQLdDugAAAADwgpYFAAAAAPCClgUAAACAlpgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwWYxKy6sX5VU1+D4OJzKZQ3ScT4fXWb2HNkW5dgflxF4Mwz/0X4HUNVcZsWnOBkyfqPUz3qIQ+DV+vASHfPOLn0K71/uzltR6pShSJaksZqrIkquUips1YXKc8/B9noBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAG7oAxEmSixUc394YxIsDuGBsPwn4ure3/D1rClwNprcsNSlFCC6pRnWe+NUtGGyMMuQtdrNFoaO0uHYnsU1tqPijFr5R2f2GzP5AgEljT57+A88I2VxA7dH7zh4Pv7rI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "pool": {
+        "address": "HpwJGeUkLJSeCQinbBhGphkop6h7uYYTR5Gcbdoc6NQ6",
+        "owner": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "dataBase64": "9+3j9dfD3kYuKU6s2q2yRL3wh0HwtjKflkyKGyTO5LghpWtuv+szhiltsB55Ibg/AWL54RDU1dVnWrxHAbaMrxgv5gA13jVVHYijqCidivmM+IPlm6VoWiglodwKZ3MLBhWPLNRrZwm2hItsLh8JYVj0Ti/m28H7Fr4geCcPeIHHUNDn8ShA44FGfgzsDSt9azlnn7e0A9n/768UT/CBTTS01696GqELufQrvX+7OW1HqlKFIlqSxmqsiSq5SKmzVhcpzz8H2egGm4hX/quBhPtof2NGGMA12sQ53BrrO1WYoPAAAAAAAQbd9uHXZaGT2cvhRs7reawctIXtX1s3kTqM9YV+/wCpBt324ddloZPZy+FGzut5rBy0he1fWzeROoz1hX7/AKkmfSfZkfQ6U5+UKoNbMWJXY/oDOcrXEDCvGWgvyQ5Qcf8ABgYJANDtkC4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgEuAaAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "platformConfig": {
+        "address": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+        "owner": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+        "dataBase64": "oE6AAPhT5qABAAAAAAAAAKnVDZAeca6LSNmYTGHYueru2VszCow0rZN9AOpEuRuKGqhw1zqIZJwBnnidGnKwW2IbvI0J/ps/BdhyeTJKhk0AAAAAAAAAAAAAAAAAAAAAQEIPAAAAAAAQJwAAAAAAAEhha2t5IFByb3RvY29sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABodHRwczovL2hha2t5Lnh5egAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAaXBmczovL2hha2t5LXBsYXRmb3JtLWltYWdlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4pTqzarbJEvfCHQfC2Mp+WTIobJM7kuCGla26/6zOGAAAAAAAAAADCkm2oVFnsOOgZ8RKvA/gg6nt37F9Re/m9oL5O7wDLfz8ZxBbtiFHk0shAgNWoRAJN2Oh/gQBtAtVjHhjb/LLIAAAAAAAAAADvrK93lzFVKlgDaj5Bd2gmVOXY3dHJvEPnZNGcM26mUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAABAAAAAAAAAAA/BZjErLqxflVTX4Pg4nMplDdJxPh9dZvYc2Rbl2B+XAEAABCl1OgAAAAAQLdDugAAAADwgpYFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    },
+    "expected": {
+      "launch": {
+        "epoch": "1",
+        "bump": 252,
+        "status": "trade",
+        "mintDecimalsA": 6,
+        "mintDecimalsB": 9,
+        "migrationType": "cpmm",
+        "supply": "1000000000000",
+        "totalSellA": "800000000000",
+        "virtualA": "1000000000000",
+        "virtualB": "24000000000",
+        "realA": "800000000000",
+        "realB": "24000000000",
+        "totalFundRaisingB": "24000000000",
+        "protocolFee": "10000000",
+        "platformFee": "0",
+        "migrateFee": "0",
+        "vestingSchedule": {
+          "totalLockedAmount": "0",
+          "cliffPeriod": "0",
+          "unlockPeriod": "0",
+          "startTime": "0",
+          "totalAllocatedShare": "0"
+        },
+        "configId": "5F1dpK7Ki3dfU1JzAMhvRkPCeqgJPxphYjNeNsVNqUdR",
+        "platformId": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+        "mintA": "DWtNTnmmcPbGFonXoZdkSyc3UtypNCsVUhGq9J7xF9UB",
+        "mintB": "So11111111111111111111111111111111111111112",
+        "vaultA": "DdQndNfnJBNVyAWBG8CPH7YmuyrqnnAu1Rtdxg553B8d",
+        "vaultB": "E9TY1c2u7U4HibMDCF5CCg3kzUJtGvzLYQboLwgR2qSW",
+        "creator": "AJSyK4Kexz9rS4bEp9YJrmhRLDFneysiR4TqWiKCbkea",
+        "mintProgramFlag": "classic-spl-token",
+        "cpmmCreatorFeeOn": "only-token-b",
+        "platformVestingShare": "0"
+      },
+      "pool": {
+        "address": "HpwJGeUkLJSeCQinbBhGphkop6h7uYYTR5Gcbdoc6NQ6",
+        "programId": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C",
+        "baseMint": "DWtNTnmmcPbGFonXoZdkSyc3UtypNCsVUhGq9J7xF9UB",
+        "quoteMint": "So11111111111111111111111111111111111111112",
+        "baseVault": "2zHfjBSwA7EcwMSGWtNvZL5DpL4NcnPLUnWi6chHSy5S",
+        "quoteVault": "DHURbm483nagSjcEnXRfjKucmDL98a3vU2ZWsaNbwQb4",
+        "accountSha256": "5e57c7ad7a11a8233d50916e4844ed9879f9d5346c60db37e3091d68ee2ec1e5"
+      },
+      "platformConfig": {
+        "address": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+        "epoch": "1",
+        "platformClaimFeeWallet": "CRxKurjQsHe7wgPateqQKEJ8YK26spY99sq4b7JV4AJM",
+        "platformLockNftWallet": "2o4a4ZkWdizQVLhDCpG69t6P96Lr3GGGY12ShC8qQFWC",
+        "platformScale": "0",
+        "creatorScale": "0",
+        "burnScale": "1000000",
+        "feeRate": "10000",
+        "name": "Hakky Protocol",
+        "web": "https://hakky.xyz",
+        "image": "ipfs://hakky-platform-image",
+        "cpConfigId": "47CHcoWBjrYjwV4W1TTLyKjufm3Ge6FddBQKRE2PSucZ",
+        "creatorFeeRate": "0",
+        "transferFeeExtensionAuth": "E6XbXj5TEYWjfqAU21xRcJBzoG6pK4RirUBaa11h4MdG",
+        "platformVestingWallet": "5FKUQYt4C4UKUAaRT8qLyWh6m2NX4A4uVrnBgxD5VXF5",
+        "platformVestingScale": "0",
+        "platformCpCreator": "H8bAVS7DHELP54nEKmQ2seo85aQrtbXchGDdJkvYAJPy",
+        "platformCurve": [
+          {
+            "epoch": "1",
+            "index": 0,
+            "configId": "5F1dpK7Ki3dfU1JzAMhvRkPCeqgJPxphYjNeNsVNqUdR",
+            "migrationType": "cpmm",
+            "migrateCpmmFeeOn": "only-token-b",
+            "supply": "1000000000000",
+            "totalSellA": "800000000000",
+            "totalFundRaisingB": "24000000000",
+            "totalLockedAmount": "0",
+            "cliffPeriod": "0",
+            "unlockPeriod": "0"
+          }
+        ],
+        "accountSha256": "9ac3246a3194c06973922e7e8d8a50403f3ddae7dcf11f05200b5a363ce5cdfe"
+      }
+    }
+  },
+  "ammV4": {
+    "accounts": {
+      "launch": {
+        "address": "DNmernBmsQpXJo5L8XvwBS4wVBpeA4m3kC3QuMDF1suw",
+        "owner": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+        "dataBase64": "9+3j9dfD3kYBAAAAAAAAAPwCBgkAABCl1OgAAAAAQLdDugAAAAAQpdToAAAAAPCClgUAAAAAQLdDugAAAADwgpYFAAAAAPCClgUAAACAlpgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAPwWYxKy6sX5VU1+D4OJzKZQ3ScT4fXWb2HNkW5dgflxF4Mwz/0X4HUNVcZsWnOBkyfqPUz3qIQ+DV+vASHfPOLn0K71/uzltR6pShSJaksZqrIkquUips1YXKc8/B9noBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAG7oAxEmSixUc394YxIsDuGBsPwn4ure3/D1rClwNprcsNSlFCC6pRnWe+NUtGGyMMuQtdrNFoaO0uHYnsU1tqPijFr5R2f2GzP5AgEljT57+A88I2VxA7dH7zh4Pv7rI8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "pool": {
+        "address": "6QtogUXrneEGpukjEoNuyoiRkGCvBr7CS2HvYGRMQGKD",
+        "owner": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+        "dataBase64": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGAAAAAAAAAAkAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAiCSDmE1qDAQ5rc57RxqqE/jjT/Qhiw3Hu//MKqVjVsLvox8MEhk6DiYcxYMGpUTBHfGkhwN0dESatCZ+FYsq0Ln0K71/uzltR6pShSJaksZqrIkquUips1YXKc8/B9noBpuIV/6rgYT7aH9jRhjANdrEOdwa6ztVmKDwAAAAAAE4P+/uxZHyWTFI4JYgrSbnnNn3wmtXZJvaoP3zCewzdf+qHpNFVvkoOroHJ5Q+o9bc3sSHuNmDjl68FDvPJfLUcI/Owlbzk8qPZIV/rqM+s0e2ZBaWE7UEK7S1f0oUliUNB1GoKC2mEwX+KZw3uZjlhHHbETUDcxD4vhBFpgr27mHLYmggJgdxZ6KUREvkuG7hS59O4UTwQYbVbUGAg5cUcHdJBE2CE5lxOieapc3UjsiOsUOygU4SA4q4J/Tc+zXdnLUXlflcIHQlOlUAXG1bLD+9jw3c2c3OzkHsYNSkJ0HDAh7XtMhVuKQQc3htD/zXyKEdvfTbCoSCHG0lz+6yANDtkC4AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+      },
+      "platformConfig": {
+        "address": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+        "owner": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj",
+        "dataBase64": "oE6AAPhT5qABAAAAAAAAAKnVDZAeca6LSNmYTGHYueru2VszCow0rZN9AOpEuRuKGqhw1zqIZJwBnnidGnKwW2IbvI0J/ps/BdhyeTJKhk0AAAAAAAAAAAAAAAAAAAAAQEIPAAAAAAAQJwAAAAAAAEhha2t5IFByb3RvY29sAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABodHRwczovL2hha2t5Lnh5egAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAaXBmczovL2hha2t5LXBsYXRmb3JtLWltYWdlAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAC4pTqzarbJEvfCHQfC2Mp+WTIobJM7kuCGla26/6zOGAAAAAAAAAADCkm2oVFnsOOgZ8RKvA/gg6nt37F9Re/m9oL5O7wDLfz8ZxBbtiFHk0shAgNWoRAJN2Oh/gQBtAtVjHhjb/LLIAAAAAAAAAADvrK93lzFVKlgDaj5Bd2gmVOXY3dHJvEPnZNGcM26mUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAABAAAAAAAAAAA/BZjErLqxflVTX4Pg4nMplDdJxPh9dZvYc2Rbl2B+XAEAABCl1OgAAAAAQLdDugAAAADwgpYFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      }
+    },
+    "expected": {
+      "launch": {
+        "epoch": "1",
+        "bump": 252,
+        "status": "trade",
+        "mintDecimalsA": 6,
+        "mintDecimalsB": 9,
+        "migrationType": "amm-v4",
+        "supply": "1000000000000",
+        "totalSellA": "800000000000",
+        "virtualA": "1000000000000",
+        "virtualB": "24000000000",
+        "realA": "800000000000",
+        "realB": "24000000000",
+        "totalFundRaisingB": "24000000000",
+        "protocolFee": "10000000",
+        "platformFee": "0",
+        "migrateFee": "0",
+        "vestingSchedule": {
+          "totalLockedAmount": "0",
+          "cliffPeriod": "0",
+          "unlockPeriod": "0",
+          "startTime": "0",
+          "totalAllocatedShare": "0"
+        },
+        "configId": "5F1dpK7Ki3dfU1JzAMhvRkPCeqgJPxphYjNeNsVNqUdR",
+        "platformId": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+        "mintA": "DWtNTnmmcPbGFonXoZdkSyc3UtypNCsVUhGq9J7xF9UB",
+        "mintB": "So11111111111111111111111111111111111111112",
+        "vaultA": "DdQndNfnJBNVyAWBG8CPH7YmuyrqnnAu1Rtdxg553B8d",
+        "vaultB": "E9TY1c2u7U4HibMDCF5CCg3kzUJtGvzLYQboLwgR2qSW",
+        "creator": "AJSyK4Kexz9rS4bEp9YJrmhRLDFneysiR4TqWiKCbkea",
+        "mintProgramFlag": "classic-spl-token",
+        "cpmmCreatorFeeOn": "only-token-b",
+        "platformVestingShare": "0"
+      },
+      "pool": {
+        "address": "6QtogUXrneEGpukjEoNuyoiRkGCvBr7CS2HvYGRMQGKD",
+        "programId": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8",
+        "baseMint": "DWtNTnmmcPbGFonXoZdkSyc3UtypNCsVUhGq9J7xF9UB",
+        "quoteMint": "So11111111111111111111111111111111111111112",
+        "baseVault": "AASjvhPfGDvPhcYyfFEofWtiogQMkKWLzSAvbvm1dBE9",
+        "quoteVault": "H8ShtnjGJqAAp6F82627kMCQJ1xG4mbe3wkTqNqU2zjq",
+        "accountSha256": "b3faa30f9a235477c7ae7f40433917bd483b932d8e2f31cd444876fd93d19ac2"
+      },
+      "platformConfig": {
+        "address": "5hmwiQYvMF4kdCdJk99nwGdHMxjdgeLA4M1fbxyjcRTV",
+        "epoch": "1",
+        "platformClaimFeeWallet": "CRxKurjQsHe7wgPateqQKEJ8YK26spY99sq4b7JV4AJM",
+        "platformLockNftWallet": "2o4a4ZkWdizQVLhDCpG69t6P96Lr3GGGY12ShC8qQFWC",
+        "platformScale": "0",
+        "creatorScale": "0",
+        "burnScale": "1000000",
+        "feeRate": "10000",
+        "name": "Hakky Protocol",
+        "web": "https://hakky.xyz",
+        "image": "ipfs://hakky-platform-image",
+        "cpConfigId": "47CHcoWBjrYjwV4W1TTLyKjufm3Ge6FddBQKRE2PSucZ",
+        "creatorFeeRate": "0",
+        "transferFeeExtensionAuth": "E6XbXj5TEYWjfqAU21xRcJBzoG6pK4RirUBaa11h4MdG",
+        "platformVestingWallet": "5FKUQYt4C4UKUAaRT8qLyWh6m2NX4A4uVrnBgxD5VXF5",
+        "platformVestingScale": "0",
+        "platformCpCreator": "H8bAVS7DHELP54nEKmQ2seo85aQrtbXchGDdJkvYAJPy",
+        "platformCurve": [
+          {
+            "epoch": "1",
+            "index": 0,
+            "configId": "5F1dpK7Ki3dfU1JzAMhvRkPCeqgJPxphYjNeNsVNqUdR",
+            "migrationType": "cpmm",
+            "migrateCpmmFeeOn": "only-token-b",
+            "supply": "1000000000000",
+            "totalSellA": "800000000000",
+            "totalFundRaisingB": "24000000000",
+            "totalLockedAmount": "0",
+            "cliffPeriod": "0",
+            "unlockPeriod": "0"
+          }
+        ],
+        "accountSha256": "9ac3246a3194c06973922e7e8d8a50403f3ddae7dcf11f05200b5a363ce5cdfe"
+      }
+    }
+  }
+}

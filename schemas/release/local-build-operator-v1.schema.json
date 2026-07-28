@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/release/local-build-operator-v1.schema.json",
+  "title": "HAKKY local build operator v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "organizationId",
+    "operatorId"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hakky-local-build-operator-v1"
+    },
+    "organizationId": {
+      "const": "hakky-local"
+    },
+    "operatorId": {
+      "const": "local-controller"
+    }
+  }
+}

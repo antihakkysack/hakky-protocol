@@ -1,0 +1,215 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/proof/mainnet-launchlab-v2.schema.json",
+  "title": "HAKKY mainnet LaunchLab proof v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "network", "identities", "transaction", "programs", "platformConfig", "allocations", "quote", "creatorFirstBuy", "vesting", "fees", "migration", "metadata", "cost", "links", "observation", "checks", "ok"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "network": { "const": "mainnet-beta" },
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mint", "creator", "launchId", "configId", "platformConfig", "launchlabAuthority", "baseVault", "quoteVault", "metadataAccount"],
+      "properties": {
+        "mint": { "$ref": "#/$defs/publicKey" },
+        "creator": { "$ref": "#/$defs/publicKey" },
+        "launchId": { "$ref": "#/$defs/publicKey" },
+        "configId": { "$ref": "#/$defs/publicKey" },
+        "platformConfig": { "$ref": "#/$defs/publicKey" },
+        "launchlabAuthority": { "const": "WLHv2UAZm6z4KyaaELi5pjdbJh6RESMva1Rnn8pJVVh" },
+        "baseVault": { "$ref": "#/$defs/publicKey" },
+        "quoteVault": { "$ref": "#/$defs/publicKey" },
+        "metadataAccount": { "$ref": "#/$defs/publicKey" }
+      }
+    },
+    "transaction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["signature", "finalizedSlot", "finalizedAt", "instruction", "instructionDiscriminatorHex", "transactionSha256"],
+      "properties": {
+        "signature": { "$ref": "#/$defs/signature" },
+        "finalizedSlot": { "$ref": "#/$defs/slot" },
+        "finalizedAt": { "$ref": "#/$defs/timestamp" },
+        "instruction": { "const": "initialize-v2" },
+        "instructionDiscriminatorHex": { "const": "4399af27da102620" },
+        "transactionSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "programs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["launchlab", "token", "metadata", "system", "associatedToken", "quoteMint"],
+      "properties": {
+        "launchlab": { "const": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj" },
+        "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" },
+        "metadata": { "const": "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s" },
+        "system": { "const": "11111111111111111111111111111111" },
+        "associatedToken": { "const": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL" },
+        "quoteMint": { "const": "So11111111111111111111111111111111111111112" }
+      }
+    },
+    "platformConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address", "creationAccountSha256", "verificationAccountSha256", "updateAuthorities", "mutableFields", "mutabilityClassification", "platformScaleRaw", "creatorScaleRaw", "burnScaleRaw", "feeRateMillionths", "creatorFeeRateMillionths", "platformVestingScaleRaw", "immutableBinding"],
+      "properties": {
+        "address": { "$ref": "#/$defs/publicKey" },
+        "creationAccountSha256": { "$ref": "#/$defs/sha256" },
+        "verificationAccountSha256": { "$ref": "#/$defs/sha256" },
+        "updateAuthorities": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/publicKey" }, "uniqueItems": true },
+        "mutableFields": {
+          "type": "array",
+          "minItems": 13,
+          "maxItems": 13,
+          "prefixItems": [
+            { "const": "cpSwapConfig" }, { "const": "creatorFeeRate" }, { "const": "feeRate" },
+            { "const": "feeWallet" }, { "const": "image" }, { "const": "migrateNftInfo" },
+            { "const": "name" }, { "const": "nftWallet" }, { "const": "platformCpCreator" },
+            { "const": "platformVestingScale" }, { "const": "transferFeeExtensionAuth" },
+            { "const": "vestingWallet" }, { "const": "web" }
+          ],
+          "items": false
+        },
+        "mutabilityClassification": { "const": "platform-mutable-per-launch-snapshot-verified" },
+        "platformScaleRaw": { "$ref": "#/$defs/unsignedDecimal" },
+        "creatorScaleRaw": { "$ref": "#/$defs/unsignedDecimal" },
+        "burnScaleRaw": { "$ref": "#/$defs/unsignedDecimal" },
+        "feeRateMillionths": { "$ref": "#/$defs/unsignedDecimal" },
+        "creatorFeeRateMillionths": { "const": "0" },
+        "platformVestingScaleRaw": { "$ref": "#/$defs/unsignedDecimal" },
+        "immutableBinding": { "const": "verified-per-launch-snapshot" }
+      }
+    },
+    "allocations": { "$ref": "#/$defs/allocations" },
+    "quote": { "$ref": "#/$defs/quote" },
+    "creatorFirstBuy": { "$ref": "#/$defs/creatorFirstBuy" },
+    "vesting": { "$ref": "#/$defs/vesting" },
+    "fees": { "$ref": "#/$defs/fees" },
+    "migration": { "$ref": "#/$defs/migration" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "cost": { "$ref": "#/$defs/preGraduationCost" },
+    "links": { "$ref": "#/$defs/curveLinks" },
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["launchAccountSha256", "baseVaultSha256", "quoteVaultSha256", "platformConfigSha256", "finalizedSlot", "finalizedAt", "checkedAt", "rpcHost"],
+      "properties": {
+        "launchAccountSha256": { "$ref": "#/$defs/sha256" },
+        "baseVaultSha256": { "$ref": "#/$defs/sha256" },
+        "quoteVaultSha256": { "$ref": "#/$defs/sha256" },
+        "platformConfigSha256": { "$ref": "#/$defs/sha256" },
+        "finalizedSlot": { "$ref": "#/$defs/slot" },
+        "finalizedAt": { "$ref": "#/$defs/timestamp" },
+        "checkedAt": { "$ref": "#/$defs/timestamp" },
+        "rpcHost": { "$ref": "#/$defs/rpcHost" }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["transactionDecoded", "accountsDecoded", "sourcesAgree", "immutableEconomics", "allocationPolicy", "feePolicy", "costCap", "metadataDigestMatch", "finalized"],
+      "properties": {
+        "transactionDecoded": { "const": true }, "accountsDecoded": { "const": true },
+        "sourcesAgree": { "const": true }, "immutableEconomics": { "const": true },
+        "allocationPolicy": { "const": true }, "feePolicy": { "const": true },
+        "costCap": { "const": true }, "metadataDigestMatch": { "const": true }, "finalized": { "const": true }
+      }
+    },
+    "ok": { "const": true }
+  },
+  "$defs": {
+    "publicKey": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+    "signature": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,88}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "unsignedDecimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$" },
+    "slot": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "rpcHost": { "type": "string", "pattern": "^(?=.{1,253}$)(?!.*(?:^|\\.)(?:localhost|local|test|invalid|example)(?:\\.|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" },
+    "contentUri": {
+      "oneOf": [
+        { "type": "string", "pattern": "^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$" },
+        { "type": "string", "pattern": "^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$" }
+      ]
+    },
+    "allocations": {
+      "type": "object", "additionalProperties": false,
+      "required": ["publicCurveBaseUnits", "publicCurveBps", "liquidityBaseUnits", "liquidityBps", "teamBaseUnits", "teamBps", "totalBps"],
+      "properties": {
+        "publicCurveBaseUnits": { "const": "8000000000000" }, "publicCurveBps": { "const": 8000 },
+        "liquidityBaseUnits": { "const": "2000000000000" }, "liquidityBps": { "const": 2000 },
+        "teamBaseUnits": { "const": "0" }, "teamBps": { "const": 0 }, "totalBps": { "const": 10000 }
+      }
+    },
+    "quote": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mint", "symbol", "decimals", "fundraisingLamports", "graduationThresholdLamports"],
+      "properties": {
+        "mint": { "const": "So11111111111111111111111111111111111111112" }, "symbol": { "const": "SOL" },
+        "decimals": { "const": 9 }, "fundraisingLamports": { "$ref": "#/$defs/unsignedDecimal" },
+        "graduationThresholdLamports": { "const": "24000000000" }
+      }
+    },
+    "creatorFirstBuy": {
+      "type": "object", "additionalProperties": false, "required": ["creatorLamports", "creatorTokenBaseUnits"],
+      "properties": { "creatorLamports": { "const": "0" }, "creatorTokenBaseUnits": { "const": "0" } }
+    },
+    "vesting": {
+      "type": "object", "additionalProperties": false, "required": ["lockedBaseUnits", "cliffSeconds", "unlockSeconds"],
+      "properties": { "lockedBaseUnits": { "const": "0" }, "cliffSeconds": { "const": "0" }, "unlockSeconds": { "const": "0" } }
+    },
+    "fees": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolBuyFeeRateMillionths", "protocolSellFeeRateMillionths", "feeRateDenominator", "creatorTradingFeeRateMillionths", "creatorFeeKey", "creatorFeeRights", "snapshotImmutable"],
+      "properties": {
+        "protocolBuyFeeRateMillionths": { "$ref": "#/$defs/unsignedDecimal" },
+        "protocolSellFeeRateMillionths": { "$ref": "#/$defs/unsignedDecimal" },
+        "feeRateDenominator": { "const": "1000000" }, "creatorTradingFeeRateMillionths": { "const": "0" },
+        "creatorFeeKey": { "type": "null" }, "creatorFeeRights": { "const": false }, "snapshotImmutable": { "const": true }
+      }
+    },
+    "migration": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "lpPolicy", "platformLpBps", "creatorLpBps", "irreversibleLpBps"],
+          "properties": { "type": { "const": "cpmm" }, "lpPolicy": { "const": "burn-and-earn" }, "platformLpBps": { "const": 0 }, "creatorLpBps": { "const": 0 }, "irreversibleLpBps": { "const": 10000 } }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["type", "lpPolicy", "platformLpBps", "creatorLpBps", "irreversibleLpBps"],
+          "properties": { "type": { "const": "amm-v4" }, "lpPolicy": { "const": "lp-burn" }, "platformLpBps": { "const": 0 }, "creatorLpBps": { "const": 0 }, "irreversibleLpBps": { "const": 10000 } }
+        }
+      ]
+    },
+    "metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "symbol", "uri", "metadataAccount", "metadataAccountSha256", "jsonSha256", "imageUri", "imageSha256", "externalUrl", "twitter", "updateAuthority", "isMutable"],
+      "properties": {
+        "name": { "const": "Hakky Protocol" }, "symbol": { "const": "HAKKY" }, "uri": { "$ref": "#/$defs/contentUri" },
+        "metadataAccount": { "$ref": "#/$defs/publicKey" }, "metadataAccountSha256": { "$ref": "#/$defs/sha256" },
+        "jsonSha256": { "$ref": "#/$defs/sha256" }, "imageUri": { "$ref": "#/$defs/contentUri" },
+        "imageSha256": { "$ref": "#/$defs/sha256" }, "externalUrl": { "const": "https://hakky.xyz" },
+        "twitter": { "const": "https://x.com/antihakkysack" }, "updateAuthority": { "$ref": "#/$defs/publicKey" }, "isMutable": { "const": false }
+      }
+    },
+    "preGraduationCost": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metadataUploadLamports", "creationDebitLamports", "recoveryDebitLamports", "graduationDebitLamports", "cumulativeCreatorDebitLamports", "capLamports", "withinCap"],
+      "properties": {
+        "metadataUploadLamports": { "$ref": "#/$defs/unsignedDecimal" }, "creationDebitLamports": { "$ref": "#/$defs/unsignedDecimal" },
+        "recoveryDebitLamports": { "$ref": "#/$defs/unsignedDecimal" }, "graduationDebitLamports": { "const": "0" },
+        "cumulativeCreatorDebitLamports": { "$ref": "#/$defs/unsignedDecimal" }, "capLamports": { "const": "1000000000" }, "withinCap": { "const": true }
+      }
+    },
+    "curveLinks": {
+      "type": "object", "additionalProperties": false, "required": ["solscanMint", "solscanCreationTransaction", "raydiumLaunchlab"],
+      "properties": {
+        "solscanMint": { "type": "string", "pattern": "^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+        "solscanCreationTransaction": { "type": "string", "pattern": "^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$" },
+        "raydiumLaunchlab": { "type": "string", "pattern": "^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$" }
+      }
+    }
+  }
+}

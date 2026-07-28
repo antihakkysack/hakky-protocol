@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/evidence/independent-scope-v1.schema.json",
+  "title": "HAKKY independent evidence scope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceClass",
+    "authorityRegistrySha256",
+    "candidateSha256",
+    "sourceCommit",
+    "sourceArchiveSha256",
+    "cargoLockSha256",
+    "releaseConfigSha256",
+    "designSpecSha256",
+    "curveVectorSha256",
+    "buildRecordSha256",
+    "executableSha256",
+    "executableLength"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "hakky-independent-scope-v1"
+    },
+    "evidenceClass": {
+      "enum": [
+        "security-audit",
+        "economic-review",
+        "independent-reproduction"
+      ]
+    },
+    "authorityRegistrySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "candidateSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "sourceCommit": {
+      "$ref": "#/$defs/gitObject"
+    },
+    "sourceArchiveSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "cargoLockSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "releaseConfigSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "designSpecSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "curveVectorSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "buildRecordSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "executableSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "executableLength": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,5}$"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "gitObject": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  }
+}

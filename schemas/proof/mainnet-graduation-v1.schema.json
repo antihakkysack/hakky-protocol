@@ -1,0 +1,314 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/proof/mainnet-graduation-v1.schema.json",
+  "title": "HAKKY mainnet graduation proof v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "network", "identities", "transaction", "programs", "supply", "authorities", "metadata", "graduationBalance", "pool", "lpDisposition", "fees", "creatorBalance", "cost", "links", "observation", "checks", "ok"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "network": { "const": "mainnet-beta" },
+    "identities": {
+      "type": "object", "additionalProperties": false,
+      "required": ["mint", "creator", "launchId", "platformConfig", "pool"],
+      "properties": {
+        "mint": { "$ref": "#/$defs/publicKey" }, "creator": { "$ref": "#/$defs/publicKey" },
+        "launchId": { "$ref": "#/$defs/publicKey" }, "platformConfig": { "$ref": "#/$defs/publicKey" },
+        "pool": { "$ref": "#/$defs/publicKey" }
+      }
+    },
+    "transaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["signature", "finalizedSlot", "finalizedAt", "transactionSha256"],
+      "properties": {
+        "signature": { "$ref": "#/$defs/signature" }, "finalizedSlot": { "$ref": "#/$defs/slot" },
+        "finalizedAt": { "$ref": "#/$defs/timestamp" }, "transactionSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "programs": { "$ref": "#/$defs/programs" },
+    "supply": { "$ref": "#/$defs/supply" },
+    "authorities": { "$ref": "#/$defs/graduatedAuthorities" },
+    "metadata": { "$ref": "#/$defs/metadata" },
+    "graduationBalance": { "$ref": "#/$defs/graduationBalance" },
+    "pool": { "$ref": "#/$defs/pool" },
+    "lpDisposition": { "$ref": "#/$defs/lpDisposition" },
+    "fees": { "$ref": "#/$defs/fees" },
+    "creatorBalance": { "$ref": "#/$defs/creatorBalance" },
+    "cost": { "$ref": "#/$defs/cost" },
+    "links": { "$ref": "#/$defs/graduatedLinks" },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["launchAccountSha256", "platformConfigSha256", "poolAccountSha256", "lpEvidenceSha256", "finalizedSlot", "finalizedAt", "checkedAt", "rpcHost"],
+      "properties": {
+        "launchAccountSha256": { "$ref": "#/$defs/sha256" }, "platformConfigSha256": { "$ref": "#/$defs/sha256" },
+        "poolAccountSha256": { "$ref": "#/$defs/sha256" }, "lpEvidenceSha256": { "$ref": "#/$defs/sha256" },
+        "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" },
+        "checkedAt": { "$ref": "#/$defs/timestamp" }, "rpcHost": { "$ref": "#/$defs/rpcHost" }
+      }
+    },
+    "checks": {
+      "type": "object", "additionalProperties": false,
+      "required": ["artifactsAgree", "graduated", "nullAuthorities", "poolVerified", "lpDispositionVerified", "feePolicy", "costCap", "finalized"],
+      "properties": {
+        "artifactsAgree": { "const": true }, "graduated": { "const": true }, "nullAuthorities": { "const": true },
+        "poolVerified": { "const": true }, "lpDispositionVerified": { "const": true }, "feePolicy": { "const": true },
+        "costCap": { "const": true }, "finalized": { "const": true }
+      }
+    },
+    "ok": { "const": true }
+  },
+  "oneOf": [{ "$ref": "#/$defs/cpmmGraduationBranch" }, { "$ref": "#/$defs/ammGraduationBranch" }],
+  "$defs": {
+    "publicKey": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+    "signature": { "type": "string", "pattern": "^[1-9A-HJ-NP-Za-km-z]{64,88}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "unsignedDecimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)$" },
+    "timestamp": { "type": "string", "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9]\\.[0-9]{3}Z$" },
+    "slot": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "rpcHost": { "type": "string", "pattern": "^(?=.{1,253}$)(?!.*(?:^|\\.)(?:localhost|local|test|invalid|example)(?:\\.|$))(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$" },
+    "contentUri": {
+      "oneOf": [
+        { "type": "string", "pattern": "^ipfs://bafkrei[a-h][a-z2-7]{50}[aeimquy4]$" },
+        { "type": "string", "pattern": "^https://arweave\\.net/[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$" }
+      ]
+    },
+    "cpmmGraduationBranch": {
+      "type": "object", "additionalProperties": false, "required": ["programs", "pool", "lpDisposition"],
+      "properties": {
+        "schemaVersion": true, "network": true, "identities": true, "transaction": true,
+        "programs": {
+          "type": "object", "additionalProperties": false, "required": ["launchlab", "migration", "pool", "token"],
+          "properties": { "launchlab": true, "migration": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" }, "pool": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" }, "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" } }
+        },
+        "supply": true, "authorities": true, "metadata": true, "graduationBalance": true,
+        "pool": {
+          "type": "object", "additionalProperties": false, "required": ["address", "programId", "quoteVault", "quoteVaultBalanceLamports", "accountSha256"],
+          "properties": { "address": true, "programId": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" }, "quoteVault": true, "quoteVaultBalanceLamports": true, "accountSha256": true }
+        },
+        "lpDisposition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "lpMint", "lockedPosition", "lockProgram", "lockNftMint", "lockNftTokenAccount", "lockVault", "platformLpBps", "creatorLpBps", "irreversibleLpBps", "withdrawalAuthority", "feeKey", "feeRights", "recoverableLpBaseUnits", "evidenceAccounts"],
+          "properties": { "kind": { "const": "burn-and-earn" }, "lpMint": true, "lockedPosition": true, "lockProgram": true, "lockNftMint": true, "lockNftTokenAccount": true, "lockVault": true, "platformLpBps": true, "creatorLpBps": true, "irreversibleLpBps": true, "withdrawalAuthority": true, "feeKey": true, "feeRights": true, "recoverableLpBaseUnits": true, "evidenceAccounts": true }
+        },
+        "fees": true, "creatorBalance": true, "cost": true, "links": true, "observation": true, "checks": true, "ok": true
+      }
+    },
+    "ammGraduationBranch": {
+      "type": "object", "additionalProperties": false, "required": ["programs", "pool", "lpDisposition"],
+      "properties": {
+        "schemaVersion": true, "network": true, "identities": true, "transaction": true,
+        "programs": {
+          "type": "object", "additionalProperties": false, "required": ["launchlab", "migration", "pool", "token"],
+          "properties": { "launchlab": true, "migration": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" }, "pool": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" }, "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" } }
+        },
+        "supply": true, "authorities": true, "metadata": true, "graduationBalance": true,
+        "pool": {
+          "type": "object", "additionalProperties": false, "required": ["address", "programId", "quoteVault", "quoteVaultBalanceLamports", "accountSha256"],
+          "properties": { "address": true, "programId": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" }, "quoteVault": true, "quoteVaultBalanceLamports": true, "accountSha256": true }
+        },
+        "lpDisposition": {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "lpMint", "burnedBaseUnits", "totalSupplyBaseUnits", "creatorLpBaseUnits", "platformLpBaseUnits", "recoverableLpBaseUnits", "withdrawalAuthority", "feeKey", "feeRights", "evidenceAccounts"],
+          "properties": { "kind": { "const": "lp-burn" }, "lpMint": true, "burnedBaseUnits": true, "totalSupplyBaseUnits": true, "creatorLpBaseUnits": true, "platformLpBaseUnits": true, "recoverableLpBaseUnits": true, "withdrawalAuthority": true, "feeKey": true, "feeRights": true, "evidenceAccounts": true }
+        },
+        "fees": true, "creatorBalance": true, "cost": true, "links": true, "observation": true, "checks": true, "ok": true
+      }
+    },
+    "programs": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false, "required": ["launchlab", "migration", "pool", "token"],
+          "properties": {
+            "launchlab": { "const": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj" },
+            "migration": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" },
+            "pool": { "const": "CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C" },
+            "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false, "required": ["launchlab", "migration", "pool", "token"],
+          "properties": {
+            "launchlab": { "const": "LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj" },
+            "migration": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" },
+            "pool": { "const": "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8" },
+            "token": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
+          }
+        }
+      ]
+    },
+    "supply": {
+      "type": "object", "additionalProperties": false, "required": ["baseUnits", "uiAmount", "decimals", "tokenProgram"],
+      "properties": {
+        "baseUnits": { "const": "10000000000000" }, "uiAmount": { "const": "10000000" }, "decimals": { "const": 6 },
+        "tokenProgram": { "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA" }
+      }
+    },
+    "graduatedAuthorities": {
+      "type": "object", "additionalProperties": false, "required": ["mintAuthority", "authorityKind", "freezeAuthority"],
+      "properties": { "mintAuthority": { "type": "null" }, "authorityKind": { "type": "null" }, "freezeAuthority": { "type": "null" } }
+    },
+    "metadata": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "symbol", "uri", "metadataAccount", "metadataAccountSha256", "jsonSha256", "imageUri", "imageSha256", "externalUrl", "twitter", "updateAuthority", "isMutable"],
+      "properties": {
+        "name": { "const": "Hakky Protocol" }, "symbol": { "const": "HAKKY" }, "uri": { "$ref": "#/$defs/contentUri" },
+        "metadataAccount": { "$ref": "#/$defs/publicKey" }, "metadataAccountSha256": { "$ref": "#/$defs/sha256" },
+        "jsonSha256": { "$ref": "#/$defs/sha256" }, "imageUri": { "$ref": "#/$defs/contentUri" },
+        "imageSha256": { "$ref": "#/$defs/sha256" }, "externalUrl": { "const": "https://hakky.xyz" },
+        "twitter": { "const": "https://x.com/antihakkysack" }, "updateAuthority": { "$ref": "#/$defs/publicKey" }, "isMutable": { "const": false }
+      }
+    },
+    "graduationBalance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configuredThresholdLamports", "observedQuoteBalanceLamports", "status", "finalizedSlot", "finalizedAt"],
+      "properties": {
+        "configuredThresholdLamports": { "const": "24000000000" },
+        "observedQuoteBalanceLamports": { "$ref": "#/$defs/unsignedDecimal" }, "status": { "const": "graduated" },
+        "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "pool": {
+      "type": "object", "additionalProperties": false,
+      "required": ["address", "programId", "quoteVault", "quoteVaultBalanceLamports", "accountSha256"],
+      "properties": {
+        "address": { "$ref": "#/$defs/publicKey" },
+        "programId": { "enum": ["CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C", "675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"] },
+        "quoteVault": { "$ref": "#/$defs/publicKey" }, "quoteVaultBalanceLamports": { "$ref": "#/$defs/unsignedDecimal" },
+        "accountSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "fees": {
+      "type": "object", "additionalProperties": false,
+      "required": ["protocolBuyFeeRateMillionths", "protocolSellFeeRateMillionths", "feeRateDenominator", "creatorTradingFeeRateMillionths", "creatorFeeKey", "creatorFeeRights", "snapshotImmutable"],
+      "properties": {
+        "protocolBuyFeeRateMillionths": { "$ref": "#/$defs/unsignedDecimal" }, "protocolSellFeeRateMillionths": { "$ref": "#/$defs/unsignedDecimal" },
+        "feeRateDenominator": { "const": "1000000" }, "creatorTradingFeeRateMillionths": { "const": "0" },
+        "creatorFeeKey": { "type": "null" }, "creatorFeeRights": { "const": false }, "snapshotImmutable": { "const": true }
+      }
+    },
+    "creatorBalanceAccount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["address", "mint", "owner", "amountBaseUnits", "state", "accountSha256"],
+      "properties": {
+        "address": { "$ref": "#/$defs/publicKey" }, "mint": { "$ref": "#/$defs/publicKey" }, "owner": { "$ref": "#/$defs/publicKey" },
+        "amountBaseUnits": { "$ref": "#/$defs/unsignedDecimal" }, "state": { "enum": ["initialized", "frozen"] }, "accountSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "creatorBalance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["owner", "accounts", "totalAmountBaseUnits", "finalizedSlot", "finalizedAt"],
+      "properties": {
+        "owner": { "$ref": "#/$defs/publicKey" }, "accounts": { "type": "array", "items": { "$ref": "#/$defs/creatorBalanceAccount" }, "uniqueItems": true },
+        "totalAmountBaseUnits": { "$ref": "#/$defs/unsignedDecimal" }, "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "cost": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metadataUploadLamports", "creationDebitLamports", "recoveryDebitLamports", "graduationDebitLamports", "cumulativeCreatorDebitLamports", "capLamports", "withinCap"],
+      "properties": {
+        "metadataUploadLamports": { "$ref": "#/$defs/unsignedDecimal" }, "creationDebitLamports": { "$ref": "#/$defs/unsignedDecimal" },
+        "recoveryDebitLamports": { "$ref": "#/$defs/unsignedDecimal" }, "graduationDebitLamports": { "$ref": "#/$defs/unsignedDecimal" },
+        "cumulativeCreatorDebitLamports": { "$ref": "#/$defs/unsignedDecimal" }, "capLamports": { "const": "1000000000" }, "withinCap": { "const": true }
+      }
+    },
+    "evidenceAccountBase": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"],
+      "properties": {
+        "role": { "type": "string" }, "address": { "$ref": "#/$defs/publicKey" }, "ownerProgram": { "$ref": "#/$defs/publicKey" },
+        "accountSha256": { "$ref": "#/$defs/sha256" }, "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "cpmmEvidenceAccount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"],
+      "properties": {
+        "role": { "enum": ["lp-mint", "locked-position", "lock-nft-mint", "lock-nft-token-account", "lock-vault", "fee-right-account"] },
+        "address": { "$ref": "#/$defs/publicKey" }, "ownerProgram": { "$ref": "#/$defs/publicKey" },
+        "accountSha256": { "$ref": "#/$defs/sha256" }, "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "ammEvidenceAccount": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"],
+      "properties": {
+        "role": { "enum": ["lp-mint", "burn-source", "creator-lp-account", "platform-lp-account", "withdrawal-queue", "fee-right-account"] },
+        "address": { "$ref": "#/$defs/publicKey" }, "ownerProgram": { "$ref": "#/$defs/publicKey" },
+        "accountSha256": { "$ref": "#/$defs/sha256" }, "finalizedSlot": { "$ref": "#/$defs/slot" }, "finalizedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "cpmmEvidenceAccounts": {
+      "type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/cpmmEvidenceAccount" },
+      "allOf": [
+        { "contains": { "$ref": "#/$defs/cpmmRoleLpMint" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/cpmmRoleLockedPosition" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/cpmmRoleLockNftMint" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/cpmmRoleLockNftTokenAccount" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/cpmmRoleLockVault" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/cpmmRoleFeeRightAccount" }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
+    "ammEvidenceAccounts": {
+      "type": "array", "minItems": 6, "maxItems": 6, "uniqueItems": true, "items": { "$ref": "#/$defs/ammEvidenceAccount" },
+      "allOf": [
+        { "contains": { "$ref": "#/$defs/ammRoleLpMint" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/ammRoleBurnSource" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/ammRoleCreatorLpAccount" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/ammRolePlatformLpAccount" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/ammRoleWithdrawalQueue" }, "minContains": 1, "maxContains": 1 },
+        { "contains": { "$ref": "#/$defs/ammRoleFeeRightAccount" }, "minContains": 1, "maxContains": 1 }
+      ]
+    },
+    "cpmmRoleLpMint": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "lp-mint" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "cpmmRoleLockedPosition": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "locked-position" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "cpmmRoleLockNftMint": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "lock-nft-mint" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "cpmmRoleLockNftTokenAccount": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "lock-nft-token-account" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "cpmmRoleLockVault": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "lock-vault" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "cpmmRoleFeeRightAccount": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "fee-right-account" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "ammRoleLpMint": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "lp-mint" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "ammRoleBurnSource": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "burn-source" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "ammRoleCreatorLpAccount": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "creator-lp-account" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "ammRolePlatformLpAccount": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "platform-lp-account" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "ammRoleWithdrawalQueue": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "withdrawal-queue" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "ammRoleFeeRightAccount": { "type": "object", "additionalProperties": false, "required": ["role", "address", "ownerProgram", "accountSha256", "finalizedSlot", "finalizedAt"], "properties": { "role": { "const": "fee-right-account" }, "address": true, "ownerProgram": true, "accountSha256": true, "finalizedSlot": true, "finalizedAt": true } },
+    "lpDisposition": {
+      "oneOf": [
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "lpMint", "lockedPosition", "lockProgram", "lockNftMint", "lockNftTokenAccount", "lockVault", "platformLpBps", "creatorLpBps", "irreversibleLpBps", "withdrawalAuthority", "feeKey", "feeRights", "recoverableLpBaseUnits", "evidenceAccounts"],
+          "properties": {
+            "kind": { "const": "burn-and-earn" }, "lpMint": { "$ref": "#/$defs/publicKey" }, "lockedPosition": { "$ref": "#/$defs/publicKey" },
+            "lockProgram": { "const": "LockrWmn6K5twhz3y9w1dQERbmgSaRkfnTeTKbpofwE" }, "lockNftMint": { "$ref": "#/$defs/publicKey" },
+            "lockNftTokenAccount": { "$ref": "#/$defs/publicKey" }, "lockVault": { "$ref": "#/$defs/publicKey" },
+            "platformLpBps": { "const": 0 }, "creatorLpBps": { "const": 0 }, "irreversibleLpBps": { "const": 10000 },
+            "withdrawalAuthority": { "type": "null" }, "feeKey": { "type": "null" },
+            "feeRights": { "type": "array", "maxItems": 0 }, "recoverableLpBaseUnits": { "const": "0" },
+            "evidenceAccounts": { "$ref": "#/$defs/cpmmEvidenceAccounts" }
+          }
+        },
+        {
+          "type": "object", "additionalProperties": false,
+          "required": ["kind", "lpMint", "burnedBaseUnits", "totalSupplyBaseUnits", "creatorLpBaseUnits", "platformLpBaseUnits", "recoverableLpBaseUnits", "withdrawalAuthority", "feeKey", "feeRights", "evidenceAccounts"],
+          "properties": {
+            "kind": { "const": "lp-burn" }, "lpMint": { "$ref": "#/$defs/publicKey" },
+            "burnedBaseUnits": { "$ref": "#/$defs/unsignedDecimal" }, "totalSupplyBaseUnits": { "$ref": "#/$defs/unsignedDecimal" },
+            "creatorLpBaseUnits": { "const": "0" }, "platformLpBaseUnits": { "const": "0" }, "recoverableLpBaseUnits": { "const": "0" },
+            "withdrawalAuthority": { "type": "null" }, "feeKey": { "type": "null" }, "feeRights": { "type": "array", "maxItems": 0 },
+            "evidenceAccounts": { "$ref": "#/$defs/ammEvidenceAccounts" }
+          }
+        }
+      ]
+    },
+    "graduatedLinks": {
+      "type": "object", "additionalProperties": false,
+      "required": ["solscanMint", "solscanCreationTransaction", "solscanGraduationTransaction", "raydiumLaunchlab", "raydiumPool"],
+      "properties": {
+        "solscanMint": { "type": "string", "pattern": "^https://solscan\\.io/token/[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+        "solscanCreationTransaction": { "type": "string", "pattern": "^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$" },
+        "solscanGraduationTransaction": { "type": "string", "pattern": "^https://solscan\\.io/tx/[1-9A-HJ-NP-Za-km-z]{64,88}$" },
+        "raydiumLaunchlab": { "type": "string", "pattern": "^https://raydium\\.io/launchpad/token/[1-9A-HJ-NP-Za-km-z]{32,44}$" },
+        "raydiumPool": { "type": "string", "pattern": "^https://raydium\\.io/liquidity-pools/[1-9A-HJ-NP-Za-km-z]{32,44}$" }
+      }
+    }
+  }
+}

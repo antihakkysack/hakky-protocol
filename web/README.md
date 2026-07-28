@@ -1,43 +1,27 @@
-# Hakky Protocol — Website
+# HAKKY website
 
-The public landing site for Hakky Protocol. It is a **single, self-contained
-static file** ([`index.html`](index.html)) with no build step, no external
-dependencies, and no trackers — inline CSS/JS only. It works offline and deploys
-anywhere that serves static files.
+Static personal-project site for `hakky.xyz`. Serve it locally with:
 
-## Preview locally
-
-```bash
-# from the repo root
-npx serve web
-# or simply open web/index.html in a browser
+```powershell
+rtk npm run preview
 ```
 
-## Design notes
+The public runtime is intentionally prelaunch-only:
 
-- **Palette:** Trust Teal `#0E9B8E` (verified/clean), Bitcoin Orange `#F7931A`
-  (BTC references, used sparingly), Ink `#0A1E27`. Deliberately bright and
-  high-contrast — the visual opposite of the dark aesthetic mixers use.
-- **Light + dark themes** via `prefers-color-scheme` and a `data-theme` override.
-- **Accessible:** semantic landmarks, visible focus states, `prefers-reduced-motion`
-  respected, keyboard-navigable disclosure FAQ.
-- Copy follows the launch positioning in [`../launch/`](../launch/): anti-mixer,
-  transparent-by-design, honest about v1 custody, no price/return promises.
+- `data/launch.json` must match the exact schema-v3 planned record;
+- `addresses` and `proof` remain `null`;
+- the browser adapter writes only six safe proof-terminal strings;
+- failed loading, JSON, validation, or DOM state restores the exact
+  `PROOF UNAVAILABLE` warning;
+- no wallet, trading control, market link, remote script, remote font, or
+  third-party embed is present; and
+- the public tree contains no official program, mint, transaction, or user
+  address.
 
-## Deploy
+Planned economics are 10,000,000 HAKKY total, split
+8,000,000 / 2,000,000 / 0 between curve, initial permanent-pool seed, and
+team/creator allocation. The planned curve fee is 0%; the pool-retained fee is
+0.25%; creator-funded mainnet debit is capped at 1.00 SOL.
 
-### GitHub Pages
-A workflow at [`../.github/workflows/pages.yml`](../.github/workflows/pages.yml)
-publishes the `web/` folder to GitHub Pages on every push to `main`. Enable it
-under **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-
-### Vercel / Netlify / Cloudflare Pages
-Point the project at this repo and set the output/publish directory to `web`
-(no build command needed).
-
-## Before launch — replace placeholders
-
-- `hakky.xyz` — the production domain (add a `CNAME` file here once configured).
-- `@antihakkysack` — the final X/Twitter handle.
-- The **"Illustrative · testnet"** proof-of-reserves figures — wire to live
-  on-chain values (or keep the illustrative label) before promoting the peg.
+Run `rtk npm run check:site` before any publication handoff. Pushing,
+deploying, and every Solana mutation require separate action-time approval.

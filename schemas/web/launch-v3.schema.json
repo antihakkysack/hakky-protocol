@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hakky.xyz/schemas/web/launch-v3.schema.json",
+  "title": "HAKKY public prelaunch record v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "network",
+    "project",
+    "policy",
+    "addresses",
+    "proof"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 3
+    },
+    "status": {
+      "const": "prelaunch"
+    },
+    "network": {
+      "const": "mainnet-beta"
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "symbol",
+        "agent",
+        "website",
+        "x"
+      ],
+      "properties": {
+        "name": {
+          "const": "Hakky Protocol"
+        },
+        "symbol": {
+          "const": "HAKKY"
+        },
+        "agent": {
+          "const": "HakkyAgent"
+        },
+        "website": {
+          "const": "https://hakky.xyz"
+        },
+        "x": {
+          "const": "https://x.com/antihakkysack"
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tokenProgram",
+        "supplyBaseUnits",
+        "uiSupply",
+        "decimals",
+        "curveAllocationBaseUnits",
+        "poolSeedBaseUnits",
+        "teamAllocationBaseUnits",
+        "curveFeeBps",
+        "poolRetainedFeeBps",
+        "creatorDebitCapLamports"
+      ],
+      "properties": {
+        "tokenProgram": {
+          "const": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        "supplyBaseUnits": {
+          "const": "10000000000000"
+        },
+        "uiSupply": {
+          "const": "10000000"
+        },
+        "decimals": {
+          "const": 6
+        },
+        "curveAllocationBaseUnits": {
+          "const": "8000000000000"
+        },
+        "poolSeedBaseUnits": {
+          "const": "2000000000000"
+        },
+        "teamAllocationBaseUnits": {
+          "const": "0"
+        },
+        "curveFeeBps": {
+          "const": 0
+        },
+        "poolRetainedFeeBps": {
+          "const": 25
+        },
+        "creatorDebitCapLamports": {
+          "const": "1000000000"
+        }
+      }
+    },
+    "addresses": {
+      "type": "null"
+    },
+    "proof": {
+      "type": "null"
+    }
+  }
+}
